@@ -1,6 +1,6 @@
 # Model Support Roadmap
 
-This document defines the recommended model support roadmap for `omnirt` after the initial `sdxl-base-1.0` and `svd-xt` baseline.
+This document defines the recommended model support roadmap for `omnirt` based on the current implemented baseline and the next support waves that should follow.
 
 It is intentionally aligned with the current open-source ecosystem, especially:
 
@@ -12,6 +12,35 @@ Status note:
 
 - Last reviewed: 2026-04-20
 - This is a recommended OmniRT roadmap, not an upstream framework commitment
+
+Current implementation note:
+
+- OmniRT currently ships `sdxl-base-1.0`, `svd`, `svd-xt`, `flux2.dev` / `flux2-dev`, `wan2.2-t2v-14b`, and `wan2.2-i2v-14b`
+- This means the codebase is already ahead of the older roadmap on Flux and Wan family versions
+- The roadmap below treats those newer Flux2 and Wan2.2 integrations as real baseline support, while keeping the still-important `flux-dev`, `flux-schnell`, and `wan2.1-*` compatibility targets visible where they remain strategically useful
+
+## Current snapshot
+
+Implemented today:
+
+- `sdxl-base-1.0`
+- `svd`
+- `svd-xt`
+- `flux2.dev` / `flux2-dev`
+- `wan2.2-t2v-14b`
+- `wan2.2-i2v-14b`
+
+Highest-priority unsupported targets:
+
+- `sd15`
+- `sdxl-refiner-1.0`
+- `sdxl-turbo`
+- `flux-dev`
+- `flux-schnell`
+- `qwen-image`
+- `qwen-image-edit`
+- `cogvideox-2b`
+- `hunyuan-video`
 
 ## Planning principles
 
@@ -33,6 +62,7 @@ Examples:
 - `sdxl-refiner-1.0`
 - `sd3-medium`
 - `sd3.5-large`
+- `flux2.dev`
 - `flux-dev`
 - `flux-schnell`
 - `flux-fill`
@@ -66,19 +96,22 @@ Naming rules:
 
 Goal:
 
-- complete true end-to-end CUDA and Ascend validation for the current v0.1 models
+- complete true end-to-end CUDA and Ascend validation for the current implemented baseline
 
 Models:
 
 - `sdxl-base-1.0`
 - `svd`
 - `svd-xt`
+- `flux2.dev`
+- `wan2.2-t2v-14b`
+- `wan2.2-i2v-14b`
 
 ### Phase B: Mainstream image compatibility
 
 Goal:
 
-- cover the image models most commonly encountered across Diffusers, ComfyUI, and InvokeAI workflows
+- cover the image models most commonly encountered across Diffusers, ComfyUI, and InvokeAI workflows, including compatibility with older but still widely-used Flux and Stable Diffusion families
 
 Models:
 
@@ -89,6 +122,7 @@ Models:
 - `sd3-medium`
 - `sd3.5-large`
 - `sd3.5-large-turbo`
+- `flux2.dev`
 - `flux-dev`
 - `flux-schnell`
 - `flux-fill`
@@ -100,12 +134,14 @@ Models:
 
 Goal:
 
-- make OmniRT genuinely competitive as an open image and video runtime rather than only an SDXL + SVD wrapper
+- make OmniRT genuinely competitive as an open image and video runtime rather than only an SDXL + SVD + Wan wrapper
 
 Models:
 
 - `cogvideox-2b`
 - `cogvideox-5b`
+- `wan2.2-t2v-14b`
+- `wan2.2-i2v-14b`
 - `wan2.1-t2v-14b`
 - `wan2.1-i2v-14b`
 - `hunyuan-video`
@@ -135,6 +171,9 @@ Models:
 | P0 | `sdxl-base-1.0` | text2image | required | required | current baseline |
 | P0 | `svd` | image2video | required | required | add the 14-frame variant |
 | P0 | `svd-xt` | image2video | required | required | current video baseline |
+| P0 | `flux2.dev` | text2image | required | recommended | already implemented; newer Flux generation path |
+| P0 | `wan2.2-t2v-14b` | text2video | required | watch | already implemented; strong current open video target |
+| P0 | `wan2.2-i2v-14b` | image2video | required | watch | already implemented; first-frame-guided video path |
 | P1 | `sd15` | text2image, image2image, inpaint | required | recommended | widest legacy ecosystem reach |
 | P1 | `sd21` | text2image, depth2image | recommended | optional | useful for older SD2 workflows |
 | P1 | `sdxl-refiner-1.0` | image refinement | required | recommended | completes two-stage SDXL |
@@ -198,6 +237,7 @@ Recommended capability layers:
 
 Base targets:
 
+- `flux2.dev`
 - `flux-dev`
 - `flux-schnell`
 - `flux-fill`
@@ -233,6 +273,8 @@ Base targets:
 
 - `svd`
 - `svd-xt`
+- `wan2.2-t2v-14b`
+- `wan2.2-i2v-14b`
 - `cogvideox-2b`
 - `cogvideox-5b`
 - `wan2.1-t2v-14b`
@@ -252,12 +294,12 @@ Recommended capability layers:
 
 ## Recommended implementation order
 
-1. Finish hardware validation for `sdxl-base-1.0`, `svd`, and `svd-xt`.
+1. Finish hardware validation for `sdxl-base-1.0`, `svd`, `svd-xt`, `flux2.dev`, `wan2.2-t2v-14b`, and `wan2.2-i2v-14b`.
 2. Add `sd15`, `sdxl-refiner-1.0`, `sdxl-turbo`, `flux-dev`, and `flux-schnell`.
 3. Add `sd3-medium`, `sd3.5-large`, `qwen-image`, and `qwen-image-edit`.
-4. Add `cogvideox-2b`, `wan2.1-i2v-14b`, `wan2.1-t2v-14b`, and `hunyuan-video`.
+4. Add `cogvideox-2b`, `hunyuan-video`, `wan2.1-i2v-14b`, and `wan2.1-t2v-14b` where backward compatibility or ecosystem parity still matters.
 5. Add `ltx-video` and `ltx2-i2v`.
-6. Add control and editing variants such as `flux-fill`, `flux-depth`, `flux-canny`, and `flux-kontext`.
+6. Add control and editing variants such as `flux-fill`, `flux-depth`, `flux-canny`, `flux-kontext`, and the higher-value Qwen image editing variants.
 
 ## Models to deprioritize
 
