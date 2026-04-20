@@ -13,6 +13,7 @@ from omnirt.core.media import load_image, load_mask, save_video_frames
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateResult, GenerateRequest
 from omnirt.executors.base import Executor
 from omnirt.executors.events import emit_event
+from omnirt.launcher import resolve_config_device_map
 from omnirt.middleware.backend_wrapper import BackendWrapperMiddleware
 from omnirt.telemetry.report import build_run_report
 
@@ -49,13 +50,19 @@ class ModularExecutor(Executor):
         self._torch_dtype = self._resolve_torch_dtype(self.config.get("dtype") or model_spec.resource_hint.get("dtype"))
         source = self._resolve_source(self.config, model_spec)
         self.components_manager = components_manager_cls()
+        placement_managed = False
         if self.config.get("cpu_offload") and hasattr(self.components_manager, "enable_auto_cpu_offload"):
             self.components_manager.enable_auto_cpu_offload(device=runtime.device_name)
+            placement_managed = True
+        device_map = resolve_config_device_map(self.config)
+        if device_map is not None:
+            placement_managed = True
 
         from_pretrained_kwargs = self._filter_kwargs(
             modular_pipeline_cls.from_pretrained,
             {
                 "components_manager": self.components_manager,
+                "device_map": device_map,
             },
         )
         self.pipeline = modular_pipeline_cls.from_pretrained(source, **from_pretrained_kwargs)
@@ -80,10 +87,11 @@ class ModularExecutor(Executor):
             self._adapter_manager.load_all(self.adapters)
             self._adapter_manager.apply_to_pipeline(self.pipeline)
 
-        try:
-            self.pipeline = runtime.to_device(self.pipeline, dtype=self._torch_dtype)
-        except Exception:
-            pass
+        if not placement_managed:
+            try:
+                self.pipeline = runtime.to_device(self.pipeline, dtype=self._torch_dtype)
+            except Exception:
+                pass
 
     def run(self, request, *, event_callback=None, cache=None) -> GenerateResult:
         if self.pipeline is None or self.runtime is None or self.model_spec is None:

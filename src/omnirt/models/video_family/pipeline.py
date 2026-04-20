@@ -199,13 +199,17 @@ class VideoFamilyPipeline(BasePipeline):
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
-        pipeline = pipeline_cls.from_pretrained(source, torch_dtype=torch_dtype)
+        pipeline = pipeline_cls.from_pretrained(
+            source,
+            torch_dtype=torch_dtype,
+            **self.from_pretrained_runtime_kwargs(config=config),
+        )
         if scheduler_name != "native":
             raise ValueError(f"Unsupported scheduler for model {self.model_spec.id!r}: {scheduler_name}")
         pipeline = self.runtime.prepare_pipeline(pipeline, model_spec=self.model_spec, config=config)
         self._wrap_pipeline_modules(pipeline)
         pipeline, placement_managed = self.apply_pipeline_optimizations(pipeline, config=config)
-        if not placement_managed:
+        if not placement_managed and not self.uses_managed_device_placement(config):
             pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline

@@ -17,6 +17,7 @@ class FakeRuntime:
 
     def __init__(self) -> None:
         self.backend_timeline = []
+        self.to_device_calls = []
 
     def reset_memory_stats(self) -> None:
         return None
@@ -35,7 +36,7 @@ class FakeRuntime:
         return module
 
     def to_device(self, tensor_or_module, dtype=None):
-        del dtype
+        self.to_device_calls.append({"target": tensor_or_module, "dtype": dtype})
         return tensor_or_module
 
 
@@ -179,3 +180,21 @@ def test_modular_executor_reuses_cached_prompt_embeddings(tmp_path, monkeypatch)
     assert second.metadata.cache_hits == ["text_embedding"]
     assert created.calls[-1]["prompt_embeds"] == "prompt-embed"
     assert "prompt" not in created.calls[-1]
+
+
+def test_modular_executor_passes_device_map_and_skips_to_device(monkeypatch) -> None:
+    monkeypatch.setattr(ModularExecutor, "_diffusers_api", lambda self: (FakeModularPipeline, FakeComponentsManager))
+
+    executor = ModularExecutor()
+    runtime = FakeRuntime()
+    spec = _spec(task="text2image", artifact_kind="image")
+
+    executor.load(
+        runtime=runtime,
+        model_spec=spec,
+        config={"dtype": "fp16", "device_map": "balanced"},
+        adapters=None,
+    )
+
+    assert FakeModularPipeline.created[-1].source == "dummy/modular"
+    assert runtime.to_device_calls == []

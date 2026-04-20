@@ -47,6 +47,10 @@ _PRIMARY_TASK_PRIORITY: Tuple[str, ...] = (
     "image2video",
     "audio2video",
 )
+_EXECUTION_MODE_RUNTIME_CONFIG: Dict[str, Tuple[str, ...]] = {
+    "legacy_call": ("device_map", "devices"),
+    "modular": ("device_map", "devices"),
+}
 
 
 def clear_registry() -> None:
@@ -131,3 +135,9 @@ def list_models() -> Dict[str, ModelSpec]:
 
 def list_model_specs() -> Dict[Tuple[str, str], ModelSpec]:
     return dict(_MODEL_REGISTRY)
+
+
+def supported_config_for_spec(spec: ModelSpec) -> Tuple[str, ...]:
+    combined = list(spec.capabilities.supported_config)
+    combined.extend(_EXECUTION_MODE_RUNTIME_CONFIG.get(spec.execution_mode, ()))
+    return tuple(dict.fromkeys(combined))

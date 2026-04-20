@@ -13,6 +13,7 @@ from omnirt.backends.cpu_stub import denoise_guard
 from omnirt.core.adapters import AdapterManager
 from omnirt.core.registry import ModelSpec
 from omnirt.core.types import Artifact, GenerateRequest, GenerateResult, InsufficientMemoryError
+from omnirt.launcher import DEVICE_MAP_CONFIG_KEYS, resolve_config_device_map
 from omnirt.telemetry.log import get_logger
 from omnirt.telemetry.report import build_run_report
 
@@ -91,6 +92,16 @@ class BasePipeline(ABC):
         """Shared cache key for Diffusers pipeline reuse across repeat runs."""
 
         return (str(source), str(torch_dtype), str(scheduler_name), self.adapter_fingerprint())
+
+    def from_pretrained_runtime_kwargs(self, *, config: Dict[str, Any]) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {}
+        device_map = resolve_config_device_map(config)
+        if device_map is not None:
+            kwargs["device_map"] = device_map
+        return kwargs
+
+    def uses_managed_device_placement(self, config: Dict[str, Any]) -> bool:
+        return resolve_config_device_map(config) is not None
 
     def make_latent_callback(self, total_steps: int):
         """Return a Diffusers-style ``callback_on_step_end`` that captures the final-step latents.
@@ -313,6 +324,9 @@ class BasePipeline(ABC):
             conditions = timed("prepare_conditions", lambda: self.prepare_conditions(req))
             latents = timed("prepare_latents", lambda: self.prepare_latents(req, conditions))
             resolved_config = self.resolve_run_config(req, conditions, latents)
+            for key in DEVICE_MAP_CONFIG_KEYS:
+                if key in req.config:
+                    resolved_config[key] = req.config[key]
             denoise_guard(self.runtime)
             denoised = timed("denoise_loop", lambda: self.denoise_loop(latents, conditions, req.config))
             raw = timed("decode", lambda: self.decode(denoised))

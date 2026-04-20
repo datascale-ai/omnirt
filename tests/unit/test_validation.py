@@ -276,3 +276,31 @@ def test_validate_request_rejects_invalid_group_offload_type() -> None:
     assert "group_offload_type must be either" in validation.format_errors()
 
     clear_registry()
+
+
+def test_validate_request_rejects_invalid_device_map() -> None:
+    clear_registry()
+
+    @register_model(
+        id="dummy-image",
+        task="text2image",
+        execution_mode="modular",
+        capabilities=ModelCapabilities(required_inputs=("prompt",)),
+    )
+    class DummyPipeline:
+        pass
+
+    validation = validate_request(
+        GenerateRequest(
+            task="text2image",
+            model="dummy-image",
+            backend="cpu-stub",
+            inputs={"prompt": "hello"},
+            config={"device_map": "not-a-valid-map"},
+        )
+    )
+
+    assert validation.ok is False
+    assert "device_map must be" in validation.format_errors()
+
+    clear_registry()

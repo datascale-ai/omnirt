@@ -235,11 +235,16 @@ class AnimateDiffSDXLPipeline(BasePipeline):
         motion_adapter_cls = self._motion_adapter_cls()
         pipeline_cls = self._diffusers_pipeline_cls()
         motion_adapter = motion_adapter_cls.from_pretrained(motion_adapter_source, torch_dtype=torch_dtype)
-        pipeline = pipeline_cls.from_pretrained(source, motion_adapter=motion_adapter, torch_dtype=torch_dtype)
+        pipeline = pipeline_cls.from_pretrained(
+            source,
+            motion_adapter=motion_adapter,
+            torch_dtype=torch_dtype,
+            **self.from_pretrained_runtime_kwargs(config=config),
+        )
         pipeline = self.runtime.prepare_pipeline(pipeline, model_spec=self.model_spec, config=config)
         self._wrap_pipeline_modules(pipeline)
         pipeline, placement_managed = self.apply_pipeline_optimizations(pipeline, config=config)
-        if not placement_managed:
+        if not placement_managed and not self.uses_managed_device_placement(config):
             pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline

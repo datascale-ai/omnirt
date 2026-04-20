@@ -18,6 +18,7 @@ def create_app(
     default_backend: str = "auto",
     max_concurrency: int = 1,
     pipeline_cache_size: int = 4,
+    default_request_config: dict[str, object] | None = None,
     batch_window_ms: int = 0,
     max_batch_size: int = 1,
     api_key_file: str | None = None,
@@ -31,6 +32,7 @@ def create_app(
         max_batch_size=max_batch_size,
     )
     app.state.default_backend = default_backend
+    app.state.default_request_config = dict(default_request_config or {})
     app.state.model_aliases = load_model_aliases(model_aliases_path)
     app.add_middleware(ApiKeyMiddleware, api_keys=load_api_keys(api_key_file))
     app.include_router(health_router)

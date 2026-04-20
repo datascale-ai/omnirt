@@ -9,8 +9,9 @@ from typing import Any, Dict, List, Optional
 
 from omnirt.backends import resolve_backend
 from omnirt.core.presets import resolve_preset
-from omnirt.core.registry import ModelSpec, get_model, list_model_variants, list_models
+from omnirt.core.registry import ModelSpec, get_model, list_model_variants, list_models, supported_config_for_spec
 from omnirt.core.types import GenerateRequest, ModelNotRegisteredError, OmniRTError
+from omnirt.launcher import resolve_config_device_map, resolve_devices
 
 
 @dataclass
@@ -101,9 +102,10 @@ def validate_request(request: GenerateRequest, *, backend: Optional[str] = None)
         supported = ", ".join(sorted(allowed_inputs)) if allowed_inputs else "<none>"
         result.add_error(f"Unsupported inputs for model {spec.id!r}: {unsupported_inputs}. Supported: [{supported}]")
 
-    unsupported_config = sorted(set(user_config) - set(caps.supported_config))
+    supported_config = set(supported_config_for_spec(spec))
+    unsupported_config = sorted(set(user_config) - supported_config)
     if unsupported_config:
-        supported = ", ".join(sorted(caps.supported_config)) if caps.supported_config else "<none>"
+        supported = ", ".join(sorted(supported_config)) if supported_config else "<none>"
         result.add_error(
             f"Unsupported config keys for model {spec.id!r}: {unsupported_config}. Supported: [{supported}]"
         )
@@ -141,6 +143,11 @@ def validate_request(request: GenerateRequest, *, backend: Optional[str] = None)
             "Offload config flags are mutually exclusive; choose only one of "
             f"{', '.join(offload_flags)}."
         )
+    try:
+        resolve_config_device_map(result.resolved_config)
+        resolve_devices(result.resolved_config.get("devices"))
+    except ValueError as exc:
+        result.add_error(str(exc))
     group_offload_type = result.resolved_config.get("group_offload_type")
     if group_offload_type is not None and group_offload_type not in {"block_level", "leaf_level"}:
         result.add_error("group_offload_type must be either 'block_level' or 'leaf_level'.")

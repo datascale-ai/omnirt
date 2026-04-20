@@ -76,12 +76,13 @@ class FakeDiffusersPipeline:
         self.vae_tiling_enabled = False
 
     @classmethod
-    def from_pretrained(cls, source, torch_dtype=None, use_safetensors=True, variant=None):
+    def from_pretrained(cls, source, torch_dtype=None, use_safetensors=True, variant=None, device_map=None):
         pipeline = cls()
         pipeline.source = source
         pipeline.dtype = torch_dtype
         pipeline.use_safetensors = use_safetensors
         pipeline.variant = variant
+        pipeline.device_map = device_map
         cls.created.append(pipeline)
         return pipeline
 
@@ -381,3 +382,24 @@ def test_sd15_pipeline_reuses_cached_prompt_embeddings(tmp_path, monkeypatch) ->
     assert second.metadata.cache_hits == ["text_embedding"]
     assert created.calls[-1]["prompt_embeds"] == "prompt-embed"
     assert "prompt" not in created.calls[-1]
+
+
+def test_sd15_pipeline_passes_device_map_and_skips_to_device(tmp_path, monkeypatch) -> None:
+    _reset_created()
+    runtime = FakeCudaRuntime()
+    monkeypatch.setattr(SD15Pipeline, "_diffusers_pipeline_cls", lambda self: FakeDiffusersPipeline)
+    monkeypatch.setattr("omnirt.models.sd15.pipeline.build_scheduler", lambda config: {"name": "euler"})
+
+    request = GenerateRequest(
+        task="text2image",
+        model="sd15",
+        backend="cuda",
+        inputs={"prompt": "mapped"},
+        config={"output_dir": str(tmp_path), "device_map": "balanced"},
+    )
+
+    SD15Pipeline(runtime=runtime, model_spec=build_model_spec()).run(request)
+
+    created = FakeDiffusersPipeline.created[-1]
+    assert created.device_map == "balanced"
+    assert runtime.to_device_calls == []

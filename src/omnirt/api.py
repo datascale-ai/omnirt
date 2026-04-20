@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from omnirt.backends import resolve_backend
 from omnirt.engine import get_default_engine
-from omnirt.core.registry import ModelSpec, get_model, list_models
+from omnirt.core.registry import ModelSpec, get_model, list_models, supported_config_for_spec
 from omnirt.core.types import GenerateRequest, GenerateResult
 from omnirt.core.validation import ValidationResult, validate_request
 from omnirt.models import ensure_registered
@@ -69,10 +69,11 @@ class OmniModelPipeline:
         backend = kwargs.pop("backend", self.backend)
 
         known_input_keys = set(caps.required_inputs) | set(caps.optional_inputs)
+        supported_config = set(supported_config_for_spec(self.spec))
         for key in list(kwargs):
             if key in known_input_keys:
                 inputs[key] = kwargs.pop(key)
-            elif key in caps.supported_config:
+            elif key in supported_config:
                 config[key] = kwargs.pop(key)
 
         if kwargs:
@@ -97,10 +98,11 @@ class OmniModelPipeline:
         backend = kwargs.pop("backend", self.backend)
 
         known_input_keys = set(caps.required_inputs) | set(caps.optional_inputs)
+        supported_config = set(supported_config_for_spec(self.spec))
         for key in list(kwargs):
             if key in known_input_keys:
                 inputs[key] = kwargs.pop(key)
-            elif key in caps.supported_config:
+            elif key in supported_config:
                 config[key] = kwargs.pop(key)
 
         if kwargs:

@@ -12,7 +12,7 @@ from typing import Optional, Sequence
 from omnirt.api import describe_model, generate, list_available_models, validate
 from omnirt.bench import BenchScenario, get_bench_scenario, list_bench_scenarios, run_bench
 from omnirt.core.presets import available_presets
-from omnirt.core.registry import list_model_variants
+from omnirt.core.registry import list_model_variants, supported_config_for_spec
 from omnirt.core.types import GenerateRequest, OmniRTError
 from omnirt.server import create_app
 
@@ -93,6 +93,8 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan weight-only quantization mode for FlashTalk.")
     parser.add_argument("--wan-quant-include", help="Comma-separated Wan module allowlist for FlashTalk quantization.")
     parser.add_argument("--wan-quant-exclude", help="Comma-separated Wan module denylist for FlashTalk quantization.")
+    parser.add_argument("--device-map", help="Diffusers device placement policy such as balanced or unet:0,vae:1.")
+    parser.add_argument("--devices", help="Comma-separated device list used to infer balanced placement, for example cuda:0,cuda:1.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -132,6 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--pipeline-cache-size", type=int, default=4, help="Maximum cached executor instances.")
     serve_parser.add_argument("--api-key-file", help="Optional newline-delimited API key file.")
     serve_parser.add_argument("--model-aliases", help="Optional YAML/JSON alias mapping file.")
+    serve_parser.add_argument("--device-map", help="Default device placement policy for incoming requests.")
+    serve_parser.add_argument("--devices", help="Default comma-separated device list for incoming requests.")
     serve_parser.add_argument("--batch-window-ms", type=int, default=0, help="Queue batching window in milliseconds.")
     serve_parser.add_argument("--max-batch-size", type=int, default=1, help="Maximum requests merged into one batch.")
 
@@ -252,6 +256,8 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "wan_quant",
         "wan_quant_include",
         "wan_quant_exclude",
+        "device_map",
+        "devices",
     ):
         value = getattr(args, field)
         if value is not None:
@@ -291,8 +297,9 @@ def render_model_summary(spec, *, variants=None) -> str:
         lines.append(f"required_inputs={', '.join(caps.required_inputs)}")
     if caps.optional_inputs:
         lines.append(f"optional_inputs={', '.join(caps.optional_inputs)}")
-    if caps.supported_config:
-        lines.append(f"supported_config={', '.join(caps.supported_config)}")
+    supported_config = supported_config_for_spec(spec)
+    if supported_config:
+        lines.append(f"supported_config={', '.join(supported_config)}")
     if caps.default_config:
         lines.append(f"default_config={json.dumps(caps.default_config, ensure_ascii=False, sort_keys=True)}")
     if caps.supported_schedulers:
@@ -465,6 +472,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             default_backend=args.backend,
             max_concurrency=args.max_concurrency,
             pipeline_cache_size=args.pipeline_cache_size,
+            default_request_config={
+                key: value
+                for key, value in {
+                    "device_map": args.device_map,
+                    "devices": args.devices,
+                }.items()
+                if value is not None
+            },
             api_key_file=args.api_key_file,
             model_aliases_path=args.model_aliases,
             batch_window_ms=args.batch_window_ms,

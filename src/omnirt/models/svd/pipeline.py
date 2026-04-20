@@ -252,7 +252,7 @@ class SVDPipeline(BasePipeline):
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
-        pipeline = pipeline_cls.from_pretrained(source, **self._from_pretrained_kwargs(source, torch_dtype))
+        pipeline = pipeline_cls.from_pretrained(source, **self._from_pretrained_kwargs(source, torch_dtype, config=config))
         scheduler_config = dict(config)
         scheduler_config.setdefault("scheduler", scheduler_name)
         if getattr(pipeline, "scheduler", None) is not None and hasattr(pipeline.scheduler, "config"):
@@ -261,18 +261,19 @@ class SVDPipeline(BasePipeline):
         pipeline = self.runtime.prepare_pipeline(pipeline, model_spec=self.model_spec, config=config)
         self._wrap_pipeline_modules(pipeline)
         pipeline, placement_managed = self.apply_pipeline_optimizations(pipeline, config=config)
-        if not placement_managed:
+        if not placement_managed and not self.uses_managed_device_placement(config):
             pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline
         self._pipeline_key = cache_key
         return pipeline
 
-    def _from_pretrained_kwargs(self, source: str, torch_dtype: Any) -> Dict[str, Any]:
+    def _from_pretrained_kwargs(self, source: str, torch_dtype: Any, *, config: Dict[str, Any]) -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {
             "torch_dtype": torch_dtype,
             "use_safetensors": True,
         }
+        kwargs.update(self.from_pretrained_runtime_kwargs(config=config))
         variant = self._detect_local_variant(source)
         if variant is not None:
             kwargs["variant"] = variant

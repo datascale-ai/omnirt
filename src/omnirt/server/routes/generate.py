@@ -14,12 +14,14 @@ router = APIRouter()
 
 def _normalize_request(raw_request: GenerateRequest, request: Request) -> GenerateRequest:
     backend = raw_request.backend if raw_request.backend != "auto" else request.app.state.default_backend
+    merged_config = dict(getattr(request.app.state, "default_request_config", {}) or {})
+    merged_config.update(raw_request.config)
     return GenerateRequest(
         task=raw_request.task,
         model=resolve_model_alias(raw_request.model, request.app.state.model_aliases),
         backend=backend,
         inputs=dict(raw_request.inputs),
-        config=dict(raw_request.config),
+        config=merged_config,
         adapters=raw_request.adapters,
     )
 

@@ -263,6 +263,30 @@ def test_request_from_args_accepts_presets_and_scheduler() -> None:
     assert request.config["scheduler"] == "ddim"
 
 
+def test_request_from_args_accepts_device_placement_flags() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--task",
+            "text2image",
+            "--model",
+            "sdxl-base-1.0",
+            "--prompt",
+            "hello",
+            "--device-map",
+            "balanced",
+            "--devices",
+            "cuda:0,cuda:1",
+        ]
+    )
+
+    request = request_from_args(args, parser)
+
+    assert request.config["device_map"] == "balanced"
+    assert request.config["devices"] == "cuda:0,cuda:1"
+
+
 def test_main_prints_clean_omnirt_errors(monkeypatch, capsys) -> None:
     from omnirt.core.types import BackendUnavailableError
 

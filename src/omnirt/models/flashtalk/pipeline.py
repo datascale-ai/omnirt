@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-import shlex
 import subprocess
 import time
 from typing import Any, Dict, List, Optional
@@ -13,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from omnirt.core.base_pipeline import BasePipeline
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
+from omnirt.launcher import resolve_launcher
 from omnirt.models.flashtalk.components import (
     DEFAULT_FLASHTALK_ASCEND_ENV_SCRIPT,
     DEFAULT_FLASHTALK_CKPT_DIR,
@@ -178,61 +178,52 @@ class FlashTalkPipeline(BasePipeline):
         if latents.launcher == "torchrun":
             env["GPU_NUM"] = str(latents.nproc_per_node)
 
-        inner_command: List[str] = [latents.python_executable]
-        if latents.launcher == "torchrun":
-            inner_command.extend(["-m", "torch.distributed.run", f"--nproc_per_node={latents.nproc_per_node}"])
-        elif latents.launcher != "python":
-            raise ValueError(f"Unsupported FlashTalk launcher: {latents.launcher}")
-        inner_command.extend(
-            [
-                str(latents.script_path),
-                "--ckpt_dir",
-                str(latents.ckpt_dir),
-                "--wav2vec_dir",
-                str(latents.wav2vec_dir),
-                "--save_file",
-                str(latents.save_file),
-                "--base_seed",
-                str(latents.seed),
-                "--input_prompt",
-                latents.prompt,
-                "--cond_image",
-                str(conditions["image_path"]),
-                "--audio_path",
-                str(conditions["audio_path"]),
-                "--audio_encode_mode",
-                latents.audio_encode_mode,
-                "--max_chunks",
-                str(latents.max_chunks),
-            ]
-        )
+        script_args: List[str] = [
+            "--ckpt_dir",
+            str(latents.ckpt_dir),
+            "--wav2vec_dir",
+            str(latents.wav2vec_dir),
+            "--save_file",
+            str(latents.save_file),
+            "--base_seed",
+            str(latents.seed),
+            "--input_prompt",
+            latents.prompt,
+            "--cond_image",
+            str(conditions["image_path"]),
+            "--audio_path",
+            str(conditions["audio_path"]),
+            "--audio_encode_mode",
+            latents.audio_encode_mode,
+            "--max_chunks",
+            str(latents.max_chunks),
+        ]
         if latents.cpu_offload:
-            inner_command.append("--cpu_offload")
+            script_args.append("--cpu_offload")
         if latents.t5_quant:
-            inner_command.extend(["--t5_quant", latents.t5_quant])
+            script_args.extend(["--t5_quant", latents.t5_quant])
         if latents.t5_quant_dir is not None:
-            inner_command.extend(["--t5_quant_dir", str(latents.t5_quant_dir)])
+            script_args.extend(["--t5_quant_dir", str(latents.t5_quant_dir)])
         if latents.wan_quant:
-            inner_command.extend(["--wan_quant", latents.wan_quant])
+            script_args.extend(["--wan_quant", latents.wan_quant])
         if latents.wan_quant_include:
-            inner_command.extend(["--wan_quant_include", latents.wan_quant_include])
+            script_args.extend(["--wan_quant_include", latents.wan_quant_include])
         if latents.wan_quant_exclude:
-            inner_command.extend(["--wan_quant_exclude", latents.wan_quant_exclude])
+            script_args.extend(["--wan_quant_exclude", latents.wan_quant_exclude])
 
-        shell_command = self._build_shell_command(
-            repo_path=latents.repo_path,
-            inner_command=inner_command,
-            ascend_env_script=latents.ascend_env_script,
+        launcher = resolve_launcher(latents.launcher)
+        inner_command = launcher.build_command(
+            latents.script_path,
+            python_executable=latents.python_executable,
+            script_args=script_args,
+            config={"nproc_per_node": latents.nproc_per_node},
         )
         try:
-            completed = subprocess.run(
-                ["bash", "-lc", shell_command],
-                check=True,
-                cwd=str(latents.repo_path),
+            completed = launcher.launch(
+                cwd=latents.repo_path,
+                command=inner_command,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
+                env_script=latents.ascend_env_script,
             )
         except subprocess.CalledProcessError as exc:
             tail = (exc.stdout or "").strip().splitlines()[-20:]
@@ -300,14 +291,6 @@ class FlashTalkPipeline(BasePipeline):
             return None
         text = str(value).strip()
         return text or None
-
-    def _build_shell_command(self, *, repo_path: Path, inner_command: List[str], ascend_env_script: Optional[str]) -> str:
-        commands = [f"cd {shlex.quote(str(repo_path))}"]
-        if ascend_env_script:
-            commands.append(f"source {shlex.quote(ascend_env_script)}")
-        commands.append(" ".join(shlex.quote(part) for part in inner_command))
-        return " && ".join(commands)
-
 
 def probe_video_file(path: Path) -> tuple[int, int, int]:
     try:
