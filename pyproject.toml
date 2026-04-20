@@ -12,6 +12,9 @@ license = "MIT"
 authors = [
   { name = "datascale-ai" }
 ]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+]
 dependencies = [
   "imageio>=2.34",
   "imageio-ffmpeg>=0.4.9",
@@ -54,6 +57,7 @@ omnirt = "omnirt.cli.main:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
