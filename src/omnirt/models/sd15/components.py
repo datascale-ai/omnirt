@@ -7,6 +7,7 @@ from typing import Optional
 
 
 DEFAULT_SD15_MODEL_SOURCE = "runwayml/stable-diffusion-v1-5"
+DEFAULT_SD21_MODEL_SOURCE = "stabilityai/stable-diffusion-2-1"
 
 
 @dataclass

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from omnirt.core.base_pipeline import BasePipeline
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.sd15.components import DEFAULT_SD15_MODEL_SOURCE
+from omnirt.models.sd15.components import DEFAULT_SD15_MODEL_SOURCE, DEFAULT_SD21_MODEL_SOURCE
 from omnirt.schedulers import build_scheduler
 
 
@@ -42,6 +42,35 @@ from omnirt.schedulers import build_scheduler
         example="omnirt generate --task text2image --model sd15 --prompt \"a lighthouse in fog\" --backend cuda",
     ),
 )
+@register_model(
+    id="sd21",
+    task="text2image",
+    default_backend="auto",
+    resource_hint={"min_vram_gb": 8, "dtype": "fp16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt",),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_images_per_prompt",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "euler-discrete", "height": 768, "width": 768, "dtype": "fp16"},
+        supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="beta",
+        summary="Stable Diffusion 2.1 text-to-image pipeline.",
+        example="omnirt generate --task text2image --model sd21 --prompt \"a lighthouse in fog\" --backend cuda",
+    ),
+)
 class SD15Pipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -56,17 +85,17 @@ class SD15Pipeline(BasePipeline):
         return {
             "prompt": prompt,
             "negative_prompt": req.inputs.get("negative_prompt"),
-            "model_source": req.config.get("model_path", DEFAULT_SD15_MODEL_SOURCE),
+            "model_source": req.config.get("model_path", self._default_model_source()),
             "scheduler": req.config.get("scheduler", "euler-discrete"),
-            "height": int(req.config.get("height", 512)),
-            "width": int(req.config.get("width", 512)),
+            "height": int(req.config.get("height", self._default_size())),
+            "width": int(req.config.get("width", self._default_size())),
             "num_images_per_prompt": int(req.config.get("num_images_per_prompt", 1)),
         }
 
     def prepare_latents(self, req: GenerateRequest, conditions: Any) -> Dict[str, Any]:
-        steps = int(req.config.get("num_inference_steps", 30))
+        steps = int(req.config.get("num_inference_steps", self._default_steps()))
         seed = req.config.get("seed")
-        guidance_scale = float(req.config.get("guidance_scale", 7.5))
+        guidance_scale = float(req.config.get("guidance_scale", self._default_guidance_scale()))
         torch_dtype = self._resolve_torch_dtype(req.config.get("dtype"))
         generator = self._build_generator(seed)
         pipeline = self._load_pipeline(
@@ -238,6 +267,22 @@ class SD15Pipeline(BasePipeline):
         if all((root / subdir / filename).is_file() for subdir, filename in fp16_layout.items()):
             return "fp16"
         return None
+
+    def _default_model_source(self) -> str:
+        if self.model_spec.id == "sd21":
+            return DEFAULT_SD21_MODEL_SOURCE
+        return DEFAULT_SD15_MODEL_SOURCE
+
+    def _default_size(self) -> int:
+        if self.model_spec.id == "sd21":
+            return 768
+        return 512
+
+    def _default_steps(self) -> int:
+        return 30
+
+    def _default_guidance_scale(self) -> float:
+        return 7.5
 
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:
         for tag in ("text_encoder", "unet", "vae"):

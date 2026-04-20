@@ -1,4 +1,4 @@
-"""SDXL pipeline implementation backed by Diffusers."""
+"""Stable Diffusion 3 family pipeline implementation backed by Diffusers."""
 
 from __future__ import annotations
 
@@ -9,44 +9,18 @@ from typing import Any, Dict, List, Optional
 from omnirt.core.base_pipeline import BasePipeline
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.sdxl.components import DEFAULT_SDXL_MODEL_SOURCE, DEFAULT_SDXL_TURBO_MODEL_SOURCE
-from omnirt.schedulers import build_scheduler
-
-
-@register_model(
-    id="sdxl-base-1.0",
-    task="text2image",
-    default_backend="auto",
-    resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
-    capabilities=ModelCapabilities(
-        required_inputs=("prompt",),
-        optional_inputs=("negative_prompt",),
-        supported_config=(
-            "model_path",
-            "scheduler",
-            "height",
-            "width",
-            "num_images_per_prompt",
-            "num_inference_steps",
-            "guidance_scale",
-            "seed",
-            "dtype",
-            "output_dir",
-        ),
-        default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "dtype": "fp16"},
-        supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
-        adapter_kinds=("lora",),
-        artifact_kind="image",
-        maturity="stable",
-        summary="SDXL base text-to-image pipeline with LoRA support.",
-        example="omnirt generate --task text2image --model sdxl-base-1.0 --prompt \"a cinematic sci-fi city at sunrise\" --backend cuda",
-    ),
+from omnirt.models.sd3.components import (
+    DEFAULT_SD3_MEDIUM_MODEL_SOURCE,
+    DEFAULT_SD35_LARGE_MODEL_SOURCE,
+    DEFAULT_SD35_LARGE_TURBO_MODEL_SOURCE,
 )
+
+
 @register_model(
-    id="sdxl-turbo",
+    id="sd3-medium",
     task="text2image",
     default_backend="auto",
-    resource_hint={"min_vram_gb": 10, "dtype": "fp16"},
+    resource_hint={"min_vram_gb": 24, "dtype": "fp16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
         optional_inputs=("negative_prompt",),
@@ -62,16 +36,74 @@ from omnirt.schedulers import build_scheduler
             "dtype",
             "output_dir",
         ),
-        default_config={"scheduler": "euler-ancestral", "height": 1024, "width": 1024, "dtype": "fp16"},
-        supported_schedulers=("euler-discrete", "euler-ancestral", "ddim", "dpm-solver"),
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "fp16"},
+        supported_schedulers=("native",),
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="beta",
-        summary="SDXL Turbo low-latency text-to-image pipeline.",
-        example="omnirt generate --task text2image --model sdxl-turbo --prompt \"a cinematic sci-fi city at sunrise\" --backend cuda",
+        summary="Stable Diffusion 3 Medium text-to-image pipeline.",
+        example="omnirt generate --task text2image --model sd3-medium --prompt \"a photo of a cat holding a sign\" --backend cuda",
     ),
 )
-class SDXLPipeline(BasePipeline):
+@register_model(
+    id="sd3.5-large",
+    task="text2image",
+    default_backend="auto",
+    resource_hint={"min_vram_gb": 24, "dtype": "fp16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt",),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_images_per_prompt",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "fp16"},
+        supported_schedulers=("native",),
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="beta",
+        summary="Stable Diffusion 3.5 Large text-to-image pipeline.",
+        example="omnirt generate --task text2image --model sd3.5-large --prompt \"a photo of a cat holding a sign\" --backend cuda",
+    ),
+)
+@register_model(
+    id="sd3.5-large-turbo",
+    task="text2image",
+    default_backend="auto",
+    resource_hint={"min_vram_gb": 24, "dtype": "fp16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt",),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_images_per_prompt",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "fp16"},
+        supported_schedulers=("native",),
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="beta",
+        summary="Stable Diffusion 3.5 Large Turbo text-to-image pipeline.",
+        example="omnirt generate --task text2image --model sd3.5-large-turbo --prompt \"a photo of a cat holding a sign\" --backend cuda",
+    ),
+)
+class SD3Pipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
@@ -86,7 +118,7 @@ class SDXLPipeline(BasePipeline):
             "prompt": prompt,
             "negative_prompt": req.inputs.get("negative_prompt"),
             "model_source": req.config.get("model_path", self._default_model_source()),
-            "scheduler": req.config.get("scheduler", self._default_scheduler()),
+            "scheduler": req.config.get("scheduler", "native"),
             "height": int(req.config.get("height", 1024)),
             "width": int(req.config.get("width", 1024)),
             "num_images_per_prompt": int(req.config.get("num_images_per_prompt", 1)),
@@ -102,7 +134,6 @@ class SDXLPipeline(BasePipeline):
             source=conditions["model_source"],
             torch_dtype=torch_dtype,
             scheduler_name=conditions["scheduler"],
-            config=req.config,
         )
         self._last_seed = seed
         return {
@@ -180,7 +211,7 @@ class SDXLPipeline(BasePipeline):
         try:
             import torch
         except ImportError as exc:
-            raise DependencyUnavailableError("PyTorch is required to run the SDXL pipeline.") from exc
+            raise DependencyUnavailableError("PyTorch is required to run the SD3 pipeline.") from exc
         return torch
 
     def _resolve_torch_dtype(self, dtype_name: Optional[str]):
@@ -209,34 +240,22 @@ class SDXLPipeline(BasePipeline):
 
     def _diffusers_pipeline_cls(self):
         try:
-            from diffusers import StableDiffusionXLPipeline
+            from diffusers import StableDiffusion3Pipeline
         except ImportError as exc:
             raise DependencyUnavailableError(
-                "diffusers is required for SDXL execution. Install omnirt with runtime dependencies."
+                "diffusers with StableDiffusion3Pipeline support is required for SD3 execution."
             ) from exc
-        return StableDiffusionXLPipeline
+        return StableDiffusion3Pipeline
 
-    def _load_pipeline(
-        self,
-        *,
-        source: str,
-        torch_dtype: Any,
-        scheduler_name: str,
-        config: Dict[str, Any],
-    ):
-        cache_key = self.pipeline_cache_key(
-            source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name
-        )
+    def _load_pipeline(self, *, source: str, torch_dtype: Any, scheduler_name: str):
+        cache_key = self.pipeline_cache_key(source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name)
         if self._pipeline is not None and self._pipeline_key == cache_key:
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
-        pipeline = pipeline_cls.from_pretrained(source, **self._from_pretrained_kwargs(source, torch_dtype))
-        scheduler_config = dict(config)
-        scheduler_config.setdefault("scheduler", scheduler_name)
-        if getattr(pipeline, "scheduler", None) is not None and hasattr(pipeline.scheduler, "config"):
-            scheduler_config["scheduler_config"] = pipeline.scheduler.config
-        pipeline.scheduler = build_scheduler(scheduler_config)
+        pipeline = pipeline_cls.from_pretrained(source, torch_dtype=torch_dtype)
+        if scheduler_name != "native":
+            raise ValueError(f"Unsupported SD3 scheduler: {scheduler_name}")
         self._wrap_pipeline_modules(pipeline)
         pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
@@ -244,53 +263,8 @@ class SDXLPipeline(BasePipeline):
         self._pipeline_key = cache_key
         return pipeline
 
-    def _from_pretrained_kwargs(self, source: str, torch_dtype: Any) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = {
-            "torch_dtype": torch_dtype,
-            "use_safetensors": True,
-        }
-        variant = self._detect_local_variant(source)
-        if variant is not None:
-            kwargs["variant"] = variant
-        return kwargs
-
-    def _detect_local_variant(self, source: str) -> Optional[str]:
-        root = Path(source)
-        if not root.is_dir():
-            return None
-
-        fp16_layout = {
-            "unet": "diffusion_pytorch_model.fp16.safetensors",
-            "vae": "diffusion_pytorch_model.fp16.safetensors",
-            "text_encoder": "model.fp16.safetensors",
-            "text_encoder_2": "model.fp16.safetensors",
-        }
-        if all((root / subdir / filename).is_file() for subdir, filename in fp16_layout.items()):
-            return "fp16"
-        return None
-
-    def _default_model_source(self) -> str:
-        if self.model_spec.id == "sdxl-turbo":
-            return DEFAULT_SDXL_TURBO_MODEL_SOURCE
-        return DEFAULT_SDXL_MODEL_SOURCE
-
-    def _default_scheduler(self) -> str:
-        if self.model_spec.id == "sdxl-turbo":
-            return "euler-ancestral"
-        return "euler-discrete"
-
-    def _default_steps(self) -> int:
-        if self.model_spec.id == "sdxl-turbo":
-            return 4
-        return 30
-
-    def _default_guidance_scale(self) -> float:
-        if self.model_spec.id == "sdxl-turbo":
-            return 0.0
-        return 7.5
-
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:
-        for tag in ("text_encoder", "text_encoder_2", "unet", "vae"):
+        for tag in ("text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"):
             module = getattr(pipeline, tag, None)
             if module is None:
                 continue
@@ -300,3 +274,20 @@ class SDXLPipeline(BasePipeline):
 
     def _apply_adapters(self, pipeline: Any) -> None:
         self.adapter_manager.apply_to_pipeline(pipeline)
+
+    def _default_model_source(self) -> str:
+        if self.model_spec.id == "sd3-medium":
+            return DEFAULT_SD3_MEDIUM_MODEL_SOURCE
+        if self.model_spec.id == "sd3.5-large":
+            return DEFAULT_SD35_LARGE_MODEL_SOURCE
+        return DEFAULT_SD35_LARGE_TURBO_MODEL_SOURCE
+
+    def _default_steps(self) -> int:
+        if self.model_spec.id == "sd3.5-large-turbo":
+            return 8
+        return 28
+
+    def _default_guidance_scale(self) -> float:
+        if self.model_spec.id == "sd3.5-large-turbo":
+            return 4.0
+        return 7.0

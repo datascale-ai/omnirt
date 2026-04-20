@@ -1,0 +1,194 @@
+"""Component metadata for generic video family models."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class VideoModelConfig:
+    source: str
+    task: str
+    class_candidates: tuple[str, ...]
+    module_tags: tuple[str, ...]
+    resource_hint: dict
+    default_config: dict
+    default_num_frames: int
+    default_fps: int
+    default_steps: int
+    default_guidance_scale: float
+    summary: str
+    example: str
+    required_prompt: bool = True
+
+
+MODEL_CONFIGS = {
+    "cogvideox-2b": VideoModelConfig(
+        source="THUDM/CogVideoX-2b",
+        task="text2video",
+        class_candidates=("CogVideoXPipeline",),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 16, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 480, "width": 768, "dtype": "bf16"},
+        default_num_frames=81,
+        default_fps=16,
+        default_steps=50,
+        default_guidance_scale=6.0,
+        summary="CogVideoX 2B text-to-video pipeline.",
+        example="omnirt generate --task text2video --model cogvideox-2b --prompt \"a wooden toy ship gliding over a plush blue carpet\" --backend cuda",
+    ),
+    "cogvideox-5b": VideoModelConfig(
+        source="THUDM/CogVideoX-5b",
+        task="text2video",
+        class_candidates=("CogVideoXPipeline",),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 480, "width": 768, "dtype": "bf16"},
+        default_num_frames=81,
+        default_fps=16,
+        default_steps=50,
+        default_guidance_scale=6.0,
+        summary="CogVideoX 5B text-to-video pipeline.",
+        example="omnirt generate --task text2video --model cogvideox-5b --prompt \"a cinematic chase through neon streets\" --backend cuda",
+    ),
+    "kandinsky5-t2v": VideoModelConfig(
+        source="kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s-Diffusers",
+        task="text2video",
+        class_candidates=("Kandinsky5T2VPipeline",),
+        module_tags=("text_encoder", "text_encoder_2", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 576, "width": 1024, "dtype": "bf16"},
+        default_num_frames=81,
+        default_fps=24,
+        default_steps=30,
+        default_guidance_scale=5.0,
+        summary="Kandinsky 5 Pro text-to-video pipeline.",
+        example="omnirt generate --task text2video --model kandinsky5-t2v --prompt \"a winter train ride through the mountains\" --backend cuda",
+    ),
+    "kandinsky5-i2v": VideoModelConfig(
+        source="kandinskylab/Kandinsky-5.0-I2V-Pro-sft-5s-Diffusers",
+        task="image2video",
+        class_candidates=("Kandinsky5I2VPipeline",),
+        module_tags=("text_encoder", "text_encoder_2", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 576, "width": 1024, "dtype": "bf16"},
+        default_num_frames=81,
+        default_fps=24,
+        default_steps=30,
+        default_guidance_scale=5.0,
+        summary="Kandinsky 5 Pro image-to-video pipeline.",
+        example="omnirt generate --task image2video --model kandinsky5-i2v --image input.png --prompt \"animate this frame into a short cinematic shot\" --backend cuda",
+    ),
+    "hunyuan-video": VideoModelConfig(
+        source="hunyuanvideo-community/HunyuanVideo",
+        task="text2video",
+        class_candidates=("HunyuanVideoPipeline",),
+        module_tags=("text_encoder", "text_encoder_2", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 320, "width": 512, "dtype": "bf16"},
+        default_num_frames=61,
+        default_fps=15,
+        default_steps=30,
+        default_guidance_scale=5.0,
+        summary="HunyuanVideo text-to-video pipeline.",
+        example="omnirt generate --task text2video --model hunyuan-video --prompt \"a cat walks on the grass, realistic\" --backend cuda",
+    ),
+    "hunyuan-video-1.5-t2v": VideoModelConfig(
+        source="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_t2v",
+        task="text2video",
+        class_candidates=("HunyuanVideo15Pipeline",),
+        module_tags=("text_encoder", "text_encoder_2", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "fp16"},
+        default_config={"scheduler": "native", "height": 720, "width": 1280, "dtype": "fp16"},
+        default_num_frames=81,
+        default_fps=24,
+        default_steps=30,
+        default_guidance_scale=5.0,
+        summary="HunyuanVideo 1.5 text-to-video pipeline.",
+        example="omnirt generate --task text2video --model hunyuan-video-1.5-t2v --prompt \"a black cat walking in rain\" --backend cuda",
+    ),
+    "hunyuan-video-1.5-i2v": VideoModelConfig(
+        source="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_i2v",
+        task="image2video",
+        class_candidates=("HunyuanVideo15ImageToVideoPipeline",),
+        module_tags=("text_encoder", "text_encoder_2", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "fp16"},
+        default_config={"scheduler": "native", "height": 720, "width": 1280, "dtype": "fp16"},
+        default_num_frames=81,
+        default_fps=24,
+        default_steps=30,
+        default_guidance_scale=5.0,
+        summary="HunyuanVideo 1.5 image-to-video pipeline.",
+        example="omnirt generate --task image2video --model hunyuan-video-1.5-i2v --image input.png --prompt \"animate this concept art\" --backend cuda",
+    ),
+    "helios-t2v": VideoModelConfig(
+        source="BestWishYsh/Helios-Base",
+        task="text2video",
+        class_candidates=("HeliosPipeline", "HeliosPyramidPipeline"),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 384, "width": 640, "dtype": "bf16"},
+        default_num_frames=99,
+        default_fps=24,
+        default_steps=50,
+        default_guidance_scale=5.0,
+        summary="Helios text-to-video pipeline.",
+        example="omnirt generate --task text2video --model helios-t2v --prompt \"a vibrant tropical fish swimming among coral reefs\" --backend cuda",
+    ),
+    "helios-i2v": VideoModelConfig(
+        source="BestWishYsh/Helios-Base",
+        task="image2video",
+        class_candidates=("HeliosPipeline", "HeliosPyramidPipeline"),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 384, "width": 640, "dtype": "bf16"},
+        default_num_frames=99,
+        default_fps=24,
+        default_steps=50,
+        default_guidance_scale=5.0,
+        summary="Helios image-to-video pipeline.",
+        example="omnirt generate --task image2video --model helios-i2v --image input.png --prompt \"turn this still into a moving ocean scene\" --backend cuda",
+    ),
+    "sana-video": VideoModelConfig(
+        source="Efficient-Large-Model/SANA-Video_2B_480p_diffusers",
+        task="text2video",
+        class_candidates=("SanaVideoPipeline",),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 16, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 480, "width": 848, "dtype": "bf16"},
+        default_num_frames=81,
+        default_fps=16,
+        default_steps=30,
+        default_guidance_scale=4.0,
+        summary="Sana-Video efficient text-to-video pipeline.",
+        example="omnirt generate --task text2video --model sana-video --prompt \"a portrait shot with wind in the hair\" --backend cuda",
+    ),
+    "ltx-video": VideoModelConfig(
+        source="Lightricks/LTX-Video",
+        task="text2video",
+        class_candidates=("LTXPipeline",),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 480, "width": 704, "dtype": "bf16"},
+        default_num_frames=161,
+        default_fps=24,
+        default_steps=50,
+        default_guidance_scale=5.0,
+        summary="LTX-Video text-to-video pipeline.",
+        example="omnirt generate --task text2video --model ltx-video --prompt \"a close-up of two friends talking at sunset\" --backend cuda",
+    ),
+    "ltx2-i2v": VideoModelConfig(
+        source="Lightricks/LTX-Video",
+        task="image2video",
+        class_candidates=("LTXImageToVideoPipeline", "LTXI2VLongMultiPromptPipeline"),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 480, "width": 704, "dtype": "bf16"},
+        default_num_frames=161,
+        default_fps=24,
+        default_steps=50,
+        default_guidance_scale=5.0,
+        summary="LTX image-to-video pipeline.",
+        example="omnirt generate --task image2video --model ltx2-i2v --image input.png --prompt \"animate this meme frame\" --backend cuda",
+    ),
+}

@@ -15,38 +15,61 @@ Status note:
 
 Current implementation note:
 
-- OmniRT currently ships `sdxl-base-1.0`, `svd`, `svd-xt`, `flux2.dev` / `flux2-dev`, `wan2.2-t2v-14b`, and `wan2.2-i2v-14b`
+- OmniRT currently ships `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-turbo`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `svd`, `svd-xt`, `flux-dev`, `flux-schnell`, `flux2.dev` / `flux2-dev`, `glm-image`, `hunyuan-image-2.1`, `omnigen`, `qwen-image`, `sana-1.6b`, `ovis-image`, `hidream-i1`, `cogvideox-2b`, `cogvideox-5b`, `kandinsky5-t2v`, `kandinsky5-i2v`, `wan2.1-t2v-14b`, `wan2.1-i2v-14b`, `wan2.2-t2v-14b`, `wan2.2-i2v-14b`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `hunyuan-video-1.5-i2v`, `helios-t2v`, `helios-i2v`, `sana-video`, `ltx-video`, and `ltx2-i2v`
 - This means the codebase is already ahead of the older roadmap on Flux and Wan family versions
 - The roadmap below treats those newer Flux2 and Wan2.2 integrations as real baseline support, while keeping the still-important `flux-dev`, `flux-schnell`, and `wan2.1-*` compatibility targets visible where they remain strategically useful
+- For multi-task families, the current registry uses task-specific suffixes where needed, for example `helios-t2v` / `helios-i2v` and `hunyuan-video-1.5-t2v` / `hunyuan-video-1.5-i2v`
 
 ## Current snapshot
 
 Implemented today:
 
+- `sd15`
+- `sd21`
 - `sdxl-base-1.0`
+- `sdxl-turbo`
+- `sd3-medium`
+- `sd3.5-large`
+- `sd3.5-large-turbo`
 - `svd`
 - `svd-xt`
-- `flux2.dev` / `flux2-dev`
-- `wan2.2-t2v-14b`
-- `wan2.2-i2v-14b`
-
-Highest-priority unsupported targets:
-
-- `sd15`
-- `sdxl-refiner-1.0`
-- `sdxl-turbo`
 - `flux-dev`
 - `flux-schnell`
+- `flux2.dev` / `flux2-dev`
 - `glm-image`
 - `hunyuan-image-2.1`
 - `omnigen`
 - `qwen-image`
-- `qwen-image-edit`
+- `sana-1.6b`
+- `ovis-image`
+- `hidream-i1`
 - `cogvideox-2b`
+- `cogvideox-5b`
 - `kandinsky5-t2v`
 - `kandinsky5-i2v`
+- `wan2.1-t2v-14b`
+- `wan2.1-i2v-14b`
+- `wan2.2-t2v-14b`
+- `wan2.2-i2v-14b`
 - `hunyuan-video`
+- `hunyuan-video-1.5-t2v`
+- `hunyuan-video-1.5-i2v`
+- `helios-t2v`
+- `helios-i2v`
+- `sana-video`
+- `ltx-video`
+- `ltx2-i2v`
+
+Highest-priority unsupported targets:
+
+- `sdxl-refiner-1.0`
+- `qwen-image-edit`
+- `flux-fill`
+- `qwen-image-edit-plus`
+- `flux-kontext`
+- `chronoedit`
 - `helios`
+- `hunyuan-video-1.5`
 
 ## Planning principles
 

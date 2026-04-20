@@ -10,7 +10,12 @@ from omnirt.core.base_pipeline import BasePipeline
 from omnirt.core.media import load_image, save_video_frames
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.wan.components import DEFAULT_WAN2_2_I2V_MODEL_SOURCE, DEFAULT_WAN2_2_T2V_MODEL_SOURCE
+from omnirt.models.wan.components import (
+    DEFAULT_WAN2_1_I2V_MODEL_SOURCE,
+    DEFAULT_WAN2_1_T2V_MODEL_SOURCE,
+    DEFAULT_WAN2_2_I2V_MODEL_SOURCE,
+    DEFAULT_WAN2_2_T2V_MODEL_SOURCE,
+)
 
 
 @register_model(
@@ -39,6 +44,62 @@ from omnirt.models.wan.components import DEFAULT_WAN2_2_I2V_MODEL_SOURCE, DEFAUL
         maturity="beta",
         summary="Wan 2.2 text-to-video pipeline.",
         example="omnirt generate --task text2video --model wan2.2-t2v-14b --prompt \"a glass whale gliding over a moonlit harbor\" --backend cuda",
+    ),
+)
+@register_model(
+    id="wan2.1-t2v-14b",
+    task="text2video",
+    default_backend="auto",
+    resource_hint={"min_vram_gb": 18, "dtype": "bf16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt", "num_frames", "fps"),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "native", "num_inference_steps": 40, "guidance_scale": 5.0, "dtype": "bf16"},
+        supported_schedulers=("native",),
+        adapter_kinds=("lora",),
+        artifact_kind="video",
+        maturity="beta",
+        summary="Wan 2.1 text-to-video pipeline.",
+        example="omnirt generate --task text2video --model wan2.1-t2v-14b --prompt \"a glass whale gliding over a moonlit harbor\" --backend cuda",
+    ),
+)
+@register_model(
+    id="wan2.1-i2v-14b",
+    task="image2video",
+    default_backend="auto",
+    resource_hint={"min_vram_gb": 18, "dtype": "bf16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("image", "prompt"),
+        optional_inputs=("negative_prompt", "num_frames", "fps"),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "native", "num_inference_steps": 40, "guidance_scale": 5.0, "dtype": "bf16"},
+        supported_schedulers=("native",),
+        adapter_kinds=("lora",),
+        artifact_kind="video",
+        maturity="beta",
+        summary="Wan 2.1 image-to-video pipeline.",
+        example="omnirt generate --task image2video --model wan2.1-i2v-14b --image input.png --prompt \"turn this sketch into a moving cityscape\" --backend cuda",
     ),
 )
 @register_model(
@@ -260,6 +321,10 @@ class WanPipeline(BasePipeline):
         self.adapter_manager.apply_to_pipeline(pipeline)
 
     def _default_model_source(self) -> str:
+        if self.model_spec.id == "wan2.1-i2v-14b":
+            return DEFAULT_WAN2_1_I2V_MODEL_SOURCE
+        if self.model_spec.id == "wan2.1-t2v-14b":
+            return DEFAULT_WAN2_1_T2V_MODEL_SOURCE
         if self.model_spec.task == "image2video":
             return DEFAULT_WAN2_2_I2V_MODEL_SOURCE
         return DEFAULT_WAN2_2_T2V_MODEL_SOURCE

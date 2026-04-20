@@ -1,4 +1,4 @@
-"""SDXL pipeline implementation backed by Diffusers."""
+"""Flux 1 family pipeline implementation backed by Diffusers."""
 
 from __future__ import annotations
 
@@ -9,15 +9,14 @@ from typing import Any, Dict, List, Optional
 from omnirt.core.base_pipeline import BasePipeline
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.sdxl.components import DEFAULT_SDXL_MODEL_SOURCE, DEFAULT_SDXL_TURBO_MODEL_SOURCE
-from omnirt.schedulers import build_scheduler
+from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT_FLUX_SCHNELL_MODEL_SOURCE
 
 
 @register_model(
-    id="sdxl-base-1.0",
+    id="flux-dev",
     task="text2image",
     default_backend="auto",
-    resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
+    resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
         optional_inputs=("negative_prompt",),
@@ -27,26 +26,27 @@ from omnirt.schedulers import build_scheduler
             "height",
             "width",
             "num_images_per_prompt",
+            "max_sequence_length",
             "num_inference_steps",
             "guidance_scale",
             "seed",
             "dtype",
             "output_dir",
         ),
-        default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "dtype": "fp16"},
-        supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
+        supported_schedulers=("native",),
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="stable",
-        summary="SDXL base text-to-image pipeline with LoRA support.",
-        example="omnirt generate --task text2image --model sdxl-base-1.0 --prompt \"a cinematic sci-fi city at sunrise\" --backend cuda",
+        summary="Flux 1 dev text-to-image pipeline.",
+        example="omnirt generate --task text2image --model flux-dev --prompt \"a paper dragon in a lantern shop\" --backend cuda",
     ),
 )
 @register_model(
-    id="sdxl-turbo",
+    id="flux-schnell",
     task="text2image",
     default_backend="auto",
-    resource_hint={"min_vram_gb": 10, "dtype": "fp16"},
+    resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
         optional_inputs=("negative_prompt",),
@@ -56,22 +56,23 @@ from omnirt.schedulers import build_scheduler
             "height",
             "width",
             "num_images_per_prompt",
+            "max_sequence_length",
             "num_inference_steps",
             "guidance_scale",
             "seed",
             "dtype",
             "output_dir",
         ),
-        default_config={"scheduler": "euler-ancestral", "height": 1024, "width": 1024, "dtype": "fp16"},
-        supported_schedulers=("euler-discrete", "euler-ancestral", "ddim", "dpm-solver"),
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 256, "dtype": "bf16"},
+        supported_schedulers=("native",),
         adapter_kinds=("lora",),
         artifact_kind="image",
-        maturity="beta",
-        summary="SDXL Turbo low-latency text-to-image pipeline.",
-        example="omnirt generate --task text2image --model sdxl-turbo --prompt \"a cinematic sci-fi city at sunrise\" --backend cuda",
+        maturity="stable",
+        summary="Flux 1 schnell low-step text-to-image pipeline.",
+        example="omnirt generate --task text2image --model flux-schnell --prompt \"a paper dragon in a lantern shop\" --backend cuda",
     ),
 )
-class SDXLPipeline(BasePipeline):
+class FluxPipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
@@ -86,23 +87,23 @@ class SDXLPipeline(BasePipeline):
             "prompt": prompt,
             "negative_prompt": req.inputs.get("negative_prompt"),
             "model_source": req.config.get("model_path", self._default_model_source()),
-            "scheduler": req.config.get("scheduler", self._default_scheduler()),
+            "scheduler": req.config.get("scheduler", "native"),
             "height": int(req.config.get("height", 1024)),
             "width": int(req.config.get("width", 1024)),
             "num_images_per_prompt": int(req.config.get("num_images_per_prompt", 1)),
+            "max_sequence_length": int(req.config.get("max_sequence_length", self._default_max_sequence_length())),
         }
 
     def prepare_latents(self, req: GenerateRequest, conditions: Any) -> Dict[str, Any]:
         steps = int(req.config.get("num_inference_steps", self._default_steps()))
         seed = req.config.get("seed")
         guidance_scale = float(req.config.get("guidance_scale", self._default_guidance_scale()))
-        torch_dtype = self._resolve_torch_dtype(req.config.get("dtype"))
+        torch_dtype = self._resolve_torch_dtype(req.config.get("dtype", "bf16"))
         generator = self._build_generator(seed)
         pipeline = self._load_pipeline(
             source=conditions["model_source"],
             torch_dtype=torch_dtype,
             scheduler_name=conditions["scheduler"],
-            config=req.config,
         )
         self._last_seed = seed
         return {
@@ -117,12 +118,6 @@ class SDXLPipeline(BasePipeline):
     def denoise_loop(self, latents: Any, conditions: Any, config: Dict[str, Any]) -> Dict[str, Any]:
         started = time.perf_counter()
         pipeline = latents["pipeline"]
-        callback_kwargs = {}
-        if self._supports_callback_on_step_end(pipeline):
-            callback_kwargs = {
-                "callback_on_step_end": self.make_latent_callback(latents["steps"]),
-                "callback_on_step_end_tensor_inputs": ["latents"],
-            }
         result = pipeline(
             prompt=conditions["prompt"],
             negative_prompt=conditions.get("negative_prompt"),
@@ -132,8 +127,8 @@ class SDXLPipeline(BasePipeline):
             height=conditions["height"],
             width=conditions["width"],
             num_images_per_prompt=conditions["num_images_per_prompt"],
+            max_sequence_length=conditions["max_sequence_length"],
             output_type="pil",
-            **callback_kwargs,
         )
         return {
             "images": list(result.images),
@@ -169,10 +164,11 @@ class SDXLPipeline(BasePipeline):
             "height": conditions["height"],
             "width": conditions["width"],
             "num_images_per_prompt": conditions["num_images_per_prompt"],
+            "max_sequence_length": conditions["max_sequence_length"],
             "num_inference_steps": latents["steps"],
             "guidance_scale": latents["guidance_scale"],
             "seed": latents["seed"],
-            "dtype": req.config.get("dtype", "fp16"),
+            "dtype": req.config.get("dtype", "bf16"),
             "output_dir": str(Path(req.config.get("output_dir", "outputs"))),
         }
 
@@ -180,13 +176,13 @@ class SDXLPipeline(BasePipeline):
         try:
             import torch
         except ImportError as exc:
-            raise DependencyUnavailableError("PyTorch is required to run the SDXL pipeline.") from exc
+            raise DependencyUnavailableError("PyTorch is required to run the Flux pipeline.") from exc
         return torch
 
     def _resolve_torch_dtype(self, dtype_name: Optional[str]):
         torch = self._torch()
         mapping = {
-            None: torch.float16,
+            None: torch.bfloat16,
             "fp16": torch.float16,
             "bf16": torch.bfloat16,
             "fp32": torch.float32,
@@ -209,34 +205,22 @@ class SDXLPipeline(BasePipeline):
 
     def _diffusers_pipeline_cls(self):
         try:
-            from diffusers import StableDiffusionXLPipeline
+            from diffusers import FluxPipeline as DiffusersFluxPipeline
         except ImportError as exc:
             raise DependencyUnavailableError(
-                "diffusers is required for SDXL execution. Install omnirt with runtime dependencies."
+                "diffusers with FluxPipeline support is required for Flux execution."
             ) from exc
-        return StableDiffusionXLPipeline
+        return DiffusersFluxPipeline
 
-    def _load_pipeline(
-        self,
-        *,
-        source: str,
-        torch_dtype: Any,
-        scheduler_name: str,
-        config: Dict[str, Any],
-    ):
-        cache_key = self.pipeline_cache_key(
-            source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name
-        )
+    def _load_pipeline(self, *, source: str, torch_dtype: Any, scheduler_name: str):
+        cache_key = self.pipeline_cache_key(source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name)
         if self._pipeline is not None and self._pipeline_key == cache_key:
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
-        pipeline = pipeline_cls.from_pretrained(source, **self._from_pretrained_kwargs(source, torch_dtype))
-        scheduler_config = dict(config)
-        scheduler_config.setdefault("scheduler", scheduler_name)
-        if getattr(pipeline, "scheduler", None) is not None and hasattr(pipeline.scheduler, "config"):
-            scheduler_config["scheduler_config"] = pipeline.scheduler.config
-        pipeline.scheduler = build_scheduler(scheduler_config)
+        pipeline = pipeline_cls.from_pretrained(source, torch_dtype=torch_dtype)
+        if scheduler_name != "native":
+            raise ValueError(f"Unsupported Flux scheduler: {scheduler_name}")
         self._wrap_pipeline_modules(pipeline)
         pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
@@ -244,53 +228,8 @@ class SDXLPipeline(BasePipeline):
         self._pipeline_key = cache_key
         return pipeline
 
-    def _from_pretrained_kwargs(self, source: str, torch_dtype: Any) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = {
-            "torch_dtype": torch_dtype,
-            "use_safetensors": True,
-        }
-        variant = self._detect_local_variant(source)
-        if variant is not None:
-            kwargs["variant"] = variant
-        return kwargs
-
-    def _detect_local_variant(self, source: str) -> Optional[str]:
-        root = Path(source)
-        if not root.is_dir():
-            return None
-
-        fp16_layout = {
-            "unet": "diffusion_pytorch_model.fp16.safetensors",
-            "vae": "diffusion_pytorch_model.fp16.safetensors",
-            "text_encoder": "model.fp16.safetensors",
-            "text_encoder_2": "model.fp16.safetensors",
-        }
-        if all((root / subdir / filename).is_file() for subdir, filename in fp16_layout.items()):
-            return "fp16"
-        return None
-
-    def _default_model_source(self) -> str:
-        if self.model_spec.id == "sdxl-turbo":
-            return DEFAULT_SDXL_TURBO_MODEL_SOURCE
-        return DEFAULT_SDXL_MODEL_SOURCE
-
-    def _default_scheduler(self) -> str:
-        if self.model_spec.id == "sdxl-turbo":
-            return "euler-ancestral"
-        return "euler-discrete"
-
-    def _default_steps(self) -> int:
-        if self.model_spec.id == "sdxl-turbo":
-            return 4
-        return 30
-
-    def _default_guidance_scale(self) -> float:
-        if self.model_spec.id == "sdxl-turbo":
-            return 0.0
-        return 7.5
-
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:
-        for tag in ("text_encoder", "text_encoder_2", "unet", "vae"):
+        for tag in ("text_encoder", "transformer", "vae"):
             module = getattr(pipeline, tag, None)
             if module is None:
                 continue
@@ -300,3 +239,23 @@ class SDXLPipeline(BasePipeline):
 
     def _apply_adapters(self, pipeline: Any) -> None:
         self.adapter_manager.apply_to_pipeline(pipeline)
+
+    def _default_model_source(self) -> str:
+        if self.model_spec.id == "flux-schnell":
+            return DEFAULT_FLUX_SCHNELL_MODEL_SOURCE
+        return DEFAULT_FLUX_DEV_MODEL_SOURCE
+
+    def _default_steps(self) -> int:
+        if self.model_spec.id == "flux-schnell":
+            return 4
+        return 28
+
+    def _default_guidance_scale(self) -> float:
+        if self.model_spec.id == "flux-schnell":
+            return 0.0
+        return 3.5
+
+    def _default_max_sequence_length(self) -> int:
+        if self.model_spec.id == "flux-schnell":
+            return 256
+        return 512
