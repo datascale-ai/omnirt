@@ -1,4 +1,4 @@
-"""Flux 1 family pipeline implementation backed by Diffusers."""
+"""AnimateDiff SDXL text-to-video pipeline backed by Diffusers."""
 
 from __future__ import annotations
 
@@ -9,26 +9,29 @@ from typing import Any, Dict, List, Optional
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
 from omnirt.core.base_pipeline import BasePipeline
+from omnirt.core.media import save_video_frames
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT_FLUX_SCHNELL_MODEL_SOURCE
+from omnirt.models.sdxl.components import DEFAULT_SDXL_MODEL_SOURCE
+
+
+DEFAULT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE = "guoyww/animatediff-motion-adapter-sdxl-beta"
 
 
 @register_model(
-    id="flux-dev",
-    task="text2image",
+    id="animate-diff-sdxl",
+    task="text2video",
     default_backend="auto",
-    resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
+    resource_hint={"min_vram_gb": 20, "dtype": "fp16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
-        optional_inputs=("negative_prompt",),
+        optional_inputs=("negative_prompt", "num_frames", "fps"),
         supported_config=(
             "model_path",
+            "motion_adapter_path",
             "scheduler",
             "height",
             "width",
-            "num_images_per_prompt",
-            "max_sequence_length",
             "num_inference_steps",
             "guidance_scale",
             "seed",
@@ -36,87 +39,59 @@ from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT
             "output_dir",
         )
         + ASCEND_ACCELERATION_CONFIG_KEYS,
-        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "fp16"},
         supported_schedulers=("native",),
         adapter_kinds=("lora",),
-        artifact_kind="image",
-        maturity="stable",
-        summary="Flux 1 dev text-to-image pipeline.",
-        example="omnirt generate --task text2image --model flux-dev --prompt \"a paper dragon in a lantern shop\" --backend cuda",
+        artifact_kind="video",
+        maturity="beta",
+        summary="AnimateDiff SDXL text-to-video pipeline.",
+        example="omnirt generate --task text2video --model animate-diff-sdxl --prompt \"a cinematic portrait with wind in the hair\" --backend cuda",
     ),
 )
-@register_model(
-    id="flux-schnell",
-    task="text2image",
-    default_backend="auto",
-    resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
-    capabilities=ModelCapabilities(
-        required_inputs=("prompt",),
-        optional_inputs=("negative_prompt",),
-        supported_config=(
-            "model_path",
-            "scheduler",
-            "height",
-            "width",
-            "num_images_per_prompt",
-            "max_sequence_length",
-            "num_inference_steps",
-            "guidance_scale",
-            "seed",
-            "dtype",
-            "output_dir",
-        )
-        + ASCEND_ACCELERATION_CONFIG_KEYS,
-        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 256, "dtype": "bf16"},
-        supported_schedulers=("native",),
-        adapter_kinds=("lora",),
-        artifact_kind="image",
-        maturity="stable",
-        summary="Flux 1 schnell low-step text-to-image pipeline.",
-        example="omnirt generate --task text2image --model flux-schnell --prompt \"a paper dragon in a lantern shop\" --backend cuda",
-    ),
-)
-class FluxPipeline(BasePipeline):
+class AnimateDiffSDXLPipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
         self._pipeline_key: Optional[tuple] = None
         self._last_seed = None
+        self._last_fps = None
 
     def prepare_conditions(self, req: GenerateRequest) -> Dict[str, Any]:
         prompt = req.inputs.get("prompt")
         if not prompt:
-            raise ValueError("text2image requires inputs.prompt")
+            raise ValueError("text2video requires inputs.prompt")
         return {
             "prompt": prompt,
             "negative_prompt": req.inputs.get("negative_prompt"),
-            "model_source": req.config.get("model_path", self._default_model_source()),
+            "num_frames": int(req.inputs.get("num_frames", 16)),
+            "fps": int(req.inputs.get("fps", 8)),
+            "model_source": req.config.get("model_path", DEFAULT_SDXL_MODEL_SOURCE),
+            "motion_adapter_source": req.config.get("motion_adapter_path", DEFAULT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE),
             "scheduler": req.config.get("scheduler", "native"),
             "height": int(req.config.get("height", 1024)),
             "width": int(req.config.get("width", 1024)),
-            "num_images_per_prompt": int(req.config.get("num_images_per_prompt", 1)),
-            "max_sequence_length": int(req.config.get("max_sequence_length", self._default_max_sequence_length())),
         }
 
     def prepare_latents(self, req: GenerateRequest, conditions: Any) -> Dict[str, Any]:
-        steps = int(req.config.get("num_inference_steps", self._default_steps()))
+        steps = int(req.config.get("num_inference_steps", 16))
         seed = req.config.get("seed")
-        guidance_scale = float(req.config.get("guidance_scale", self._default_guidance_scale()))
-        torch_dtype = self._resolve_torch_dtype(req.config.get("dtype", "bf16"))
+        guidance_scale = float(req.config.get("guidance_scale", 7.5))
+        torch_dtype = self._resolve_torch_dtype(req.config.get("dtype", "fp16"))
         generator = self._build_generator(seed)
         pipeline = self._load_pipeline(
             source=conditions["model_source"],
+            motion_adapter_source=conditions["motion_adapter_source"],
             torch_dtype=torch_dtype,
             scheduler_name=conditions["scheduler"],
             config=req.config,
         )
         self._last_seed = seed
+        self._last_fps = conditions["fps"]
         return {
             "steps": steps,
             "seed": seed,
             "generator": generator,
             "guidance_scale": guidance_scale,
-            "conditions": conditions,
             "pipeline": pipeline,
         }
 
@@ -126,55 +101,63 @@ class FluxPipeline(BasePipeline):
         kwargs = {
             "prompt": conditions["prompt"],
             "negative_prompt": conditions.get("negative_prompt"),
+            "num_frames": conditions["num_frames"],
+            "height": conditions["height"],
+            "width": conditions["width"],
             "num_inference_steps": latents["steps"],
             "guidance_scale": latents["guidance_scale"],
             "generator": latents["generator"],
-            "height": conditions["height"],
-            "width": conditions["width"],
-            "num_images_per_prompt": conditions["num_images_per_prompt"],
-            "max_sequence_length": conditions["max_sequence_length"],
             "output_type": "pil",
         }
+        if self._supports_callback_on_step_end(pipeline):
+            kwargs["callback_on_step_end"] = self.make_latent_callback(latents["steps"])
+            kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
         result = pipeline(**self._filter_call_kwargs(pipeline, kwargs))
+        frames = getattr(result, "frames", None)
+        if frames is None and isinstance(result, tuple):
+            frames = result[0]
+        if frames is None:
+            raise ValueError("Unexpected AnimateDiff SDXL pipeline output.")
+        sequence = list(frames[0] if frames and isinstance(frames[0], list) else frames)
         return {
-            "images": list(result.images),
+            "frames": sequence,
             "seed": latents["seed"],
             "generation_ms": round((time.perf_counter() - started) * 1000, 3),
         }
 
     def decode(self, latents: Any) -> Any:
-        return latents["images"]
+        return latents["frames"]
 
     def export(self, raw: Any, req: GenerateRequest) -> List[Artifact]:
         output_dir = self.resolve_output_dir(req)
-        artifacts: List[Artifact] = []
-        for index, image in enumerate(raw):
-            seed_part = self._last_seed if self._last_seed is not None else "random"
-            file_path = output_dir / f"{req.model}-{seed_part}-{index}.png"
-            image.save(file_path)
-            artifacts.append(
-                Artifact(
-                    kind="image",
-                    path=str(file_path),
-                    mime="image/png",
-                    width=image.width,
-                    height=image.height,
-                )
+        seed_part = self._last_seed if self._last_seed is not None else "random"
+        file_path = output_dir / f"{req.model}-{seed_part}.mp4"
+        save_video_frames(file_path, raw, fps=self._last_fps or int(req.inputs.get("fps", 8)))
+        first_frame = raw[0]
+        return [
+            Artifact(
+                kind="video",
+                path=str(file_path),
+                mime="video/mp4",
+                width=first_frame.width,
+                height=first_frame.height,
+                num_frames=len(raw),
             )
-        return artifacts
+        ]
 
     def resolve_run_config(self, req: GenerateRequest, conditions: Any, latents: Any) -> Dict[str, Any]:
         return {
             "model_path": conditions["model_source"],
+            "motion_adapter_path": conditions["motion_adapter_source"],
             "scheduler": conditions["scheduler"],
+            "num_frames": conditions["num_frames"],
+            "fps": conditions["fps"],
             "height": conditions["height"],
             "width": conditions["width"],
-            "num_images_per_prompt": conditions["num_images_per_prompt"],
-            "max_sequence_length": conditions["max_sequence_length"],
             "num_inference_steps": latents["steps"],
             "guidance_scale": latents["guidance_scale"],
             "seed": latents["seed"],
-            "dtype": req.config.get("dtype", "bf16"),
+            "dtype": req.config.get("dtype", "fp16"),
             "output_dir": str(Path(req.config.get("output_dir", "outputs"))),
         }
 
@@ -182,13 +165,13 @@ class FluxPipeline(BasePipeline):
         try:
             import torch
         except ImportError as exc:
-            raise DependencyUnavailableError("PyTorch is required to run the Flux pipeline.") from exc
+            raise DependencyUnavailableError("PyTorch is required to run AnimateDiff SDXL.") from exc
         return torch
 
     def _resolve_torch_dtype(self, dtype_name: Optional[str]):
         torch = self._torch()
         mapping = {
-            None: torch.bfloat16,
+            None: torch.float16,
             "fp16": torch.float16,
             "bf16": torch.bfloat16,
             "fp32": torch.float32,
@@ -211,22 +194,46 @@ class FluxPipeline(BasePipeline):
 
     def _diffusers_pipeline_cls(self):
         try:
-            from diffusers import FluxPipeline as DiffusersFluxPipeline
+            from diffusers import AnimateDiffSDXLPipeline as DiffusersAnimateDiffSDXLPipeline
         except ImportError as exc:
             raise DependencyUnavailableError(
-                "diffusers with FluxPipeline support is required for Flux execution."
+                "diffusers with AnimateDiffSDXLPipeline support is required for AnimateDiff SDXL execution."
             ) from exc
-        return DiffusersFluxPipeline
+        return DiffusersAnimateDiffSDXLPipeline
 
-    def _load_pipeline(self, *, source: str, torch_dtype: Any, scheduler_name: str, config: Dict[str, Any]):
-        cache_key = self.pipeline_cache_key(source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name)
+    def _motion_adapter_cls(self):
+        try:
+            from diffusers.models import MotionAdapter
+        except ImportError as exc:
+            raise DependencyUnavailableError(
+                "diffusers MotionAdapter support is required for AnimateDiff SDXL execution."
+            ) from exc
+        return MotionAdapter
+
+    def _load_pipeline(
+        self,
+        *,
+        source: str,
+        motion_adapter_source: str,
+        torch_dtype: Any,
+        scheduler_name: str,
+        config: Dict[str, Any],
+    ):
+        cache_key = self.pipeline_cache_key(
+            source=f"{source}|{motion_adapter_source}",
+            torch_dtype=torch_dtype,
+            scheduler_name=scheduler_name,
+        )
         if self._pipeline is not None and self._pipeline_key == cache_key:
             return self._pipeline
 
-        pipeline_cls = self._diffusers_pipeline_cls()
-        pipeline = pipeline_cls.from_pretrained(source, torch_dtype=torch_dtype)
         if scheduler_name != "native":
-            raise ValueError(f"Unsupported Flux scheduler: {scheduler_name}")
+            raise ValueError(f"Unsupported AnimateDiff SDXL scheduler: {scheduler_name}")
+
+        motion_adapter_cls = self._motion_adapter_cls()
+        pipeline_cls = self._diffusers_pipeline_cls()
+        motion_adapter = motion_adapter_cls.from_pretrained(motion_adapter_source, torch_dtype=torch_dtype)
+        pipeline = pipeline_cls.from_pretrained(source, motion_adapter=motion_adapter, torch_dtype=torch_dtype)
         pipeline = self.runtime.prepare_pipeline(pipeline, model_spec=self.model_spec, config=config)
         self._wrap_pipeline_modules(pipeline)
         pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
@@ -236,7 +243,7 @@ class FluxPipeline(BasePipeline):
         return pipeline
 
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:
-        for tag in ("text_encoder", "transformer", "vae"):
+        for tag in ("text_encoder", "text_encoder_2", "unet", "motion_adapter", "vae"):
             module = getattr(pipeline, tag, None)
             if module is None:
                 continue
@@ -245,7 +252,8 @@ class FluxPipeline(BasePipeline):
             self.components[tag] = wrapped
 
     def _apply_adapters(self, pipeline: Any) -> None:
-        self.adapter_manager.apply_to_pipeline(pipeline)
+        if self.adapters:
+            self.adapter_manager.apply_to_pipeline(pipeline)
 
     def _filter_call_kwargs(self, pipeline: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -261,23 +269,3 @@ class FluxPipeline(BasePipeline):
             for key, value in kwargs.items()
             if value is not None and key in parameters
         }
-
-    def _default_model_source(self) -> str:
-        if self.model_spec.id == "flux-schnell":
-            return DEFAULT_FLUX_SCHNELL_MODEL_SOURCE
-        return DEFAULT_FLUX_DEV_MODEL_SOURCE
-
-    def _default_steps(self) -> int:
-        if self.model_spec.id == "flux-schnell":
-            return 4
-        return 28
-
-    def _default_guidance_scale(self) -> float:
-        if self.model_spec.id == "flux-schnell":
-            return 0.0
-        return 3.5
-
-    def _default_max_sequence_length(self) -> int:
-        if self.model_spec.id == "flux-schnell":
-            return 256
-        return 512

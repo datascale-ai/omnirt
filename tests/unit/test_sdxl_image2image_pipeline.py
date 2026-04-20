@@ -4,8 +4,9 @@ from types import SimpleNamespace
 from PIL import Image
 
 from omnirt.backends.base import BackendRuntime
-from omnirt.core.registry import ModelSpec
+from omnirt.core.registry import ModelSpec, get_model
 from omnirt.core.types import GenerateRequest
+from omnirt.models import ensure_registered
 from omnirt.models.sdxl.image2image import SDXLImageToImagePipeline
 
 
@@ -78,9 +79,9 @@ class FakeDiffusersPipeline:
         return SimpleNamespace(images=[Image.new("RGB", image.size, color="white")])
 
 
-def build_model_spec() -> ModelSpec:
+def build_model_spec(model_id: str = "sdxl-base-1.0") -> ModelSpec:
     return ModelSpec(
-        id="sdxl-base-1.0",
+        id=model_id,
         task="image2image",
         pipeline_cls=SDXLImageToImagePipeline,
         default_backend="auto",
@@ -112,3 +113,33 @@ def test_sdxl_image2image_pipeline_passes_strength(tmp_path, monkeypatch) -> Non
     assert call["image"].size == (64, 64)
     assert call["strength"] == 0.7
     assert created.scheduler == {"name": "euler"}
+
+
+def test_sdxl_refiner_is_registered() -> None:
+    ensure_registered()
+
+    assert get_model("sdxl-refiner-1.0", task="image2image").task == "image2image"
+
+
+def test_sdxl_refiner_uses_refiner_defaults(tmp_path, monkeypatch) -> None:
+    input_image = tmp_path / "input.png"
+    Image.new("RGB", (48, 48), color="blue").save(input_image)
+
+    monkeypatch.setattr(SDXLImageToImagePipeline, "_diffusers_pipeline_cls", lambda self: FakeDiffusersPipeline)
+    monkeypatch.setattr("omnirt.models.sdxl.pipeline.build_scheduler", lambda config: {"name": "euler"})
+
+    request = GenerateRequest(
+        task="image2image",
+        model="sdxl-refiner-1.0",
+        backend="cuda",
+        inputs={"image": str(input_image), "prompt": "add fine detail"},
+        config={"output_dir": str(tmp_path)},
+    )
+    pipeline = SDXLImageToImagePipeline(runtime=FakeCudaRuntime(), model_spec=build_model_spec("sdxl-refiner-1.0"))
+
+    pipeline.run(request)
+
+    created = FakeDiffusersPipeline.created[-1]
+    call = created.calls[-1]
+    assert created.source == "stabilityai/stable-diffusion-xl-refiner-1.0"
+    assert call["strength"] == 0.3

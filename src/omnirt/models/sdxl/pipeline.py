@@ -11,7 +11,11 @@ from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
 from omnirt.core.base_pipeline import BasePipeline
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.sdxl.components import DEFAULT_SDXL_MODEL_SOURCE, DEFAULT_SDXL_TURBO_MODEL_SOURCE
+from omnirt.models.sdxl.components import (
+    DEFAULT_SDXL_MODEL_SOURCE,
+    DEFAULT_SDXL_REFINER_MODEL_SOURCE,
+    DEFAULT_SDXL_TURBO_MODEL_SOURCE,
+)
 from omnirt.schedulers import build_scheduler
 
 
@@ -275,6 +279,8 @@ class SDXLPipeline(BasePipeline):
         return None
 
     def _default_model_source(self) -> str:
+        if self.model_spec.id == "sdxl-refiner-1.0":
+            return DEFAULT_SDXL_REFINER_MODEL_SOURCE
         if self.model_spec.id == "sdxl-turbo":
             return DEFAULT_SDXL_TURBO_MODEL_SOURCE
         return DEFAULT_SDXL_MODEL_SOURCE

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from omnirt.core.types import (
     AdapterRef,
@@ -106,7 +106,7 @@ def inpaint(
 def edit(
     *,
     model: str,
-    image: str,
+    image: Union[str, Sequence[str]],
     prompt: str,
     backend: BackendName = "auto",
     adapters: Optional[List[AdapterRef]] = None,

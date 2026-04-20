@@ -23,6 +23,20 @@ class VideoModelConfig:
 
 
 MODEL_CONFIGS = {
+    "mochi": VideoModelConfig(
+        source="genmo/mochi-1-preview",
+        task="text2video",
+        class_candidates=("MochiPipeline",),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 480, "width": 848, "dtype": "bf16"},
+        default_num_frames=19,
+        default_fps=30,
+        default_steps=50,
+        default_guidance_scale=4.5,
+        summary="Mochi text-to-video pipeline.",
+        example="omnirt generate --task text2video --model mochi --prompt \"Close-up of a chameleon's eye\" --backend cuda",
+    ),
     "cogvideox-2b": VideoModelConfig(
         source="THUDM/CogVideoX-2b",
         task="text2video",
@@ -190,5 +204,19 @@ MODEL_CONFIGS = {
         default_guidance_scale=5.0,
         summary="LTX image-to-video pipeline.",
         example="omnirt generate --task image2video --model ltx2-i2v --image input.png --prompt \"animate this meme frame\" --backend cuda",
+    ),
+    "skyreels-v2": VideoModelConfig(
+        source="Skywork/SkyReels-V2-T2V-14B-540P-Diffusers",
+        task="text2video",
+        class_candidates=("SkyReelsV2Pipeline", "SkyReelsV2DiffusionForcingPipeline"),
+        module_tags=("text_encoder", "transformer", "vae"),
+        resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
+        default_config={"scheduler": "native", "height": 544, "width": 960, "dtype": "bf16"},
+        default_num_frames=97,
+        default_fps=24,
+        default_steps=50,
+        default_guidance_scale=6.0,
+        summary="SkyReels-V2 text-to-video pipeline.",
+        example="omnirt generate --task text2video --model skyreels-v2 --prompt \"a cat and a dog baking a cake together\" --backend cuda",
     ),
 }

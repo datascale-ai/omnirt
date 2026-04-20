@@ -76,6 +76,7 @@ def test_video_family_models_are_registered() -> None:
     ensure_registered()
 
     for model_id in (
+        "mochi",
         "cogvideox-2b",
         "cogvideox-5b",
         "kandinsky5-t2v",
@@ -86,6 +87,7 @@ def test_video_family_models_are_registered() -> None:
         "sana-video",
         "ltx-video",
         "ltx2-i2v",
+        "skyreels-v2",
     ):
         assert get_model(model_id).task == MODEL_CONFIGS[model_id].task
 
@@ -109,3 +111,22 @@ def test_video_family_pipeline_exports_mp4(tmp_path, monkeypatch) -> None:
     created = FakeVideoDiffusersPipeline.created[-1]
     assert created.source == MODEL_CONFIGS["cogvideox-2b"].source
     assert created.calls[-1]["prompt"] == "a wooden toy ship gliding over a plush blue carpet"
+
+
+def test_new_video_family_models_use_expected_sources(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(VideoFamilyPipeline, "_diffusers_pipeline_cls", lambda self: FakeVideoDiffusersPipeline)
+
+    for model_id in ("mochi", "skyreels-v2"):
+        request = GenerateRequest(
+            task="text2video",
+            model=model_id,
+            backend="cuda",
+            inputs={"prompt": f"demo prompt for {model_id}", "num_frames": 4, "fps": 8},
+            config={"output_dir": str(tmp_path)},
+        )
+        pipeline = VideoFamilyPipeline(runtime=FakeVideoRuntime(), model_spec=build_model_spec(model_id))
+        result = pipeline.run(request)
+
+        assert Path(result.outputs[0].path).exists()
+        created = FakeVideoDiffusersPipeline.created[-1]
+        assert created.source == MODEL_CONFIGS[model_id].source

@@ -1,4 +1,4 @@
-"""Flux 1 family pipeline implementation backed by Diffusers."""
+"""ChronoEdit image editing pipeline backed by Diffusers."""
 
 from __future__ import annotations
 
@@ -9,74 +9,54 @@ from typing import Any, Dict, List, Optional
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
 from omnirt.core.base_pipeline import BasePipeline
+from omnirt.core.media import load_image
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT_FLUX_SCHNELL_MODEL_SOURCE
+
+
+DEFAULT_CHRONOEDIT_MODEL_SOURCE = "nvidia/ChronoEdit-14B-Diffusers"
 
 
 @register_model(
-    id="flux-dev",
-    task="text2image",
+    id="chronoedit",
+    task="edit",
     default_backend="auto",
     resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
     capabilities=ModelCapabilities(
-        required_inputs=("prompt",),
+        required_inputs=("image", "prompt"),
         optional_inputs=("negative_prompt",),
         supported_config=(
             "model_path",
-            "scheduler",
             "height",
             "width",
-            "num_images_per_prompt",
-            "max_sequence_length",
+            "num_frames",
             "num_inference_steps",
             "guidance_scale",
+            "max_sequence_length",
+            "enable_temporal_reasoning",
+            "num_temporal_reasoning_steps",
             "seed",
             "dtype",
             "output_dir",
         )
         + ASCEND_ACCELERATION_CONFIG_KEYS,
-        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
+        default_config={
+            "height": 512,
+            "width": 512,
+            "num_frames": 9,
+            "dtype": "bf16",
+            "enable_temporal_reasoning": True,
+            "num_temporal_reasoning_steps": 1,
+        },
         supported_schedulers=("native",),
         adapter_kinds=("lora",),
         artifact_kind="image",
-        maturity="stable",
-        summary="Flux 1 dev text-to-image pipeline.",
-        example="omnirt generate --task text2image --model flux-dev --prompt \"a paper dragon in a lantern shop\" --backend cuda",
+        maturity="beta",
+        summary="ChronoEdit physically-consistent image editing pipeline.",
+        example="omnirt generate --task edit --model chronoedit --image input.png --prompt \"turn this object into polished bronze while preserving structure\" --backend cuda",
     ),
 )
-@register_model(
-    id="flux-schnell",
-    task="text2image",
-    default_backend="auto",
-    resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
-    capabilities=ModelCapabilities(
-        required_inputs=("prompt",),
-        optional_inputs=("negative_prompt",),
-        supported_config=(
-            "model_path",
-            "scheduler",
-            "height",
-            "width",
-            "num_images_per_prompt",
-            "max_sequence_length",
-            "num_inference_steps",
-            "guidance_scale",
-            "seed",
-            "dtype",
-            "output_dir",
-        )
-        + ASCEND_ACCELERATION_CONFIG_KEYS,
-        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 256, "dtype": "bf16"},
-        supported_schedulers=("native",),
-        adapter_kinds=("lora",),
-        artifact_kind="image",
-        maturity="stable",
-        summary="Flux 1 schnell low-step text-to-image pipeline.",
-        example="omnirt generate --task text2image --model flux-schnell --prompt \"a paper dragon in a lantern shop\" --backend cuda",
-    ),
-)
-class FluxPipeline(BasePipeline):
+class ChronoEditPipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
@@ -85,38 +65,38 @@ class FluxPipeline(BasePipeline):
 
     def prepare_conditions(self, req: GenerateRequest) -> Dict[str, Any]:
         prompt = req.inputs.get("prompt")
+        image = req.inputs.get("image")
         if not prompt:
-            raise ValueError("text2image requires inputs.prompt")
+            raise ValueError("edit requires inputs.prompt")
+        if not image:
+            raise ValueError("edit requires inputs.image")
+        source_image = load_image(str(image))
         return {
             "prompt": prompt,
             "negative_prompt": req.inputs.get("negative_prompt"),
-            "model_source": req.config.get("model_path", self._default_model_source()),
-            "scheduler": req.config.get("scheduler", "native"),
-            "height": int(req.config.get("height", 1024)),
-            "width": int(req.config.get("width", 1024)),
-            "num_images_per_prompt": int(req.config.get("num_images_per_prompt", 1)),
-            "max_sequence_length": int(req.config.get("max_sequence_length", self._default_max_sequence_length())),
+            "image": source_image,
+            "model_source": req.config.get("model_path", DEFAULT_CHRONOEDIT_MODEL_SOURCE),
+            "height": int(req.config.get("height", source_image.height)),
+            "width": int(req.config.get("width", source_image.width)),
+            "num_frames": int(req.config.get("num_frames", 9)),
+            "max_sequence_length": req.config.get("max_sequence_length"),
+            "enable_temporal_reasoning": bool(req.config.get("enable_temporal_reasoning", True)),
+            "num_temporal_reasoning_steps": int(req.config.get("num_temporal_reasoning_steps", 1)),
         }
 
     def prepare_latents(self, req: GenerateRequest, conditions: Any) -> Dict[str, Any]:
-        steps = int(req.config.get("num_inference_steps", self._default_steps()))
+        steps = int(req.config.get("num_inference_steps", 30))
         seed = req.config.get("seed")
-        guidance_scale = float(req.config.get("guidance_scale", self._default_guidance_scale()))
+        guidance_scale = float(req.config.get("guidance_scale", 4.0))
         torch_dtype = self._resolve_torch_dtype(req.config.get("dtype", "bf16"))
         generator = self._build_generator(seed)
-        pipeline = self._load_pipeline(
-            source=conditions["model_source"],
-            torch_dtype=torch_dtype,
-            scheduler_name=conditions["scheduler"],
-            config=req.config,
-        )
+        pipeline = self._load_pipeline(source=conditions["model_source"], torch_dtype=torch_dtype, config=req.config)
         self._last_seed = seed
         return {
             "steps": steps,
             "seed": seed,
             "generator": generator,
             "guidance_scale": guidance_scale,
-            "conditions": conditions,
             "pipeline": pipeline,
         }
 
@@ -124,55 +104,68 @@ class FluxPipeline(BasePipeline):
         started = time.perf_counter()
         pipeline = latents["pipeline"]
         kwargs = {
+            "image": conditions["image"],
             "prompt": conditions["prompt"],
             "negative_prompt": conditions.get("negative_prompt"),
+            "height": conditions["height"],
+            "width": conditions["width"],
+            "num_frames": conditions["num_frames"],
             "num_inference_steps": latents["steps"],
             "guidance_scale": latents["guidance_scale"],
             "generator": latents["generator"],
-            "height": conditions["height"],
-            "width": conditions["width"],
-            "num_images_per_prompt": conditions["num_images_per_prompt"],
-            "max_sequence_length": conditions["max_sequence_length"],
+            "max_sequence_length": conditions.get("max_sequence_length"),
+            "enable_temporal_reasoning": conditions["enable_temporal_reasoning"],
+            "num_temporal_reasoning_steps": conditions["num_temporal_reasoning_steps"],
             "output_type": "pil",
         }
+        if self._supports_callback_on_step_end(pipeline):
+            kwargs["callback_on_step_end"] = self.make_latent_callback(latents["steps"])
+            kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
         result = pipeline(**self._filter_call_kwargs(pipeline, kwargs))
+        frames = getattr(result, "frames", None)
+        if frames is None and isinstance(result, tuple):
+            frames = result[0]
+        if frames is None:
+            raise ValueError("Unexpected ChronoEdit pipeline output.")
+        sequence = list(frames[0] if frames and isinstance(frames[0], list) else frames)
         return {
-            "images": list(result.images),
+            "frames": sequence,
             "seed": latents["seed"],
             "generation_ms": round((time.perf_counter() - started) * 1000, 3),
         }
 
     def decode(self, latents: Any) -> Any:
-        return latents["images"]
+        return latents["frames"]
 
     def export(self, raw: Any, req: GenerateRequest) -> List[Artifact]:
         output_dir = self.resolve_output_dir(req)
         artifacts: List[Artifact] = []
-        for index, image in enumerate(raw):
-            seed_part = self._last_seed if self._last_seed is not None else "random"
-            file_path = output_dir / f"{req.model}-{seed_part}-{index}.png"
-            image.save(file_path)
-            artifacts.append(
-                Artifact(
-                    kind="image",
-                    path=str(file_path),
-                    mime="image/png",
-                    width=image.width,
-                    height=image.height,
-                )
+        seed_part = self._last_seed if self._last_seed is not None else "random"
+        frame = raw[-1]
+        file_path = output_dir / f"{req.model}-{seed_part}-final.png"
+        frame.save(file_path)
+        artifacts.append(
+            Artifact(
+                kind="image",
+                path=str(file_path),
+                mime="image/png",
+                width=frame.width,
+                height=frame.height,
             )
+        )
         return artifacts
 
     def resolve_run_config(self, req: GenerateRequest, conditions: Any, latents: Any) -> Dict[str, Any]:
         return {
             "model_path": conditions["model_source"],
-            "scheduler": conditions["scheduler"],
             "height": conditions["height"],
             "width": conditions["width"],
-            "num_images_per_prompt": conditions["num_images_per_prompt"],
-            "max_sequence_length": conditions["max_sequence_length"],
+            "num_frames": conditions["num_frames"],
             "num_inference_steps": latents["steps"],
             "guidance_scale": latents["guidance_scale"],
+            "max_sequence_length": conditions.get("max_sequence_length"),
+            "enable_temporal_reasoning": conditions["enable_temporal_reasoning"],
+            "num_temporal_reasoning_steps": conditions["num_temporal_reasoning_steps"],
             "seed": latents["seed"],
             "dtype": req.config.get("dtype", "bf16"),
             "output_dir": str(Path(req.config.get("output_dir", "outputs"))),
@@ -182,7 +175,7 @@ class FluxPipeline(BasePipeline):
         try:
             import torch
         except ImportError as exc:
-            raise DependencyUnavailableError("PyTorch is required to run the Flux pipeline.") from exc
+            raise DependencyUnavailableError("PyTorch is required to run ChronoEdit.") from exc
         return torch
 
     def _resolve_torch_dtype(self, dtype_name: Optional[str]):
@@ -211,22 +204,20 @@ class FluxPipeline(BasePipeline):
 
     def _diffusers_pipeline_cls(self):
         try:
-            from diffusers import FluxPipeline as DiffusersFluxPipeline
+            from diffusers import ChronoEditPipeline as DiffusersChronoEditPipeline
         except ImportError as exc:
             raise DependencyUnavailableError(
-                "diffusers with FluxPipeline support is required for Flux execution."
+                "diffusers with ChronoEditPipeline support is required for ChronoEdit execution."
             ) from exc
-        return DiffusersFluxPipeline
+        return DiffusersChronoEditPipeline
 
-    def _load_pipeline(self, *, source: str, torch_dtype: Any, scheduler_name: str, config: Dict[str, Any]):
-        cache_key = self.pipeline_cache_key(source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name)
+    def _load_pipeline(self, *, source: str, torch_dtype: Any, config: Dict[str, Any]):
+        cache_key = self.pipeline_cache_key(source=source, torch_dtype=torch_dtype, scheduler_name="native")
         if self._pipeline is not None and self._pipeline_key == cache_key:
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
         pipeline = pipeline_cls.from_pretrained(source, torch_dtype=torch_dtype)
-        if scheduler_name != "native":
-            raise ValueError(f"Unsupported Flux scheduler: {scheduler_name}")
         pipeline = self.runtime.prepare_pipeline(pipeline, model_spec=self.model_spec, config=config)
         self._wrap_pipeline_modules(pipeline)
         pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
@@ -236,7 +227,7 @@ class FluxPipeline(BasePipeline):
         return pipeline
 
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:
-        for tag in ("text_encoder", "transformer", "vae"):
+        for tag in ("image_encoder", "text_encoder", "transformer", "vae"):
             module = getattr(pipeline, tag, None)
             if module is None:
                 continue
@@ -245,7 +236,8 @@ class FluxPipeline(BasePipeline):
             self.components[tag] = wrapped
 
     def _apply_adapters(self, pipeline: Any) -> None:
-        self.adapter_manager.apply_to_pipeline(pipeline)
+        if self.adapters:
+            self.adapter_manager.apply_to_pipeline(pipeline)
 
     def _filter_call_kwargs(self, pipeline: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -261,23 +253,3 @@ class FluxPipeline(BasePipeline):
             for key, value in kwargs.items()
             if value is not None and key in parameters
         }
-
-    def _default_model_source(self) -> str:
-        if self.model_spec.id == "flux-schnell":
-            return DEFAULT_FLUX_SCHNELL_MODEL_SOURCE
-        return DEFAULT_FLUX_DEV_MODEL_SOURCE
-
-    def _default_steps(self) -> int:
-        if self.model_spec.id == "flux-schnell":
-            return 4
-        return 28
-
-    def _default_guidance_scale(self) -> float:
-        if self.model_spec.id == "flux-schnell":
-            return 0.0
-        return 3.5
-
-    def _default_max_sequence_length(self) -> int:
-        if self.model_spec.id == "flux-schnell":
-            return 256
-        return 512

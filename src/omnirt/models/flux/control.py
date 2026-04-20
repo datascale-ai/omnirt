@@ -1,21 +1,23 @@
-"""SDXL image-to-image pipelines backed by Diffusers."""
+"""Flux control-guided pipelines backed by Diffusers."""
 
 from __future__ import annotations
 
 import time
 from typing import Any, Dict
 
+from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
 from omnirt.core.media import load_image
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import DependencyUnavailableError, GenerateRequest
-from omnirt.models.sdxl.pipeline import SDXLPipeline
+from omnirt.models.flux.components import DEFAULT_FLUX_CANNY_MODEL_SOURCE, DEFAULT_FLUX_DEPTH_MODEL_SOURCE
+from omnirt.models.flux.pipeline import FluxPipeline
 
 
 @register_model(
-    id="sdxl-base-1.0",
-    task="image2image",
+    id="flux-depth",
+    task="edit",
     default_backend="auto",
-    resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
+    resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "prompt"),
         optional_inputs=("negative_prompt",),
@@ -25,71 +27,73 @@ from omnirt.models.sdxl.pipeline import SDXLPipeline
             "height",
             "width",
             "num_images_per_prompt",
+            "max_sequence_length",
             "num_inference_steps",
             "guidance_scale",
-            "strength",
             "seed",
             "dtype",
             "output_dir",
-        ),
-        default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "strength": 0.8, "dtype": "fp16"},
-        supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
-        adapter_kinds=("lora",),
-        artifact_kind="image",
-        maturity="stable",
-        summary="SDXL image-to-image pipeline with LoRA support.",
-        example="omnirt generate --task image2image --model sdxl-base-1.0 --image input.png --prompt \"cinematic concept art\" --backend cuda",
-    ),
-)
-@register_model(
-    id="sdxl-refiner-1.0",
-    task="image2image",
-    default_backend="auto",
-    resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
-    capabilities=ModelCapabilities(
-        required_inputs=("image", "prompt"),
-        optional_inputs=("negative_prompt",),
-        supported_config=(
-            "model_path",
-            "scheduler",
-            "height",
-            "width",
-            "num_images_per_prompt",
-            "num_inference_steps",
-            "guidance_scale",
-            "strength",
-            "seed",
-            "dtype",
-            "output_dir",
-        ),
-        default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "strength": 0.3, "dtype": "fp16"},
-        supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
+        )
+        + ASCEND_ACCELERATION_CONFIG_KEYS,
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
+        supported_schedulers=("native",),
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="beta",
-        summary="SDXL refiner image-to-image pipeline for second-stage refinement passes.",
-        example="omnirt generate --task image2image --model sdxl-refiner-1.0 --image input.png --prompt \"add finer texture and lighting detail\" --backend cuda",
+        summary="Flux depth-guided structured image generation pipeline.",
+        example="omnirt generate --task edit --model flux-depth --image input.png --prompt \"render this layout as a cinematic product shot\" --backend cuda",
     ),
 )
-class SDXLImageToImagePipeline(SDXLPipeline):
+@register_model(
+    id="flux-canny",
+    task="edit",
+    default_backend="auto",
+    resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("image", "prompt"),
+        optional_inputs=("negative_prompt",),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_images_per_prompt",
+            "max_sequence_length",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        )
+        + ASCEND_ACCELERATION_CONFIG_KEYS,
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
+        supported_schedulers=("native",),
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="beta",
+        summary="Flux canny-guided structured image generation pipeline.",
+        example="omnirt generate --task edit --model flux-canny --image input.png --prompt \"turn these edges into a neon city illustration\" --backend cuda",
+    ),
+)
+class FluxControlEditPipeline(FluxPipeline):
     def prepare_conditions(self, req: GenerateRequest) -> Dict[str, Any]:
         prompt = req.inputs.get("prompt")
         image = req.inputs.get("image")
         if not prompt:
-            raise ValueError("image2image requires inputs.prompt")
+            raise ValueError("edit requires inputs.prompt")
         if not image:
-            raise ValueError("image2image requires inputs.image")
-        source_image = load_image(str(image))
+            raise ValueError("edit requires inputs.image")
+        control_image = load_image(str(image))
         return {
             "prompt": prompt,
             "negative_prompt": req.inputs.get("negative_prompt"),
-            "image": source_image,
+            "control_image": control_image,
             "model_source": req.config.get("model_path", self._default_model_source()),
-            "scheduler": req.config.get("scheduler", self._default_scheduler()),
-            "height": int(req.config.get("height", source_image.height)),
-            "width": int(req.config.get("width", source_image.width)),
+            "scheduler": req.config.get("scheduler", "native"),
+            "height": int(req.config.get("height", control_image.height)),
+            "width": int(req.config.get("width", control_image.width)),
             "num_images_per_prompt": int(req.config.get("num_images_per_prompt", 1)),
-            "strength": float(req.config.get("strength", self._default_strength())),
+            "max_sequence_length": int(req.config.get("max_sequence_length", self._default_max_sequence_length())),
         }
 
     def denoise_loop(self, latents: Any, conditions: Any, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -98,19 +102,16 @@ class SDXLImageToImagePipeline(SDXLPipeline):
         kwargs = {
             "prompt": conditions["prompt"],
             "negative_prompt": conditions.get("negative_prompt"),
-            "image": conditions["image"],
+            "control_image": conditions["control_image"],
             "num_inference_steps": latents["steps"],
             "guidance_scale": latents["guidance_scale"],
-            "strength": conditions["strength"],
             "generator": latents["generator"],
             "height": conditions["height"],
             "width": conditions["width"],
             "num_images_per_prompt": conditions["num_images_per_prompt"],
+            "max_sequence_length": conditions["max_sequence_length"],
             "output_type": "pil",
         }
-        if self._supports_callback_on_step_end(pipeline):
-            kwargs["callback_on_step_end"] = self.make_latent_callback(latents["steps"])
-            kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
         result = pipeline(**self._filter_call_kwargs(pipeline, kwargs))
         return {
             "images": list(result.images),
@@ -118,21 +119,16 @@ class SDXLImageToImagePipeline(SDXLPipeline):
             "generation_ms": round((time.perf_counter() - started) * 1000, 3),
         }
 
-    def resolve_run_config(self, req: GenerateRequest, conditions: Any, latents: Any) -> Dict[str, Any]:
-        resolved = super().resolve_run_config(req, conditions, latents)
-        resolved["strength"] = conditions["strength"]
-        return resolved
-
     def _diffusers_pipeline_cls(self):
         try:
-            from diffusers import StableDiffusionXLImg2ImgPipeline
+            from diffusers import FluxControlPipeline as DiffusersFluxControlPipeline
         except ImportError as exc:
             raise DependencyUnavailableError(
-                "diffusers is required for SDXL image-to-image execution. Install omnirt with runtime dependencies."
+                "diffusers with FluxControlPipeline support is required for Flux structured control execution."
             ) from exc
-        return StableDiffusionXLImg2ImgPipeline
+        return DiffusersFluxControlPipeline
 
-    def _default_strength(self) -> float:
-        if self.model_spec.id == "sdxl-refiner-1.0":
-            return 0.3
-        return 0.8
+    def _default_model_source(self) -> str:
+        if self.model_spec.id == "flux-canny":
+            return DEFAULT_FLUX_CANNY_MODEL_SOURCE
+        return DEFAULT_FLUX_DEPTH_MODEL_SOURCE
