@@ -23,6 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  "torch>=2.1",
 ]
 runtime = [
   "diffusers>=0.37.1",
