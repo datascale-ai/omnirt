@@ -16,6 +16,25 @@ def test_default_scheduler_is_euler_discrete() -> None:
     assert "euler-discrete" in available_schedulers()
 
 
+def test_core_schedulers_registered() -> None:
+    registered = set(available_schedulers())
+    expected = {"euler-discrete", "euler-ancestral", "ddim", "dpm-solver", "dpm-solver-karras"}
+    assert expected.issubset(registered)
+
+
+def test_dpm_solver_karras_delegates_to_dpm_solver(monkeypatch) -> None:
+    captured = {}
+
+    def _dpm(config):
+        captured["config"] = dict(config)
+        return "dpm"
+
+    monkeypatch.setitem(SCHEDULER_REGISTRY, "dpm-solver", _dpm)
+    built = build_scheduler({"scheduler": "dpm-solver-karras"})
+    assert built == "dpm"
+    assert captured["config"].get("use_karras_sigmas") is True
+
+
 def test_build_scheduler_unknown_name_lists_available() -> None:
     with pytest.raises(ValueError) as exc_info:
         build_scheduler({"scheduler": "not-a-real-scheduler"})
