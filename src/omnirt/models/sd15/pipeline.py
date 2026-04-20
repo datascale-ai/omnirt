@@ -1,118 +1,72 @@
-"""SVD pipeline implementation backed by Diffusers."""
+"""Stable Diffusion 1.5 pipeline implementation backed by Diffusers."""
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
+import time
 from typing import Any, Dict, List, Optional
 
 from omnirt.core.base_pipeline import BasePipeline
-from omnirt.core.media import load_image, save_video_frames
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
-from omnirt.models.svd.components import DEFAULT_SVD_MODEL_SOURCE, DEFAULT_SVD_XT_MODEL_SOURCE
+from omnirt.models.sd15.components import DEFAULT_SD15_MODEL_SOURCE
 from omnirt.schedulers import build_scheduler
 
 
 @register_model(
-    id="svd",
-    task="image2video",
+    id="sd15",
+    task="text2image",
     default_backend="auto",
-    resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
+    resource_hint={"min_vram_gb": 6, "dtype": "fp16"},
     capabilities=ModelCapabilities(
-        required_inputs=("image",),
-        optional_inputs=("num_frames", "fps"),
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt",),
         supported_config=(
             "model_path",
             "scheduler",
-            "frame_bucket",
-            "motion_bucket_id",
-            "decode_chunk_size",
-            "noise_aug_strength",
+            "height",
+            "width",
+            "num_images_per_prompt",
             "num_inference_steps",
             "guidance_scale",
             "seed",
             "dtype",
             "output_dir",
         ),
-        default_config={
-            "scheduler": "euler-discrete",
-            "frame_bucket": 127,
-            "decode_chunk_size": 8,
-            "noise_aug_strength": 0.02,
-            "dtype": "fp16",
-        },
+        default_config={"scheduler": "euler-discrete", "height": 512, "width": 512, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
-        artifact_kind="video",
-        maturity="stable",
-        summary="Stable Video Diffusion base image-to-video pipeline.",
-        example="omnirt generate --task image2video --model svd --image input.png --backend cuda",
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="beta",
+        summary="Stable Diffusion 1.5 baseline text-to-image pipeline.",
+        example="omnirt generate --task text2image --model sd15 --prompt \"a lighthouse in fog\" --backend cuda",
     ),
 )
-@register_model(
-    id="svd-xt",
-    task="image2video",
-    default_backend="auto",
-    resource_hint={"min_vram_gb": 14, "dtype": "fp16"},
-    capabilities=ModelCapabilities(
-        required_inputs=("image",),
-        optional_inputs=("num_frames", "fps"),
-        supported_config=(
-            "model_path",
-            "scheduler",
-            "frame_bucket",
-            "motion_bucket_id",
-            "decode_chunk_size",
-            "noise_aug_strength",
-            "num_inference_steps",
-            "guidance_scale",
-            "seed",
-            "dtype",
-            "output_dir",
-        ),
-        default_config={
-            "scheduler": "euler-discrete",
-            "frame_bucket": 127,
-            "decode_chunk_size": 8,
-            "noise_aug_strength": 0.02,
-            "dtype": "fp16",
-        },
-        supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
-        artifact_kind="video",
-        maturity="stable",
-        summary="Stable Video Diffusion XT image-to-video pipeline.",
-        example="omnirt generate --task image2video --model svd-xt --image input.png --backend cuda",
-    ),
-)
-class SVDPipeline(BasePipeline):
+class SD15Pipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
         self._pipeline_key: Optional[tuple] = None
         self._last_seed = None
-        self._last_fps = None
 
     def prepare_conditions(self, req: GenerateRequest) -> Dict[str, Any]:
-        image = req.inputs.get("image")
-        if not image:
-            raise ValueError("image2video requires inputs.image")
-        if not Path(image).exists():
-            raise FileNotFoundError(image)
+        prompt = req.inputs.get("prompt")
+        if not prompt:
+            raise ValueError("text2image requires inputs.prompt")
         return {
-            "image": load_image(image),
-            "num_frames": int(req.inputs.get("num_frames", self._default_num_frames())),
-            "fps": int(req.inputs.get("fps", 7)),
-            "frame_bucket": int(req.config.get("frame_bucket", req.config.get("motion_bucket_id", 127))),
-            "decode_chunk_size": int(req.config.get("decode_chunk_size", 8)),
-            "noise_aug_strength": float(req.config.get("noise_aug_strength", 0.02)),
-            "model_source": req.config.get("model_path", self._default_model_source()),
+            "prompt": prompt,
+            "negative_prompt": req.inputs.get("negative_prompt"),
+            "model_source": req.config.get("model_path", DEFAULT_SD15_MODEL_SOURCE),
             "scheduler": req.config.get("scheduler", "euler-discrete"),
+            "height": int(req.config.get("height", 512)),
+            "width": int(req.config.get("width", 512)),
+            "num_images_per_prompt": int(req.config.get("num_images_per_prompt", 1)),
         }
 
     def prepare_latents(self, req: GenerateRequest, conditions: Any) -> Dict[str, Any]:
-        steps = int(req.config.get("num_inference_steps", 25))
+        steps = int(req.config.get("num_inference_steps", 30))
         seed = req.config.get("seed")
-        guidance_scale = float(req.config.get("guidance_scale", 3.0))
+        guidance_scale = float(req.config.get("guidance_scale", 7.5))
         torch_dtype = self._resolve_torch_dtype(req.config.get("dtype"))
         generator = self._build_generator(seed)
         pipeline = self._load_pipeline(
@@ -122,7 +76,6 @@ class SVDPipeline(BasePipeline):
             config=req.config,
         )
         self._last_seed = seed
-        self._last_fps = conditions["fps"]
         return {
             "steps": steps,
             "seed": seed,
@@ -135,56 +88,58 @@ class SVDPipeline(BasePipeline):
     def denoise_loop(self, latents: Any, conditions: Any, config: Dict[str, Any]) -> Dict[str, Any]:
         started = time.perf_counter()
         pipeline = latents["pipeline"]
+        callback_kwargs = {}
+        if self._supports_callback_on_step_end(pipeline):
+            callback_kwargs = {
+                "callback_on_step_end": self.make_latent_callback(latents["steps"]),
+                "callback_on_step_end_tensor_inputs": ["latents"],
+            }
         result = pipeline(
-            image=conditions["image"],
-            num_frames=conditions["num_frames"],
-            fps=conditions["fps"],
-            motion_bucket_id=conditions["frame_bucket"],
-            noise_aug_strength=conditions["noise_aug_strength"],
-            decode_chunk_size=conditions["decode_chunk_size"],
+            prompt=conditions["prompt"],
+            negative_prompt=conditions.get("negative_prompt"),
             num_inference_steps=latents["steps"],
-            min_guidance_scale=latents["guidance_scale"],
-            max_guidance_scale=latents["guidance_scale"],
+            guidance_scale=latents["guidance_scale"],
             generator=latents["generator"],
+            height=conditions["height"],
+            width=conditions["width"],
+            num_images_per_prompt=conditions["num_images_per_prompt"],
             output_type="pil",
+            **callback_kwargs,
         )
-        frames = list(result.frames[0] if result.frames and isinstance(result.frames[0], list) else result.frames)
         return {
-            "frames": frames,
-            "fps": conditions["fps"],
+            "images": list(result.images),
             "seed": latents["seed"],
             "generation_ms": round((time.perf_counter() - started) * 1000, 3),
         }
 
     def decode(self, latents: Any) -> Any:
-        return latents["frames"]
+        return latents["images"]
 
     def export(self, raw: Any, req: GenerateRequest) -> List[Artifact]:
         output_dir = self.resolve_output_dir(req)
-        seed_part = self._last_seed if self._last_seed is not None else "random"
-        file_path = output_dir / f"{req.model}-{seed_part}.mp4"
-        save_video_frames(file_path, raw, fps=self._last_fps or int(req.inputs.get("fps", 7)))
-        first_frame = raw[0]
-        return [
-            Artifact(
-                kind="video",
-                path=str(file_path),
-                mime="video/mp4",
-                width=first_frame.width,
-                height=first_frame.height,
-                num_frames=len(raw),
+        artifacts: List[Artifact] = []
+        for index, image in enumerate(raw):
+            seed_part = self._last_seed if self._last_seed is not None else "random"
+            file_path = output_dir / f"{req.model}-{seed_part}-{index}.png"
+            image.save(file_path)
+            artifacts.append(
+                Artifact(
+                    kind="image",
+                    path=str(file_path),
+                    mime="image/png",
+                    width=image.width,
+                    height=image.height,
+                )
             )
-        ]
+        return artifacts
 
     def resolve_run_config(self, req: GenerateRequest, conditions: Any, latents: Any) -> Dict[str, Any]:
         return {
             "model_path": conditions["model_source"],
             "scheduler": conditions["scheduler"],
-            "num_frames": conditions["num_frames"],
-            "fps": conditions["fps"],
-            "frame_bucket": conditions["frame_bucket"],
-            "decode_chunk_size": conditions["decode_chunk_size"],
-            "noise_aug_strength": conditions["noise_aug_strength"],
+            "height": conditions["height"],
+            "width": conditions["width"],
+            "num_images_per_prompt": conditions["num_images_per_prompt"],
             "num_inference_steps": latents["steps"],
             "guidance_scale": latents["guidance_scale"],
             "seed": latents["seed"],
@@ -196,7 +151,7 @@ class SVDPipeline(BasePipeline):
         try:
             import torch
         except ImportError as exc:
-            raise DependencyUnavailableError("PyTorch is required to run the SVD pipeline.") from exc
+            raise DependencyUnavailableError("PyTorch is required to run the SD1.5 pipeline.") from exc
         return torch
 
     def _resolve_torch_dtype(self, dtype_name: Optional[str]):
@@ -225,12 +180,12 @@ class SVDPipeline(BasePipeline):
 
     def _diffusers_pipeline_cls(self):
         try:
-            from diffusers import StableVideoDiffusionPipeline
+            from diffusers import StableDiffusionPipeline
         except ImportError as exc:
             raise DependencyUnavailableError(
-                "diffusers is required for SVD execution. Install omnirt with runtime dependencies."
+                "diffusers is required for SD1.5 execution. Install omnirt with runtime dependencies."
             ) from exc
-        return StableVideoDiffusionPipeline
+        return StableDiffusionPipeline
 
     def _load_pipeline(
         self,
@@ -247,11 +202,7 @@ class SVDPipeline(BasePipeline):
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
-        pipeline = pipeline_cls.from_pretrained(
-            source,
-            torch_dtype=torch_dtype,
-            use_safetensors=True,
-        )
+        pipeline = pipeline_cls.from_pretrained(source, **self._from_pretrained_kwargs(source, torch_dtype))
         scheduler_config = dict(config)
         scheduler_config.setdefault("scheduler", scheduler_name)
         if getattr(pipeline, "scheduler", None) is not None and hasattr(pipeline.scheduler, "config"):
@@ -264,8 +215,32 @@ class SVDPipeline(BasePipeline):
         self._pipeline_key = cache_key
         return pipeline
 
+    def _from_pretrained_kwargs(self, source: str, torch_dtype: Any) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
+            "torch_dtype": torch_dtype,
+            "use_safetensors": True,
+        }
+        variant = self._detect_local_variant(source)
+        if variant is not None:
+            kwargs["variant"] = variant
+        return kwargs
+
+    def _detect_local_variant(self, source: str) -> Optional[str]:
+        root = Path(source)
+        if not root.is_dir():
+            return None
+
+        fp16_layout = {
+            "unet": "diffusion_pytorch_model.fp16.safetensors",
+            "vae": "diffusion_pytorch_model.fp16.safetensors",
+            "text_encoder": "model.fp16.safetensors",
+        }
+        if all((root / subdir / filename).is_file() for subdir, filename in fp16_layout.items()):
+            return "fp16"
+        return None
+
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:
-        for tag in ("image_encoder", "unet", "vae"):
+        for tag in ("text_encoder", "unet", "vae"):
             module = getattr(pipeline, tag, None)
             if module is None:
                 continue
@@ -275,13 +250,3 @@ class SVDPipeline(BasePipeline):
 
     def _apply_adapters(self, pipeline: Any) -> None:
         self.adapter_manager.apply_to_pipeline(pipeline)
-
-    def _default_model_source(self) -> str:
-        if self.model_spec.id == "svd":
-            return DEFAULT_SVD_MODEL_SOURCE
-        return DEFAULT_SVD_XT_MODEL_SOURCE
-
-    def _default_num_frames(self) -> int:
-        if self.model_spec.id == "svd":
-            return 14
-        return 25

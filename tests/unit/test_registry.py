@@ -1,5 +1,5 @@
 from omnirt.core.base_pipeline import BasePipeline
-from omnirt.core.registry import clear_registry, get_model, register_model
+from omnirt.core.registry import ModelCapabilities, clear_registry, get_model, register_model
 from omnirt.core.types import GenerateRequest, ModelNotRegisteredError
 
 
@@ -23,7 +23,11 @@ class DummyPipeline(BasePipeline):
 def test_register_model_decorator() -> None:
     clear_registry()
 
-    @register_model(id="dummy", task="text2image")
+    @register_model(
+        id="dummy",
+        task="text2image",
+        capabilities=ModelCapabilities(required_inputs=("prompt",), supported_config=("seed",)),
+    )
     class RegisteredPipeline(DummyPipeline):
         pass
 
@@ -31,6 +35,7 @@ def test_register_model_decorator() -> None:
 
     assert spec.id == "dummy"
     assert spec.pipeline_cls is RegisteredPipeline
+    assert spec.capabilities.required_inputs == ("prompt",)
 
 
 def test_get_model_raises_for_unknown() -> None:
@@ -42,4 +47,3 @@ def test_get_model_raises_for_unknown() -> None:
         assert "missing" in str(exc)
     else:
         raise AssertionError("Expected ModelNotRegisteredError")
-

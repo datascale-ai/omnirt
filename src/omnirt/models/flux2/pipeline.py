@@ -7,7 +7,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from omnirt.core.base_pipeline import BasePipeline
-from omnirt.core.registry import register_model
+from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
 from omnirt.models.flux2.components import DEFAULT_FLUX2_DEV_MODEL_SOURCE
 
@@ -17,12 +17,63 @@ from omnirt.models.flux2.components import DEFAULT_FLUX2_DEV_MODEL_SOURCE
     task="text2image",
     default_backend="auto",
     resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt",),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_images_per_prompt",
+            "max_sequence_length",
+            "caption_upsample_temperature",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
+        supported_schedulers=("native",),
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="beta",
+        summary="Flux 2 dev text-to-image pipeline.",
+        example="omnirt generate --task text2image --model flux2.dev --prompt \"a paper dragon in a lantern shop\" --backend cuda",
+    ),
 )
 @register_model(
     id="flux2-dev",
     task="text2image",
     default_backend="auto",
     resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt",),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_images_per_prompt",
+            "max_sequence_length",
+            "caption_upsample_temperature",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
+        supported_schedulers=("native",),
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="beta",
+        summary="Alias for flux2.dev.",
+        example="omnirt generate --task text2image --model flux2.dev --prompt \"a paper dragon in a lantern shop\" --backend cuda",
+        alias_of="flux2.dev",
+    ),
 )
 class Flux2Pipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:

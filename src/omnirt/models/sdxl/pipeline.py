@@ -7,7 +7,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from omnirt.core.base_pipeline import BasePipeline
-from omnirt.core.registry import register_model
+from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
 from omnirt.models.sdxl.components import DEFAULT_SDXL_MODEL_SOURCE
 from omnirt.schedulers import build_scheduler
@@ -18,6 +18,29 @@ from omnirt.schedulers import build_scheduler
     task="text2image",
     default_backend="auto",
     resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
+    capabilities=ModelCapabilities(
+        required_inputs=("prompt",),
+        optional_inputs=("negative_prompt",),
+        supported_config=(
+            "model_path",
+            "scheduler",
+            "height",
+            "width",
+            "num_images_per_prompt",
+            "num_inference_steps",
+            "guidance_scale",
+            "seed",
+            "dtype",
+            "output_dir",
+        ),
+        default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "dtype": "fp16"},
+        supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
+        adapter_kinds=("lora",),
+        artifact_kind="image",
+        maturity="stable",
+        summary="SDXL base text-to-image pipeline with LoRA support.",
+        example="omnirt generate --task text2image --model sdxl-base-1.0 --prompt \"a cinematic sci-fi city at sunrise\" --backend cuda",
+    ),
 )
 class SDXLPipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:

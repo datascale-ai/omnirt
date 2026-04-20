@@ -64,6 +64,30 @@ omnirt generate \
   --seed 42
 ```
 
+Inspect supported models and presets:
+
+```bash
+omnirt models
+omnirt models flux2.dev
+```
+
+Validate without executing:
+
+```bash
+omnirt validate \
+  --task text2image \
+  --model sd15 \
+  --prompt "a lighthouse in fog" \
+  --backend cpu-stub
+
+omnirt generate \
+  --task text2video \
+  --model wan2.2-t2v-14b \
+  --prompt "a glass whale gliding over a moonlit harbor" \
+  --preset fast \
+  --dry-run
+```
+
 An `image2video` example:
 
 ```bash
@@ -93,6 +117,41 @@ omnirt generate \
   --model-path /data/models/omnirt/wan2.2-t2v-14b
 ```
 
+## Python API
+
+Typed request helpers:
+
+```python
+from omnirt import requests, validate
+
+req = requests.text2image(
+    model="flux2.dev",
+    prompt="a cinematic sci-fi city at sunrise",
+    width=1024,
+    height=1024,
+    preset="balanced",
+)
+
+validation = validate(req, backend="cpu-stub")
+print(validation.to_dict())
+```
+
+Optional pipeline-style convenience wrapper:
+
+```python
+import omnirt
+
+pipe = omnirt.pipeline("sd15", backend="cpu-stub")
+validation = pipe.validate(prompt="a lighthouse in fog", preset="fast")
+```
+
+Available presets:
+
+- `fast`
+- `balanced`
+- `quality`
+- `low-vram`
+
 ## Validation
 
 - `pytest tests/unit tests/parity` exercises the local contract and metric layer
@@ -108,6 +167,7 @@ The implementation target and remaining hardware validation details are tracked 
 - Model support roadmap: [docs/model-support-roadmap.md](./docs/model-support-roadmap.md)
 - China deployment: [docs/china-deployment.md](./docs/china-deployment.md)
 - Architecture notes: [docs/architecture.md](./docs/architecture.md)
+- Service schema: [docs/service-schema.md](./docs/service-schema.md)
 
 ## Utilities
 

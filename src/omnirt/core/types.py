@@ -11,7 +11,7 @@ import yaml
 
 
 TaskName = Literal["text2image", "text2video", "image2video"]
-BackendName = Literal["cuda", "ascend", "auto"]
+BackendName = Literal["cuda", "ascend", "cpu-stub", "auto"]
 ArtifactKind = Literal["image", "video"]
 AdapterKind = Literal["lora"]
 
@@ -215,6 +215,78 @@ class GenerateRequest:
         else:
             payload = yaml.safe_load(raw)
         return cls.from_dict(payload)
+
+
+class TextToImageRequest(GenerateRequest):
+    task: Literal["text2image"] = "text2image"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        negative_prompt: Optional[str] = None,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs = {"prompt": prompt}
+        if negative_prompt:
+            inputs["negative_prompt"] = negative_prompt
+        super().__init__(task="text2image", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
+
+
+class TextToVideoRequest(GenerateRequest):
+    task: Literal["text2video"] = "text2video"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        negative_prompt: Optional[str] = None,
+        num_frames: Optional[int] = None,
+        fps: Optional[int] = None,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs = {"prompt": prompt}
+        if negative_prompt:
+            inputs["negative_prompt"] = negative_prompt
+        if num_frames is not None:
+            inputs["num_frames"] = num_frames
+        if fps is not None:
+            inputs["fps"] = fps
+        super().__init__(task="text2video", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
+
+
+class ImageToVideoRequest(GenerateRequest):
+    task: Literal["image2video"] = "image2video"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        image: str,
+        prompt: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
+        num_frames: Optional[int] = None,
+        fps: Optional[int] = None,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs: Dict[str, Any] = {"image": image}
+        if prompt:
+            inputs["prompt"] = prompt
+        if negative_prompt:
+            inputs["negative_prompt"] = negative_prompt
+        if num_frames is not None:
+            inputs["num_frames"] = num_frames
+        if fps is not None:
+            inputs["fps"] = fps
+        super().__init__(task="image2video", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
 
 
 def dataclass_to_dict(instance: Any) -> Dict[str, Any]:
