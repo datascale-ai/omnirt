@@ -9,5 +9,5 @@ from omnirt.core.types import GenerateResult, StageEventRecord
 
 def attach_stream_events(result: GenerateResult, events: Iterable[StageEventRecord]) -> GenerateResult:
     result.metadata.stream_events = list(events)
-    result.metadata.schema_version = "0.2.0"
+    result.metadata.schema_version = "0.3.0"
     return result

@@ -216,3 +216,63 @@ def test_validate_request_resolves_repo_relative_flashtalk_paths(tmp_path) -> No
     assert validation.ok is True
 
     clear_registry()
+
+
+def test_validate_request_rejects_multiple_offload_flags() -> None:
+    clear_registry()
+
+    @register_model(
+        id="dummy-image",
+        task="text2image",
+        capabilities=ModelCapabilities(
+            required_inputs=("prompt",),
+            supported_config=("enable_model_cpu_offload", "enable_sequential_cpu_offload"),
+        ),
+    )
+    class DummyPipeline:
+        pass
+
+    validation = validate_request(
+        GenerateRequest(
+            task="text2image",
+            model="dummy-image",
+            backend="cpu-stub",
+            inputs={"prompt": "hello"},
+            config={"enable_model_cpu_offload": True, "enable_sequential_cpu_offload": True},
+        )
+    )
+
+    assert validation.ok is False
+    assert "mutually exclusive" in validation.format_errors()
+
+    clear_registry()
+
+
+def test_validate_request_rejects_invalid_group_offload_type() -> None:
+    clear_registry()
+
+    @register_model(
+        id="dummy-image",
+        task="text2image",
+        capabilities=ModelCapabilities(
+            required_inputs=("prompt",),
+            supported_config=("enable_group_offload", "group_offload_type"),
+        ),
+    )
+    class DummyPipeline:
+        pass
+
+    validation = validate_request(
+        GenerateRequest(
+            task="text2image",
+            model="dummy-image",
+            backend="cpu-stub",
+            inputs={"prompt": "hello"},
+            config={"enable_group_offload": True, "group_offload_type": "weird"},
+        )
+    )
+
+    assert validation.ok is False
+    assert "group_offload_type must be either" in validation.format_errors()
+
+    clear_registry()

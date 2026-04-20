@@ -5,9 +5,11 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 
+from omnirt.core.base_pipeline import RESULT_CACHE_CONFIG_KEYS
 from omnirt.core.media import load_image
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import DependencyUnavailableError, GenerateRequest
+from omnirt.models.sdxl.components import DEFAULT_SDXL_MODEL_SOURCE, DEFAULT_SDXL_REFINER_MODEL_SOURCE
 from omnirt.models.sdxl.pipeline import SDXLPipeline
 
 
@@ -15,6 +17,8 @@ from omnirt.models.sdxl.pipeline import SDXLPipeline
     id="sdxl-base-1.0",
     task="image2image",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_SDXL_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "prompt"),
@@ -31,7 +35,8 @@ from omnirt.models.sdxl.pipeline import SDXLPipeline
             "seed",
             "dtype",
             "output_dir",
-        ),
+        )
+        + RESULT_CACHE_CONFIG_KEYS,
         default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "strength": 0.8, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
         adapter_kinds=("lora",),
@@ -45,6 +50,8 @@ from omnirt.models.sdxl.pipeline import SDXLPipeline
     id="sdxl-refiner-1.0",
     task="image2image",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_SDXL_REFINER_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "prompt"),
@@ -61,7 +68,8 @@ from omnirt.models.sdxl.pipeline import SDXLPipeline
             "seed",
             "dtype",
             "output_dir",
-        ),
+        )
+        + RESULT_CACHE_CONFIG_KEYS,
         default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "strength": 0.3, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
         adapter_kinds=("lora",),

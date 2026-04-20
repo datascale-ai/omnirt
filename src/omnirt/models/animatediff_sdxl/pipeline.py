@@ -8,7 +8,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
-from omnirt.core.base_pipeline import BasePipeline
+from omnirt.core.base_pipeline import BasePipeline, LEGACY_OPTIMIZATION_CONFIG_KEYS
 from omnirt.core.media import save_video_frames
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
@@ -38,6 +38,7 @@ DEFAULT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE = "guoyww/animatediff-motion-adap
             "dtype",
             "output_dir",
         )
+        + LEGACY_OPTIMIZATION_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "fp16"},
         supported_schedulers=("native",),
@@ -236,7 +237,9 @@ class AnimateDiffSDXLPipeline(BasePipeline):
         pipeline = pipeline_cls.from_pretrained(source, motion_adapter=motion_adapter, torch_dtype=torch_dtype)
         pipeline = self.runtime.prepare_pipeline(pipeline, model_spec=self.model_spec, config=config)
         self._wrap_pipeline_modules(pipeline)
-        pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
+        pipeline, placement_managed = self.apply_pipeline_optimizations(pipeline, config=config)
+        if not placement_managed:
+            pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline
         self._pipeline_key = cache_key

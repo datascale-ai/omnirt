@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 
+from omnirt.core.base_pipeline import LEGACY_OPTIMIZATION_CONFIG_KEYS
 from omnirt.core.media import load_image
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import DependencyUnavailableError, GenerateRequest
@@ -31,7 +32,8 @@ from omnirt.models.sd15.pipeline import SD15Pipeline
             "seed",
             "dtype",
             "output_dir",
-        ),
+        )
+        + LEGACY_OPTIMIZATION_CONFIG_KEYS,
         default_config={"scheduler": "euler-discrete", "height": 512, "width": 512, "strength": 0.8, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
         adapter_kinds=("lora",),
@@ -61,7 +63,8 @@ from omnirt.models.sd15.pipeline import SD15Pipeline
             "seed",
             "dtype",
             "output_dir",
-        ),
+        )
+        + LEGACY_OPTIMIZATION_CONFIG_KEYS,
         default_config={"scheduler": "euler-discrete", "height": 768, "width": 768, "strength": 0.8, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
         adapter_kinds=("lora",),

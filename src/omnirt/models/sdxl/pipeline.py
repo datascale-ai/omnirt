@@ -8,7 +8,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
-from omnirt.core.base_pipeline import BasePipeline
+from omnirt.core.base_pipeline import BasePipeline, RESULT_CACHE_CONFIG_KEYS
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
 from omnirt.models.sdxl.components import (
@@ -23,6 +23,8 @@ from omnirt.schedulers import build_scheduler
     id="sdxl-base-1.0",
     task="text2image",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_SDXL_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
@@ -39,6 +41,7 @@ from omnirt.schedulers import build_scheduler
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
@@ -53,6 +56,8 @@ from omnirt.schedulers import build_scheduler
     id="sdxl-turbo",
     task="text2image",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_SDXL_TURBO_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 10, "dtype": "fp16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
@@ -69,6 +74,7 @@ from omnirt.schedulers import build_scheduler
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "euler-ancestral", "height": 1024, "width": 1024, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "euler-ancestral", "ddim", "dpm-solver"),

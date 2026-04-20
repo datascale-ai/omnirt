@@ -1,6 +1,7 @@
 from omnirt.core.base_pipeline import BasePipeline
 from omnirt.core.registry import ModelCapabilities, clear_registry, get_model, register_model
 from omnirt.core.types import GenerateRequest, ModelNotRegisteredError
+from omnirt.models import ensure_registered
 
 
 class DummyPipeline(BasePipeline):
@@ -27,6 +28,8 @@ def test_register_model_decorator() -> None:
         id="dummy",
         task="text2image",
         capabilities=ModelCapabilities(required_inputs=("prompt",), supported_config=("seed",)),
+        execution_mode="modular",
+        modular_pretrained_id="dummy/modular",
     )
     class RegisteredPipeline(DummyPipeline):
         pass
@@ -36,6 +39,8 @@ def test_register_model_decorator() -> None:
     assert spec.id == "dummy"
     assert spec.pipeline_cls is RegisteredPipeline
     assert spec.capabilities.required_inputs == ("prompt",)
+    assert spec.execution_mode == "modular"
+    assert spec.modular_pretrained_id == "dummy/modular"
 
 
 def test_get_model_raises_for_unknown() -> None:
@@ -47,3 +52,12 @@ def test_get_model_raises_for_unknown() -> None:
         assert "missing" in str(exc)
     else:
         raise AssertionError("Expected ModelNotRegisteredError")
+
+
+def test_registered_modular_model_families_expose_execution_mode() -> None:
+    ensure_registered()
+
+    assert get_model("sdxl-base-1.0", task="text2image").execution_mode == "modular"
+    assert get_model("flux-dev", task="text2image").execution_mode == "modular"
+    assert get_model("flux2.dev", task="text2image").execution_mode == "modular"
+    assert get_model("wan2.2-t2v-14b", task="text2video").execution_mode == "modular"

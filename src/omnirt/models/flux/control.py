@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
+from omnirt.core.base_pipeline import RESULT_CACHE_CONFIG_KEYS
 from omnirt.core.media import load_image
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import DependencyUnavailableError, GenerateRequest
@@ -17,6 +18,8 @@ from omnirt.models.flux.pipeline import FluxPipeline
     id="flux-depth",
     task="edit",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_FLUX_DEPTH_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "prompt"),
@@ -34,6 +37,7 @@ from omnirt.models.flux.pipeline import FluxPipeline
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
         supported_schedulers=("native",),
@@ -48,6 +52,8 @@ from omnirt.models.flux.pipeline import FluxPipeline
     id="flux-canny",
     task="edit",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_FLUX_CANNY_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "prompt"),
@@ -65,6 +71,7 @@ from omnirt.models.flux.pipeline import FluxPipeline
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
         supported_schedulers=("native",),

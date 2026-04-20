@@ -14,6 +14,10 @@ class FakeCudaRuntime(BackendRuntime):
     name = "cuda"
     device_name = "cpu"
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.to_device_calls = []
+
     def is_available(self) -> bool:
         return True
 
@@ -28,6 +32,10 @@ class FakeCudaRuntime(BackendRuntime):
 
     def memory_stats(self) -> dict:
         return {"peak_mb": 4.0}
+
+    def to_device(self, tensor_or_module, dtype=None):
+        self.to_device_calls.append({"target": tensor_or_module, "dtype": dtype})
+        return super().to_device(tensor_or_module, dtype=dtype)
 
 
 class RecordingCudaRuntime(FakeCudaRuntime):
@@ -60,6 +68,11 @@ class FakeDiffusersPipeline:
         self.calls = []
         self.loras = []
         self.fused = []
+        self.model_cpu_offload_enabled = False
+        self.sequential_cpu_offload_enabled = False
+        self.group_offload_kwargs = None
+        self.vae_slicing_enabled = False
+        self.vae_tiling_enabled = False
 
     @classmethod
     def from_pretrained(cls, source, torch_dtype=None, use_safetensors=True, variant=None):
@@ -81,6 +94,24 @@ class FakeDiffusersPipeline:
 
     def fuse_lora(self, lora_scale=1.0):
         self.fused.append(lora_scale)
+
+    def enable_model_cpu_offload(self):
+        self.model_cpu_offload_enabled = True
+
+    def enable_sequential_cpu_offload(self):
+        self.sequential_cpu_offload_enabled = True
+
+    def enable_group_offload(self, **kwargs):
+        self.group_offload_kwargs = dict(kwargs)
+
+    def enable_vae_slicing(self):
+        self.vae_slicing_enabled = True
+
+    def enable_vae_tiling(self):
+        self.vae_tiling_enabled = True
+
+    def fuse_qkv_projections(self):
+        self.fused.append("qkv")
 
     def __call__(self, **kwargs):
         self.calls.append(kwargs)
@@ -287,3 +318,33 @@ def test_sd15_model_is_registered() -> None:
     assert spec.task == "text2image"
     assert spec.pipeline_cls.__name__ == "SD15Pipeline"
     assert spec.pipeline_cls.__module__ == "omnirt.models.sd15.pipeline"
+
+
+def test_sd15_pipeline_applies_diffusers_optimization_flags(tmp_path, monkeypatch) -> None:
+    _reset_created()
+    runtime = FakeCudaRuntime()
+    monkeypatch.setattr(SD15Pipeline, "_diffusers_pipeline_cls", lambda self: FakeDiffusersPipeline)
+    monkeypatch.setattr("omnirt.models.sd15.pipeline.build_scheduler", lambda config: {"name": "euler"})
+
+    request = GenerateRequest(
+        task="text2image",
+        model="sd15",
+        backend="cuda",
+        inputs={"prompt": "optimized"},
+        config={
+            "output_dir": str(tmp_path),
+            "enable_model_cpu_offload": True,
+            "enable_vae_slicing": True,
+            "enable_vae_tiling": True,
+            "fuse_qkv": True,
+        },
+    )
+
+    SD15Pipeline(runtime=runtime, model_spec=build_model_spec()).run(request)
+
+    created = FakeDiffusersPipeline.created[-1]
+    assert created.model_cpu_offload_enabled is True
+    assert created.vae_slicing_enabled is True
+    assert created.vae_tiling_enabled is True
+    assert "qkv" in created.fused
+    assert runtime.to_device_calls == []

@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
+from omnirt.core.base_pipeline import LEGACY_OPTIMIZATION_CONFIG_KEYS
 from omnirt.core.media import load_image
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import GenerateRequest
@@ -111,6 +112,7 @@ for model_id, model_config in EDIT_MODEL_CONFIGS.items():
                 "cfg_normalize",
                 "use_en_prompt",
             )
+            + LEGACY_OPTIMIZATION_CONFIG_KEYS
             + ASCEND_ACCELERATION_CONFIG_KEYS,
             default_config=model_config.default_config,
             supported_schedulers=("native",),

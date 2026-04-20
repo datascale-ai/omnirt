@@ -16,6 +16,21 @@ from omnirt.core.types import Artifact, GenerateRequest, GenerateResult, Insuffi
 from omnirt.telemetry.log import get_logger
 from omnirt.telemetry.report import build_run_report
 
+LEGACY_OPTIMIZATION_CONFIG_KEYS = (
+    "enable_model_cpu_offload",
+    "enable_sequential_cpu_offload",
+    "enable_group_offload",
+    "group_offload_type",
+    "group_offload_use_stream",
+    "group_offload_disk_path",
+    "enable_vae_slicing",
+    "enable_vae_tiling",
+    "channels_last",
+    "fuse_qkv",
+)
+
+RESULT_CACHE_CONFIG_KEYS = ("use_result_cache",)
+
 
 class BasePipeline(ABC):
     """Shared execution contract for all pipelines."""
@@ -130,6 +145,55 @@ class BasePipeline(ABC):
             available_gb=float(available),
             hint="use smaller model or upgrade hardware; offload is planned for v0.2",
         )
+
+    def apply_pipeline_optimizations(self, pipeline: Any, *, config: Dict[str, Any]) -> tuple[Any, bool]:
+        """Apply a shared subset of Diffusers runtime optimizations.
+
+        Returns ``(pipeline, placement_managed)`` where ``placement_managed`` indicates
+        whether the pipeline now manages device placement/offload internally and callers
+        should skip the eager ``runtime.to_device(...)`` step.
+        """
+
+        if config.get("enable_vae_slicing") and hasattr(pipeline, "enable_vae_slicing"):
+            pipeline.enable_vae_slicing()
+        if config.get("enable_vae_tiling") and hasattr(pipeline, "enable_vae_tiling"):
+            pipeline.enable_vae_tiling()
+        if config.get("channels_last"):
+            self._apply_channels_last(pipeline)
+        if config.get("fuse_qkv") and hasattr(pipeline, "fuse_qkv_projections"):
+            pipeline.fuse_qkv_projections()
+
+        if config.get("enable_model_cpu_offload") and hasattr(pipeline, "enable_model_cpu_offload"):
+            pipeline.enable_model_cpu_offload()
+            return pipeline, True
+        if config.get("enable_sequential_cpu_offload") and hasattr(pipeline, "enable_sequential_cpu_offload"):
+            pipeline.enable_sequential_cpu_offload()
+            return pipeline, True
+        if config.get("enable_group_offload") and hasattr(pipeline, "enable_group_offload"):
+            kwargs = {
+                "offload_type": config.get("group_offload_type", "block_level"),
+                "use_stream": bool(config.get("group_offload_use_stream", True)),
+            }
+            if config.get("group_offload_disk_path"):
+                kwargs["offload_to_disk_path"] = config["group_offload_disk_path"]
+            pipeline.enable_group_offload(**kwargs)
+            return pipeline, True
+        return pipeline, False
+
+    def _apply_channels_last(self, pipeline: Any) -> None:
+        try:
+            torch = self._torch()  # type: ignore[attr-defined]
+        except Exception:
+            return
+
+        for tag in ("unet", "vae", "transformer"):
+            module = getattr(pipeline, tag, None)
+            if module is None or not hasattr(module, "to"):
+                continue
+            try:
+                module.to(memory_format=torch.channels_last)
+            except Exception:
+                continue
 
     def run(self, req: GenerateRequest) -> GenerateResult:
         run_id = str(uuid.uuid4())

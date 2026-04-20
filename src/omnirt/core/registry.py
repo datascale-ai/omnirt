@@ -32,6 +32,7 @@ class ModelSpec:
     resource_hint: Dict[str, Any] = field(default_factory=dict)
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
     execution_mode: Literal["legacy_call", "modular", "subprocess"] = "legacy_call"
+    modular_pretrained_id: Optional[str] = None
 
 
 _MODEL_REGISTRY: Dict[Tuple[str, str], ModelSpec] = {}
@@ -59,6 +60,7 @@ def register_model(
     resource_hint: Optional[Dict[str, Any]] = None,
     capabilities: Optional[ModelCapabilities] = None,
     execution_mode: Literal["legacy_call", "modular", "subprocess"] = "legacy_call",
+    modular_pretrained_id: Optional[str] = None,
 ) -> Callable[[Type[Any]], Type[Any]]:
     def decorator(pipeline_cls: Type[Any]) -> Type[Any]:
         registrations = list(getattr(pipeline_cls, "_omnirt_model_registrations", []))
@@ -70,6 +72,7 @@ def register_model(
                 "resource_hint": dict(resource_hint or {}),
                 "capabilities": capabilities or ModelCapabilities(),
                 "execution_mode": execution_mode,
+                "modular_pretrained_id": modular_pretrained_id,
             }
         )
         pipeline_cls._omnirt_model_registrations = registrations
@@ -81,6 +84,7 @@ def register_model(
             resource_hint=dict(resource_hint or {}),
             capabilities=capabilities or ModelCapabilities(),
             execution_mode=execution_mode,
+            modular_pretrained_id=modular_pretrained_id,
         )
         return pipeline_cls
 

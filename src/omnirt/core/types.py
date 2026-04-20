@@ -158,8 +158,9 @@ class RunReport:
     artifacts: List[Artifact] = field(default_factory=list)
     error: Optional[str] = None
     latent_stats: Optional[Dict[str, float]] = None
+    cache_hits: List[str] = field(default_factory=list)
     stream_events: List[StageEventRecord] = field(default_factory=list)
-    schema_version: str = "0.2.0"
+    schema_version: str = "0.3.0"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -182,6 +183,7 @@ class RunReport:
             artifacts=[Artifact.from_dict(item) for item in payload.get("artifacts", [])],
             error=payload.get("error"),
             latent_stats=payload.get("latent_stats"),
+            cache_hits=[str(item) for item in payload.get("cache_hits", [])],
             stream_events=[StageEventRecord.from_dict(item) for item in payload.get("stream_events", [])],
             schema_version=str(payload.get("schema_version", "0.0.0")),
         )

@@ -102,6 +102,7 @@ def _re_register_module_classes(module: ModuleType) -> None:
                 resource_hint=metadata["resource_hint"],
                 capabilities=metadata["capabilities"],
                 execution_mode=metadata.get("execution_mode", "legacy_call"),
+                modular_pretrained_id=metadata.get("modular_pretrained_id"),
             )(value)
 
 

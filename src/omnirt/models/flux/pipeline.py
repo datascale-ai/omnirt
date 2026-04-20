@@ -8,7 +8,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
-from omnirt.core.base_pipeline import BasePipeline
+from omnirt.core.base_pipeline import BasePipeline, RESULT_CACHE_CONFIG_KEYS
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
 from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT_FLUX_SCHNELL_MODEL_SOURCE
@@ -18,6 +18,8 @@ from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT
     id="flux-dev",
     task="text2image",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_FLUX_DEV_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 24, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
@@ -35,6 +37,7 @@ from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 512, "dtype": "bf16"},
         supported_schedulers=("native",),
@@ -49,6 +52,8 @@ from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT
     id="flux-schnell",
     task="text2image",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_FLUX_SCHNELL_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
@@ -66,6 +71,7 @@ from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "max_sequence_length": 256, "dtype": "bf16"},
         supported_schedulers=("native",),

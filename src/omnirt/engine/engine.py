@@ -13,8 +13,9 @@ from omnirt.core.types import GenerateRequest, is_generate_result_like
 from omnirt.dispatch import JobQueue, JobWorkItem, TERMINAL_JOB_STATES, Worker
 from omnirt.engine.job import JobRecord
 from omnirt.engine.pipeline_cache import PipelineCache
+from omnirt.engine.result_cache import ResultCache
 from omnirt.engine.store import InMemoryJobStore
-from omnirt.executors import LegacyCallExecutor, SubprocessExecutor
+from omnirt.executors import LegacyCallExecutor, ModularExecutor, SubprocessExecutor
 from omnirt.executors.events import emit_event
 from omnirt.middleware.telemetry import attach_stream_events
 
@@ -25,10 +26,12 @@ class OmniEngine:
         *,
         max_concurrency: int = 1,
         pipeline_cache_size: int = 4,
+        result_cache_size: int = 256,
         job_store: InMemoryJobStore | None = None,
     ) -> None:
         self.store = job_store or InMemoryJobStore()
         self.pipeline_cache = PipelineCache(max_size=pipeline_cache_size)
+        self.result_cache = ResultCache(max_items=result_cache_size)
         self.job_queue = JobQueue()
         self._workers = [
             Worker(name=f"omnirt-worker-{index}", job_queue=self.job_queue, handler=self._handle_work_item)
@@ -102,7 +105,7 @@ class OmniEngine:
                 lambda: self._build_executor(model_spec=model_spec, runtime=runtime, request=job.request),
             )
             with executor_entry.lock:
-                result = executor_entry.value.run(job.request, event_callback=on_event)
+                result = executor_entry.value.run(job.request, event_callback=on_event, cache=self.result_cache)
         except Exception as exc:
             job = self.store.get(job_id)
             if job is None:
@@ -148,6 +151,8 @@ class OmniEngine:
     def _build_executor(self, *, model_spec: ModelSpec, runtime, request: GenerateRequest):
         if model_spec.execution_mode == "subprocess":
             executor = SubprocessExecutor()
+        elif model_spec.execution_mode == "modular":
+            executor = ModularExecutor()
         else:
             executor = LegacyCallExecutor()
         executor.load(

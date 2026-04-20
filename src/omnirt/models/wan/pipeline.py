@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
-from omnirt.core.base_pipeline import BasePipeline
+from omnirt.core.base_pipeline import BasePipeline, RESULT_CACHE_CONFIG_KEYS
 from omnirt.core.media import load_image, save_video_frames
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
@@ -23,6 +23,8 @@ from omnirt.models.wan.components import (
     id="wan2.2-t2v-14b",
     task="text2video",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_WAN2_2_T2V_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
@@ -38,6 +40,7 @@ from omnirt.models.wan.components import (
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "num_inference_steps": 50, "guidance_scale": 5.0, "dtype": "bf16"},
         supported_schedulers=("native",),
@@ -52,6 +55,8 @@ from omnirt.models.wan.components import (
     id="wan2.1-t2v-14b",
     task="text2video",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_WAN2_1_T2V_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 18, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
@@ -67,6 +72,7 @@ from omnirt.models.wan.components import (
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "num_inference_steps": 40, "guidance_scale": 5.0, "dtype": "bf16"},
         supported_schedulers=("native",),
@@ -81,6 +87,8 @@ from omnirt.models.wan.components import (
     id="wan2.1-i2v-14b",
     task="image2video",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_WAN2_1_I2V_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 18, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "prompt"),
@@ -96,6 +104,7 @@ from omnirt.models.wan.components import (
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "num_inference_steps": 40, "guidance_scale": 5.0, "dtype": "bf16"},
         supported_schedulers=("native",),
@@ -110,6 +119,8 @@ from omnirt.models.wan.components import (
     id="wan2.2-i2v-14b",
     task="image2video",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id=DEFAULT_WAN2_2_I2V_MODEL_SOURCE,
     resource_hint={"min_vram_gb": 20, "dtype": "bf16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "prompt"),
@@ -125,6 +136,7 @@ from omnirt.models.wan.components import (
             "dtype",
             "output_dir",
         )
+        + RESULT_CACHE_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={"scheduler": "native", "num_inference_steps": 50, "guidance_scale": 5.0, "dtype": "bf16"},
         supported_schedulers=("native",),

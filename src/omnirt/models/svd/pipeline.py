@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from omnirt.backends.overrides import ASCEND_ACCELERATION_CONFIG_KEYS
-from omnirt.core.base_pipeline import BasePipeline
+from omnirt.core.base_pipeline import BasePipeline, LEGACY_OPTIMIZATION_CONFIG_KEYS
 from omnirt.core.media import load_image, save_video_frames
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
@@ -36,6 +36,7 @@ from omnirt.schedulers import build_scheduler
             "dtype",
             "output_dir",
         )
+        + LEGACY_OPTIMIZATION_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={
             "scheduler": "euler-discrete",
@@ -72,6 +73,7 @@ from omnirt.schedulers import build_scheduler
             "dtype",
             "output_dir",
         )
+        + LEGACY_OPTIMIZATION_CONFIG_KEYS
         + ASCEND_ACCELERATION_CONFIG_KEYS,
         default_config={
             "scheduler": "euler-discrete",
@@ -258,7 +260,9 @@ class SVDPipeline(BasePipeline):
         pipeline.scheduler = build_scheduler(scheduler_config)
         pipeline = self.runtime.prepare_pipeline(pipeline, model_spec=self.model_spec, config=config)
         self._wrap_pipeline_modules(pipeline)
-        pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
+        pipeline, placement_managed = self.apply_pipeline_optimizations(pipeline, config=config)
+        if not placement_managed:
+            pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline
         self._pipeline_key = cache_key

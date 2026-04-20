@@ -60,7 +60,7 @@ def test_engine_reuses_cached_executor() -> None:
     assert captured["init_calls"] == 1
     assert first.metadata.execution_mode == "legacy_call"
     assert first.metadata.job_id
-    assert first.metadata.schema_version == "0.2.0"
+    assert first.metadata.schema_version == "0.3.0"
     assert second.metadata.stream_events
 
     clear_registry()

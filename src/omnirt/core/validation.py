@@ -130,6 +130,21 @@ def validate_request(request: GenerateRequest, *, backend: Optional[str] = None)
             if not 0.0 <= strength_value <= 1.0:
                 result.add_error(f"Invalid strength value {strength!r}; expected a float between 0 and 1.")
 
+    offload_flags = (
+        "enable_model_cpu_offload",
+        "enable_sequential_cpu_offload",
+        "enable_group_offload",
+    )
+    enabled_offload_flags = [key for key in offload_flags if result.resolved_config.get(key)]
+    if len(enabled_offload_flags) > 1:
+        result.add_error(
+            "Offload config flags are mutually exclusive; choose only one of "
+            f"{', '.join(offload_flags)}."
+        )
+    group_offload_type = result.resolved_config.get("group_offload_type")
+    if group_offload_type is not None and group_offload_type not in {"block_level", "leaf_level"}:
+        result.add_error("group_offload_type must be either 'block_level' or 'leaf_level'.")
+
     repo_root = result.resolved_config.get("repo_path")
     repo_root_path = Path(str(repo_root)).expanduser() if isinstance(repo_root, str) and repo_root else None
     for config_key, label in (

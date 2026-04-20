@@ -19,6 +19,7 @@ def build_run_report(
     artifacts: Iterable[Artifact],
     error: Optional[str],
     latent_stats: Optional[Dict[str, float]] = None,
+    cache_hits: Optional[Iterable[str]] = None,
     job_id: Optional[str] = None,
     enqueued_at_ms: Optional[int] = None,
     queue_wait_ms: Optional[float] = None,
@@ -41,5 +42,6 @@ def build_run_report(
         artifacts=list(artifacts),
         error=error,
         latent_stats=dict(latent_stats) if latent_stats is not None else None,
+        cache_hits=[str(item) for item in (cache_hits or [])],
         stream_events=list(stream_events or []),
     )

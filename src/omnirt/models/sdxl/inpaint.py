@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 
+from omnirt.core.base_pipeline import RESULT_CACHE_CONFIG_KEYS
 from omnirt.core.media import load_image, load_mask
 from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import DependencyUnavailableError, GenerateRequest
@@ -15,6 +16,8 @@ from omnirt.models.sdxl.pipeline import SDXLPipeline
     id="sdxl-base-1.0",
     task="inpaint",
     default_backend="auto",
+    execution_mode="modular",
+    modular_pretrained_id="stabilityai/stable-diffusion-xl-base-1.0",
     resource_hint={"min_vram_gb": 12, "dtype": "fp16"},
     capabilities=ModelCapabilities(
         required_inputs=("image", "mask", "prompt"),
@@ -31,7 +34,8 @@ from omnirt.models.sdxl.pipeline import SDXLPipeline
             "seed",
             "dtype",
             "output_dir",
-        ),
+        )
+        + RESULT_CACHE_CONFIG_KEYS,
         default_config={"scheduler": "euler-discrete", "height": 1024, "width": 1024, "strength": 1.0, "dtype": "fp16"},
         supported_schedulers=("euler-discrete", "ddim", "dpm-solver", "euler-ancestral"),
         adapter_kinds=("lora",),
