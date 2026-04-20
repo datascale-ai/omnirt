@@ -141,7 +141,7 @@ Recommended starting points for `image2image`: `sdxl-base-1.0`, `sdxl-refiner-1.
 │                               ↓                              │
 │                          engine  +  middleware               │
 │                               ↓                              │
-│  backends:  cuda   |   ascend   |   rocm   |   xpu   |  stub │
+│  backends:  cuda   |   ascend   |   cpu-stub          │
 │                               ↓                              │
 │                models:  sdxl · flux · wan · svd · …          │
 │                               ↓                              │

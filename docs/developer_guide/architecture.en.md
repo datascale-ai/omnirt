@@ -96,7 +96,7 @@ Extension points already implemented:
 Still intentionally lightweight:
 
 - the gRPC transport is a minimal unary RPC transport, not a full control plane
-- `ROCm / XPU` remain experimental backend placeholders
+- backend support is intentionally focused on `CUDA / Ascend / cpu-stub`; there is no `ROCm / XPU` support plan
 
 ## Stable public contracts
 

@@ -141,7 +141,7 @@ omnirt models
 │                               ↓                              │
 │                          engine  +  middleware               │
 │                               ↓                              │
-│  backends:  cuda   |   ascend   |   rocm   |   xpu   |  stub │
+│  backends:  cuda   |   ascend   |   cpu-stub          │
 │                               ↓                              │
 │                models:  sdxl · flux · wan · svd · …          │
 │                               ↓                              │

@@ -44,7 +44,7 @@ OmniRT 原生请求与 `GenerateRequest` 对齐：
 
 - `task`：任务面，当前包括 `text2image`、`image2image`、`inpaint`、`edit`、`text2video`、`image2video`、`audio2video`
 - `model`：OmniRT registry id，而不是上游框架类名
-- `backend`：`auto`、`cuda`、`ascend`、`rocm`、`xpu`、`cpu-stub`
+- `backend`：`auto`、`cuda`、`ascend`、`cpu-stub`
 - `inputs`：语义输入，如 `prompt`、`image`、`mask`、`audio`
 - `config`：执行配置，如 `preset`、`scheduler`、`device_map`、`quantization`
 - `adapters`：可选的 LoRA 列表

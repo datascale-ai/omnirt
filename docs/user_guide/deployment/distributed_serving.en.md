@@ -95,7 +95,7 @@ Expected signals:
 ## Known boundaries
 
 - the current worker transport is a minimal unary gRPC transport, not a full multi-tenant RPC framework
-- `ROCm / XPU` are still experimental backend placeholders and need your own hardware certification before production use
+- backend support is intentionally focused on `CUDA / Ascend / cpu-stub`; there is no `ROCm / XPU` support plan
 - real multi-host load testing and GPU/NPU baselines should still be run in your target environment
 
 ## Related

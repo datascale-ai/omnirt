@@ -44,7 +44,7 @@ When `async_run=true`, the server returns a job record instead of the final `Gen
 
 - `task`: task surface, currently including `text2image`, `image2image`, `inpaint`, `edit`, `text2video`, `image2video`, `audio2video`
 - `model`: OmniRT registry id, not an upstream framework class name
-- `backend`: `auto`, `cuda`, `ascend`, `rocm`, `xpu`, `cpu-stub`
+- `backend`: `auto`, `cuda`, `ascend`, `cpu-stub`
 - `inputs`: semantic inputs such as `prompt`, `image`, `mask`, `audio`
 - `config`: execution settings such as `preset`, `scheduler`, `device_map`, `quantization`
 - `adapters`: optional LoRA list

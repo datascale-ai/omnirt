@@ -34,8 +34,6 @@
 - `auto`
 - `cuda`
 - `ascend`
-- `rocm`
-- `xpu`
 - `cpu-stub`
 
 ## `generate`

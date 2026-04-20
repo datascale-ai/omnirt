@@ -96,7 +96,7 @@ OmniRT 当前已经从“单进程 pipeline 包装器”演进成一个带 queue
 当前仍然保持轻量的部分：
 
 - gRPC transport 是最小 unary RPC，不是完整控制面
-- `ROCm / XPU` 仍是实验性 backend 占位
+- 当前支持面聚焦在 `CUDA / Ascend / cpu-stub`，没有 `ROCm / XPU` 支持计划
 
 ## 稳定契约
 

@@ -95,7 +95,7 @@ curl -sS http://127.0.0.1:8000/metrics | head
 ## 已知边界
 
 - 当前 worker transport 是最小可用的 gRPC unary RPC，不是完整的多租户 RPC 框架
-- `ROCm / XPU` 仍是实验性后端占位，分布式部署前需要你自己的硬件验收
+- 当前支持面聚焦在 `CUDA / Ascend / cpu-stub`，没有 `ROCm / XPU` 支持计划
 - 真正的多机压测、GPU/NPU 性能基线仍建议按你的生产环境单独补测
 
 ## 相关

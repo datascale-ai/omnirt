@@ -50,7 +50,7 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", help="Model registry id to execute.")
     parser.add_argument(
         "--backend",
-        choices=["auto", "cuda", "ascend", "rocm", "xpu", "cpu-stub"],
+        choices=["auto", "cuda", "ascend", "cpu-stub"],
         help="Override backend selection.",
     )
     parser.add_argument("--prompt", help="Prompt for image or video generation tasks.")
@@ -150,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--port", type=int, default=8000, help="TCP port to bind.")
     serve_parser.add_argument(
         "--backend",
-        choices=["auto", "cuda", "ascend", "rocm", "xpu", "cpu-stub"],
+        choices=["auto", "cuda", "ascend", "cpu-stub"],
         default="auto",
         help="Default backend for requests that omit backend.",
     )
@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     worker_parser.add_argument("--worker-id", default="worker", help="Stable worker identifier.")
     worker_parser.add_argument(
         "--backend",
-        choices=["auto", "cuda", "ascend", "rocm", "xpu", "cpu-stub"],
+        choices=["auto", "cuda", "ascend", "cpu-stub"],
         default="auto",
         help="Default backend for requests that omit backend.",
     )

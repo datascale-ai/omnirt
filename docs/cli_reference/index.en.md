@@ -34,8 +34,6 @@ Supported backends currently include:
 - `auto`
 - `cuda`
 - `ascend`
-- `rocm`
-- `xpu`
 - `cpu-stub`
 
 ## `generate`
