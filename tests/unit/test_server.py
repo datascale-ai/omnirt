@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import socket
 
 import pytest
 
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 import omnirt.api as api_module
 from omnirt.core.registry import ModelCapabilities, clear_registry, register_model
 from omnirt.core.types import Artifact, GenerateResult, RunReport
+from omnirt.engine import GrpcWorkerServer, OmniEngine
 from omnirt.server import create_app
 
 
@@ -40,6 +42,12 @@ def _clear_registry():
     clear_registry()
     yield
     clear_registry()
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def test_server_generate_and_job_routes(monkeypatch) -> None:
@@ -369,3 +377,51 @@ def test_openai_realtime_route_streams_job_completion(monkeypatch) -> None:
     assert any(message.get("type") == "response.event" for message in messages)
     completed = next(message for message in messages if message.get("type") == "response.completed")
     assert completed["job"]["result"]["metadata"]["execution_mode"] == "legacy_call"
+
+
+def test_server_can_delegate_sync_generate_to_remote_worker(monkeypatch) -> None:
+    pytest.importorskip("grpc")
+
+    @register_model(
+        id="remote-dummy",
+        task="text2image",
+        capabilities=ModelCapabilities(required_inputs=("prompt",)),
+    )
+    class DummyPipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, req):
+            return GenerateResult(
+                outputs=[Artifact(kind="image", path="/tmp/remote.png", mime="image/png", width=32, height=32)],
+                metadata=RunReport(run_id="remote", task=req.task, model=req.model, backend=req.backend),
+            )
+
+    monkeypatch.setattr(api_module, "ensure_registered", lambda: None)
+    port = _free_port()
+    worker = GrpcWorkerServer(OmniEngine(max_concurrency=1, worker_id="worker-a"), host="127.0.0.1", port=port).start()
+    try:
+        app = create_app(
+            default_backend="cpu-stub",
+            max_concurrency=1,
+            pipeline_cache_size=1,
+            remote_workers=[{"worker_id": "worker-a", "address": f"127.0.0.1:{port}", "models": ("remote-dummy",)}],
+        )
+        client = TestClient(app)
+        response = client.post(
+            "/v1/generate",
+            json={
+                "task": "text2image",
+                "model": "remote-dummy",
+                "backend": "cpu-stub",
+                "inputs": {"prompt": "hello"},
+                "config": {},
+            },
+        )
+    finally:
+        worker.stop(0.0)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metadata"]["model"] == "remote-dummy"
+    assert payload["outputs"][0]["path"] == "/tmp/remote.png"

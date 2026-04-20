@@ -94,6 +94,6 @@ class MyBackend(BackendRuntime):
 
 ## 相关
 
-- [架构说明](architecture.md) — 后端层在七层架构里的位置
+- [架构说明](architecture.md) — 后端层在当前 runtime 拓扑里的位置
 - [模型接入](model_onboarding.md) — 新模型如何声明它依赖的后端能力
 - [遥测](../user_guide/features/telemetry.md) — `backend_timeline` 字段与如何读它

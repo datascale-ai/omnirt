@@ -1,84 +1,83 @@
 # Telemetry
 
-`middleware.telemetry` writes every generate run to two structured surfaces:
+OmniRT now exposes observability on three layers:
 
-- **`RunReport`** (returned inside `GenerateResult`) — stage timings, resolved config, peak memory, `backend_timeline` (compile / kernel_override / fallback), final latent statistics, error
-- **Structured logs** (stdout or your configured sink) — event stream, consumable by any log collector
+- `RunReport`: the structured execution report returned in `GenerateResult.metadata`
+- Prometheus: text metrics exposed on `/metrics`
+- Trace: an in-process trace recorder plus an optional OTLP/HTTP exporter
 
-## `RunReport` field reference
+## Key `RunReport` fields
 
-| Field | Type | Description |
-|---|---|---|
-| `timings` | `dict[stage_name, seconds]` | five-stage timings: `prepare_conditions` / `prepare_latents` / `denoise_loop` / `decode` / `export` |
-| `memory` | `dict[str, int]` | peak VRAM (`peak_bytes`) and per-stage samples |
-| `backend_timeline` | `list[BackendEvent]` | each compile / kernel_override / fallback outcome |
-| `config_resolved` | `dict` | final config after preset merge; essential for reproducibility |
-| `latent_stats` | `dict` | final-latent statistics (cross-backend parity) |
-| `error` | `ErrorInfo?` | field-structured error on failure |
+The current stable schema version is `1.0.0`.
 
-Definitions in [src/omnirt/telemetry/report.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/telemetry/report.py).
+| Field | Meaning |
+|---|---|
+| `run_id` | unique run id |
+| `job_id` | async job id; usually empty for sync calls |
+| `trace_id` | trace id used by `/v1/jobs/{id}/trace` |
+| `worker_id` | execution node id in remote-worker setups |
+| `queue_wait_ms` | time spent waiting in the queue |
+| `execution_mode` | `modular` / `legacy_call` / `subprocess` |
+| `timings` | per-stage timing map |
+| `memory` | peak VRAM / memory samples |
+| `cache_hits` | cache hit types such as `text_embedding` |
+| `device_placement` | resolved component-to-device placement |
+| `batch_size` / `batch_group_id` | batch metadata when batching is active |
+| `stream_events` | stage events for the same job |
 
-## Minimal example
+## Prometheus metrics
 
-```python
-from omnirt import generate
-from omnirt.requests import text2image
+`omnirt serve` exposes `/metrics` with these built-in series:
 
-result = generate(text2image(model="sd15", prompt="a lighthouse"))
-report = result.report
-print(report.timings)                  # {'prepare_conditions': 0.41, 'denoise_loop': 2.83, ...}
-print(report.memory["peak_bytes"])     # 8_765_432_123
-for event in report.backend_timeline:
-    print(event.stage, event.kind, event.ok, event.reason)
+| Metric | Meaning |
+|---|---|
+| `omnirt_jobs_total` | total jobs labeled by task / model / execution mode / state |
+| `omnirt_stage_duration_seconds` | stage-duration histogram |
+| `omnirt_cache_hits_total` | cache-hit counter |
+| `omnirt_queue_depth` | current queue depth |
+| `omnirt_vram_peak_bytes` | recorded peak VRAM |
+
+Quick check:
+
+```bash
+curl -sS http://127.0.0.1:8000/metrics | head
 ```
 
-## Streaming events
+## Trace and OTLP
 
-In the engine / server layer, telemetry also pushes stage events via `attach_stream_events` onto `GenerateResult.stream_events`; this is what the SSE `/v1/jobs/{id}/events` endpoint consumes (see [Dispatch & Queue](dispatch_queue.md)).
+If you start the server with `--otlp-endpoint`, OmniRT exports traces via OTLP/HTTP JSON:
 
-## Wiring to an external observability stack
-
-Telemetry is in-process structured data today — no built-in Prometheus / OTLP exporter — but the shape is regular enough for a one-file adapter:
-
-=== "Prometheus adapter"
-
-    ```python
-    from prometheus_client import Histogram
-    STAGE_HIST = Histogram("omnirt_stage_seconds", "pipeline stage timing",
-                           ["task", "model", "stage"])
-
-    def on_run_complete(req, result):
-        for stage, secs in result.report.timings.items():
-            STAGE_HIST.labels(task=req.task, model=req.model, stage=stage).observe(secs)
-    ```
-
-=== "OTLP adapter"
-
-    ```python
-    from opentelemetry import metrics
-    meter = metrics.get_meter("omnirt")
-    stage_hist = meter.create_histogram("omnirt.stage.seconds")
-
-    def on_run_complete(req, result):
-        for stage, secs in result.report.timings.items():
-            stage_hist.record(secs, attributes={
-                "task": req.task, "model": req.model, "stage": stage})
-    ```
-
-## Debugging backend fallbacks
-
-`RunReport.backend_timeline` is the first place to look when an Ascend run seems slow:
-
-```python
-for ev in result.report.backend_timeline:
-    if not ev.ok:
-        print(f"[{ev.stage}] {ev.kind} failed: {ev.reason}")
+```bash
+omnirt serve --otlp-endpoint http://127.0.0.1:4318/v1/traces
 ```
 
-Each entry records the stage, action (`compile` / `kernel_override` / `fallback`), outcome, and reason. Details in [Architecture](../../developer_guide/architecture.md) under the backend-layer section.
+You can also read the in-process trace view directly through the job route:
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/jobs/<job_id>/trace
+```
+
+## Event streams
+
+The same job events are available from three surfaces:
+
+- `RunReport.stream_events`
+- `GET /v1/jobs/{job_id}/events`: SSE
+- `WS /v1/jobs/{job_id}/stream`: WebSocket
+
+A minimal OpenAI-style Realtime subset is also available at:
+
+- `WS /v1/realtime`
+
+## Typical debugging order
+
+1. inspect `RunReport.error`, `timings`, and `memory`
+2. then inspect `cache_hits`, `device_placement`, and `batch_size`
+3. in server mode, inspect `/metrics`
+4. for one specific job, inspect `/v1/jobs/{id}/trace` or the event streams
 
 ## Related
 
-- [Python API](../serving/python_api.md) — reading `report` off `GenerateResult`
-- [HTTP Server](../serving/http_server.md) — subscribing via SSE
-- [Dispatch & Queue](dispatch_queue.md) — engine-level metrics across requests
+- [Service Schema](service_schema.md)
+- [Dispatch & Queue](dispatch_queue.md)
+- [HTTP Server](../serving/http_server.md)

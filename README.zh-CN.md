@@ -82,19 +82,21 @@ result = generate(req, backend="cuda")
 - `sdxl-base-1.0` 和 `svd-xt` 已经完成 CUDA / Ascend 双后端真机 smoke
 - `image2image` 已公开支持；其中 `sdxl-refiner-1.0` 的 CUDA / Ascend smoke 用例已经具备，但仍待补齐已验证的本地模型目录与真机验证结果
 - `flux-fill`、`flux-kontext`、`qwen-image-edit*` 等编辑模型已经具备接入和 smoke 用例入口，但仍待补齐已验证的本地模型目录与真机验证结果
-- 更完整的路线图见 [docs/model-support-roadmap.md](./docs/model-support-roadmap.md)，当前接入快照见 [docs/support-status.md](./docs/support-status.md)
+- 更完整的路线图见 [docs/user_guide/models/roadmap.md](./docs/user_guide/models/roadmap.md)，当前接入快照见 [docs/user_guide/models/support_status.md](./docs/user_guide/models/support_status.md)
 
 ## 文档
 
 - 文档站点：<https://datascale-ai.github.io/omnirt/>
 - 英文文档：<https://datascale-ai.github.io/omnirt/en/>
-- 模型接入说明：[docs/model-onboarding.md](./docs/model-onboarding.md)
-- 当前支持状态：[docs/support-status.md](./docs/support-status.md)
-- 模型支持路线图：[docs/model-support-roadmap.md](./docs/model-support-roadmap.md)
-- 中国区部署说明：[docs/china-deployment.md](./docs/china-deployment.md)
-- 架构说明：[docs/architecture.md](./docs/architecture.md)
-- 服务协议草案：[docs/service-schema.md](./docs/service-schema.md)
-- Presets：[docs/presets.md](./docs/presets.md)
+- 模型接入说明：[docs/developer_guide/model_onboarding.md](./docs/developer_guide/model_onboarding.md)
+- 当前支持状态：[docs/user_guide/models/support_status.md](./docs/user_guide/models/support_status.md)
+- 模型支持路线图：[docs/user_guide/models/roadmap.md](./docs/user_guide/models/roadmap.md)
+- 中国区部署说明：[docs/user_guide/deployment/china_mirrors.md](./docs/user_guide/deployment/china_mirrors.md)
+- 架构说明：[docs/developer_guide/architecture.md](./docs/developer_guide/architecture.md)
+- 服务协议：[docs/user_guide/features/service_schema.md](./docs/user_guide/features/service_schema.md)
+- Presets：[docs/user_guide/features/presets.md](./docs/user_guide/features/presets.md)
+- Legacy 优化指南：[docs/developer_guide/legacy_optimization_guide.md](./docs/developer_guide/legacy_optimization_guide.md)
+- Benchmark 基线：[docs/developer_guide/benchmark_baseline.md](./docs/developer_guide/benchmark_baseline.md)
 - 接口改进决策记录：[docs/adr/0002-interface-improvements.md](./docs/adr/0002-interface-improvements.md)
 
 ## 工具脚本

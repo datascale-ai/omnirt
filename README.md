@@ -82,20 +82,22 @@ Real end-to-end generation still depends on the target hardware stack, runtime l
 - Real hardware smoke coverage is currently confirmed for `sdxl-base-1.0` and `svd-xt` on both CUDA and Ascend
 - `image2image` is publicly supported; `sdxl-refiner-1.0` already has CUDA and Ascend smoke entrypoints but still needs repository-tracked verified local model directories
 - Additional integrated editing models such as `flux-fill`, `flux-kontext`, and `qwen-image-edit*` already have smoke test entrypoints but still need verified local model directories and hardware validation
-- The broader support roadmap is documented in [docs/model-support-roadmap.md](./docs/model-support-roadmap.md) and the live integration snapshot in [docs/support-status.md](./docs/support-status.md)
+- The broader support roadmap is documented in [docs/user_guide/models/roadmap.md](./docs/user_guide/models/roadmap.md) and the live integration snapshot in [docs/user_guide/models/support_status.md](./docs/user_guide/models/support_status.md)
 
 ## Documentation
 
 - Docs site: <https://datascale-ai.github.io/omnirt/>
 - English docs: <https://datascale-ai.github.io/omnirt/en/>
-- Model onboarding: [docs/model-onboarding.md](./docs/model-onboarding.md)
-- Support status: [docs/support-status.md](./docs/support-status.md)
-- Model support roadmap: [docs/model-support-roadmap.md](./docs/model-support-roadmap.md)
+- Model onboarding: [docs/developer_guide/model_onboarding.md](./docs/developer_guide/model_onboarding.md)
+- Support status: [docs/user_guide/models/support_status.md](./docs/user_guide/models/support_status.md)
+- Model support roadmap: [docs/user_guide/models/roadmap.md](./docs/user_guide/models/roadmap.md)
 - Gap roadmap vs vLLM-Omni: [docs/vllm-omni-gap-roadmap.md](./docs/vllm-omni-gap-roadmap.md)
-- China deployment: [docs/china-deployment.md](./docs/china-deployment.md)
-- Architecture notes: [docs/architecture.md](./docs/architecture.md)
-- Service schema: [docs/service-schema.md](./docs/service-schema.md)
-- Presets: [docs/presets.md](./docs/presets.md)
+- China deployment: [docs/user_guide/deployment/china_mirrors.md](./docs/user_guide/deployment/china_mirrors.md)
+- Architecture notes: [docs/developer_guide/architecture.md](./docs/developer_guide/architecture.md)
+- Service schema: [docs/user_guide/features/service_schema.md](./docs/user_guide/features/service_schema.md)
+- Presets: [docs/user_guide/features/presets.md](./docs/user_guide/features/presets.md)
+- Legacy optimization guide: [docs/developer_guide/legacy_optimization_guide.md](./docs/developer_guide/legacy_optimization_guide.md)
+- Benchmark baseline: [docs/developer_guide/benchmark_baseline.md](./docs/developer_guide/benchmark_baseline.md)
 - Interface decision record: [docs/adr/0002-interface-improvements.md](./docs/adr/0002-interface-improvements.md)
 
 ## Utilities

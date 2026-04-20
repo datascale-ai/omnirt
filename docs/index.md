@@ -83,5 +83,5 @@ OmniRT 支持的模型家族包括：
 ## 深入了解
 
 - [路线图](user_guide/models/roadmap.md) — 接下来要支持哪些模型
-- [架构说明](developer_guide/architecture.md) — 运行时七层分层与产物契约
+- [架构说明](developer_guide/architecture.md) — interface / engine / executor / telemetry 的整体协作
 - [国内部署](user_guide/deployment/china_mirrors.md) — ModelScope / HF-Mirror / 离线快照完整流程

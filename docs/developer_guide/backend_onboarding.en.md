@@ -94,6 +94,6 @@ class MyBackend(BackendRuntime):
 
 ## Related
 
-- [Architecture](architecture.md) — where the backend layer sits in the seven-layer stack
+- [Architecture](architecture.md) — where the backend layer sits in the current runtime topology
 - [Model Onboarding](model_onboarding.md) — declaring backend capability requirements for a model
 - [Telemetry](../user_guide/features/telemetry.md) — reading `backend_timeline` fields

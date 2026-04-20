@@ -83,5 +83,5 @@ See the full registry at [Supported Models](user_guide/models/supported_models.m
 ## Dig deeper
 
 - [Roadmap](user_guide/models/roadmap.md) — what we plan to support next
-- [Architecture](developer_guide/architecture.md) — the seven runtime layers and the artifact contract
+- [Architecture](developer_guide/architecture.md) — how the interface, engine, executors, and telemetry layers fit together
 - [Domestic deployment](user_guide/deployment/china_mirrors.md) — ModelScope / HF-Mirror / offline snapshots

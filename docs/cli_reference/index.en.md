@@ -1,135 +1,165 @@
 # CLI Reference
 
-Complete subcommand and parameter reference for the `omnirt` CLI. For task-oriented examples see [CLI Guide](../user_guide/serving/cli.md).
+Complete command reference for the `omnirt` CLI. For task-oriented examples see [CLI](../user_guide/serving/cli.md).
 
-## Invocation
+## Top-level commands
 
-```bash
-omnirt <subcommand> [options]
-# Equivalent to
-python -m omnirt <subcommand> [options]
-```
-
-Subcommands:
-
-| Subcommand | Purpose |
+| Command | Purpose |
 |---|---|
-| [`generate`](#generate) | Run a generation request and export artifacts |
-| [`validate`](#validate) | Validate a request without touching hardware |
-| [`models`](#models) | Query the registry |
-| [`bench`](#bench) | Run a benchmark scenario |
+| `generate` | run one generation |
+| `validate` | validate a request only |
+| `models` | query the model registry |
+| `serve` | start the HTTP server |
+| `bench` | run a benchmark |
+| `worker` | start a gRPC worker |
 
-All subcommands accept the same **request parameters** (`--task` / `--model` / `--backend` / `--prompt` / …) and a **`--config` option** to load a complete request from YAML / JSON.
+## Shared request arguments
 
----
+`generate`, `validate`, and `bench` share the same request argument family, including:
+
+- `--task` / `--model` / `--backend`
+- `--prompt` / `--negative-prompt`
+- `--image` / `--mask` / `--audio`
+- `--width` / `--height` / `--num-frames` / `--fps`
+- `--num-inference-steps` / `--guidance-scale` / `--scheduler` / `--preset`
+- `--model-path` / `--repo-path`
+- `--device-map` / `--devices`
+- `--quantization` / `--quantization-backend`
+- `--enable-layerwise-casting`
+- `--cache tea_cache` or `--enable-tea-cache`
+- `--config <yaml_or_json>`
+
+Supported backends currently include:
+
+- `auto`
+- `cuda`
+- `ascend`
+- `rocm`
+- `xpu`
+- `cpu-stub`
 
 ## `generate`
 
-Execute one generation and write the artifacts to disk.
+Additional flags:
 
-### Request parameters
+- `--dry-run`
+- `--json`
 
-| Parameter | Type | Description |
-|---|---|---|
-| `--task` | `text2image` / `image2image` / `text2video` / `image2video` / `audio2video` / `inpaint` / `edit` | Task surface (one of `--task` or `--config` required) |
-| `--model` | str | Registry id (e.g. `sd15`, `flux2.dev`, `wan2.2-t2v-14b`) |
-| `--backend` | `auto` / `cuda` / `ascend` / `cpu-stub` | Override backend selection; default `auto` |
-| `--prompt` | str | Text prompt |
-| `--negative-prompt` | str | Negative prompt |
-| `--image` | path | Image input (`image2image` / `image2video` / `audio2video` / `inpaint` / `edit`) |
-| `--mask` | path | Inpaint mask |
-| `--audio` | path | Audio input for `audio2video` |
-| `--num-frames` | int | Frame count for video tasks |
-| `--fps` | int | Frame rate for video tasks |
-| `--frame-bucket` / `--motion-bucket-id` | int | SVD motion intensity |
-| `--decode-chunk-size` | int | Video decode chunking |
-| `--noise-aug-strength` | float | SVD input-noise augmentation |
-| `--num-inference-steps` | int | Denoising steps |
-| `--guidance-scale` | float | CFG strength |
-| `--preset` | `fast` / `balanced` / `quality` / `low-vram` | Bundled parameter preset |
-| `--scheduler` | str | Scheduler override (when the model supports alternates) |
-| `--seed` | int | Random seed |
-| `--strength` | float | Rewrite strength for `image2image` / `edit` |
-| `--width` / `--height` | int | Output size |
-| `--dtype` | `fp16` / `bf16` / `fp32` | Compute dtype |
-| `--num-images-per-prompt` | int | Batch size for `text2image` |
-| `--max-sequence-length` | int | Prompt-token cap for Flux2 |
-| `--output-dir` | path | Artifact output directory |
-| `--model-path` | path | Override the default model source |
-| `--repo-path` | path | External repo checkout for script-backed models (e.g. FlashTalk) |
+Example:
 
-### Config file
-
-`--config <path>` loads YAML / JSON whose fields map to `GenerateRequest`:
-
-```yaml
-task: text2image
-model: flux2.dev
-backend: auto
-inputs:
-  prompt: "a cinematic sci-fi city at sunrise"
-config:
-  preset: balanced
-  width: 1024
-  height: 1024
+```bash
+omnirt generate \
+  --task text2image \
+  --model flux2.dev \
+  --prompt "a cinematic city at sunrise" \
+  --preset balanced \
+  --json
 ```
-
-Command-line options **override** file fields.
-
-### Output format
-
-- Default: human-readable summary plus artifact paths
-- `--json`: serialize `GenerateResult` (including `RunReport`) as JSON — ideal for scripts
-
----
 
 ## `validate`
 
-Shares the request parameters and `--config` option with `generate`, but **does not run inference** — it only checks the request contract, registry, and dimensional / parameter constraints.
+Additional flags:
 
-Example: `omnirt validate --task text2image --model sd15 --prompt "…" --backend cpu-stub`
+- `--json`
 
-`--json` emits a `ValidationResult`; when `ok=false`, `errors` lists every field-level issue.
+Example:
 
-See [Validation](../user_guide/features/validation.md).
-
----
+```bash
+omnirt validate \
+  --task text2video \
+  --model wan2.2-t2v-14b \
+  --prompt "a paper ship drifting on moonlit water"
+```
 
 ## `models`
 
-Query the registry.
+Usage:
 
-| Usage | Purpose |
+```bash
+omnirt models
+omnirt models sdxl-base-1.0
+omnirt models --format markdown
+omnirt models --json
+```
+
+## `serve`
+
+Key flags:
+
+| Flag | Purpose |
 |---|---|
-| `omnirt models` | List every registered model |
-| `omnirt models <id>` | Dump `ModelCapabilities` for one model |
-| `omnirt models --task <task>` | Filter by supported task |
-| `omnirt models --format markdown` | Emit the list as Markdown (same source as the auto-generated [Supported Models](../user_guide/models/supported_models.md)) |
+| `--host` / `--port` | bind address |
+| `--backend` | default backend |
+| `--max-concurrency` | local concurrency |
+| `--pipeline-cache-size` | executor / pipeline cache limit |
+| `--api-key-file` | API-key file |
+| `--model-aliases` | OpenAI model alias map |
+| `--redis-url` | RedisJobStore URL |
+| `--otlp-endpoint` | OTLP/HTTP endpoint |
+| `--remote-worker` | remote worker spec, repeatable |
+| `--device-map` / `--devices` | default request placement config |
+| `--batch-window-ms` / `--max-batch-size` | batching config |
 
----
+`--remote-worker` format:
+
+```text
+worker_id=host:port@model1,model2#tag1,tag2
+```
+
+Example:
+
+```bash
+omnirt serve \
+  --port 8000 \
+  --redis-url redis://127.0.0.1:6379/0 \
+  --otlp-endpoint http://127.0.0.1:4318/v1/traces \
+  --remote-worker 'sdxl-a=127.0.0.1:50061@sdxl-base-1.0'
+```
 
 ## `bench`
 
-Run a benchmark scenario. Supports `--scenario` / `--repeat` and related flags; see [`src/omnirt/bench`](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/bench).
+Additional flags:
 
----
+| Flag | Purpose |
+|---|---|
+| `--scenario` | built-in scenario name |
+| `--concurrency` | request concurrency |
+| `--total` | total measured requests |
+| `--warmup` | warmup requests |
+| `--batch-window-ms` / `--max-batch-size` | batching config |
+| `--output` | JSON output path |
+| `--json` | print JSON to stdout |
+
+Current built-in scenarios:
+
+- `text2image_sdxl_concurrent4`
+
+## `worker`
+
+Key flags:
+
+| Flag | Purpose |
+|---|---|
+| `--host` / `--port` | gRPC bind address |
+| `--worker-id` | stable worker id |
+| `--backend` | default backend |
+| `--max-concurrency` | local execution concurrency |
+| `--pipeline-cache-size` | executor / pipeline cache limit |
+| `--redis-url` | optional Redis URL |
+| `--otlp-endpoint` | optional OTLP endpoint |
 
 ## Environment variables
 
 | Variable | Purpose |
 |---|---|
-| `OMNIRT_LOG_LEVEL` | Log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`), default `INFO` |
-| `OMNIRT_DISABLE_COMPILE` | Set to `1` to skip `torch.compile` and `torch_npu.graph_mode` |
-| `CUDA_VISIBLE_DEVICES` | CUDA device visibility |
-| `ASCEND_RT_VISIBLE_DEVICES` | Ascend device visibility (analog of CUDA) |
-| `OMNIRT_API_KEY_FILE` | API-key file for the HTTP server |
-| `OMNIRT_SDXL_MODEL_SOURCE` / `OMNIRT_SVD_MODEL_SOURCE` / … | Model-path overrides for smoke tests |
-| `HF_ENDPOINT` | HuggingFace mirror (typically `https://hf-mirror.com` in China) |
-
-More environment context in [Domestic Deployment](../user_guide/deployment/china_mirrors.md) and [Ascend Backend](../user_guide/deployment/ascend.md).
+| `OMNIRT_LOG_LEVEL` | log level |
+| `OMNIRT_DISABLE_COMPILE` | disable compile paths |
+| `CUDA_VISIBLE_DEVICES` | visible CUDA devices |
+| `ASCEND_RT_VISIBLE_DEVICES` | visible Ascend devices |
+| `HF_ENDPOINT` | Hugging Face mirror endpoint |
 
 ## Related
 
-- [CLI Guide](../user_guide/serving/cli.md) — task-oriented examples and YAML request format
-- [Python API Reference](../api_reference/top_level.md) — auto-generated top-level API
-- [HTTP Server](../user_guide/serving/http_server.md) — FastAPI routes and startup options
+- [CLI](../user_guide/serving/cli.md)
+- [HTTP Server](../user_guide/serving/http_server.md)
+- [Benchmark Baseline](../developer_guide/benchmark_baseline.md)

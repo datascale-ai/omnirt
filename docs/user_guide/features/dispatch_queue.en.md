@@ -1,96 +1,94 @@
 # Dispatch & Queue
 
-OmniRT's `engine` layer handles queueing, concurrency, and dynamic batching for multi-request scenarios. The plumbing lives in `omnirt.dispatch`:
+OmniRT's async execution core lives in `OmniEngine`. It takes validated `GenerateRequest` objects and routes them through the queue, batcher, executors, and optional remote workers.
 
-| Component | Role | Source |
-|---|---|---|
-| `JobQueue` | thread-safe job queue (FIFO + priority) | [src/omnirt/dispatch/queue.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/dispatch/queue.py) |
-| `Worker` | pulls jobs, invokes pipelines, writes results | [src/omnirt/dispatch/worker.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/dispatch/worker.py) |
-| `RequestBatcher` | merges same-task same-model requests inside a time window | [src/omnirt/dispatch/batcher.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/dispatch/batcher.py) |
-| `policies` | scheduling policies per task / backend | [src/omnirt/dispatch/policies.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/dispatch/policies.py) |
+## Core components
 
-## What you see from the FastAPI server
-
-The HTTP server exposes these components through `create_app()` parameters (see [HTTP Server](../serving/http_server.md)):
-
-| Parameter | Meaning |
+| Component | Role |
 |---|---|
-| `max_concurrency` | max in-flight requests in the engine |
-| `pipeline_cache_size` | LRU cache for loaded pipelines |
-| `batch_window_ms` | batch-aggregation window in ms; `0` disables |
-| `max_batch_size` | batch-size cap |
+| `OmniEngine` | unified sync and async execution entry |
+| `JobQueue` | queueing and priority management |
+| `RequestBatcher` | merges compatible requests inside a short time window |
+| `InMemoryJobStore` / `RedisJobStore` | persists job state and events |
+| `Controller` | decides between local execution and remote workers |
+| `GrpcWorkerClient` / `GrpcWorkerServer` | current remote-worker transport |
 
-## Typical configurations
+## Server-side entry point
 
-=== "Single-card, low latency"
+Async submission does not go through `POST /v1/jobs`. It goes through:
 
-    ```python
-    create_app(
-        max_concurrency=1,
-        pipeline_cache_size=1,
-        batch_window_ms=0,
-        max_batch_size=1,
-    )
-    ```
+```http
+POST /v1/generate
+```
 
-    Minimize per-request latency. Best for **interactive** traffic or VRAM-tight Ascend hosts.
+with:
 
-=== "Single-card, high throughput (same model)"
+```json
+{
+  "task": "text2image",
+  "model": "sdxl-base-1.0",
+  "inputs": {"prompt": "a lighthouse"},
+  "config": {},
+  "async_run": true
+}
+```
 
-    ```python
-    create_app(
-        max_concurrency=4,
-        pipeline_cache_size=1,
-        batch_window_ms=20,
-        max_batch_size=4,
-    )
-    ```
+The response includes `job_id`, and you can then observe the job through:
 
-    Short wait inside the batch window in exchange for 2–3× throughput. Only helps for tasks that actually batch (e.g. `text2image` on the same model).
+| Route | Purpose |
+|---|---|
+| `GET /v1/jobs/{job_id}` | fetch job state and result |
+| `DELETE /v1/jobs/{job_id}` | cancel a job |
+| `GET /v1/jobs/{job_id}/events` | SSE event stream |
+| `WS /v1/jobs/{job_id}/stream` | WebSocket event stream plus cancel control |
+| `GET /v1/jobs/{job_id}/trace` | per-job trace view |
 
-=== "Mixed models"
+`POST /v1/jobs` is currently reserved; clients should use `POST /v1/generate` directly.
 
-    ```python
-    create_app(
-        max_concurrency=2,
-        pipeline_cache_size=4,   # keep up to 4 pipelines warm
-        batch_window_ms=0,
-        max_batch_size=1,
-    )
-    ```
+## When batching applies
 
-    No batching, but allows different-model requests to interleave, avoiding pipeline reload overhead.
+Batching is intentionally narrow today. It only applies when all of these are true:
 
-## Async job API
+- `execution_mode="modular"`
+- `task="text2image"`
+- `prompt` is a non-empty string
+- there is no `image`, `mask`, or `audio`
+- `num_images_per_prompt=1`
 
-`POST /v1/jobs` pushes a request onto the queue and returns a `job_id` immediately; clients poll `GET /v1/jobs/{id}` or subscribe to the `GET /v1/jobs/{id}/events` SSE stream. Best for **video** tasks and anything over ~30s, to avoid long-lived HTTP connections.
+In other words, batching currently focuses on concurrent text-to-image throughput for the same model, not every task surface.
 
-Full route map in [HTTP Server](../serving/http_server.md).
-
-## Using the engine directly from Python
-
-You don't have to go through HTTP — instantiate `OmniEngine` yourself:
+## Direct Python usage
 
 ```python
 from omnirt.engine import OmniEngine
 from omnirt.requests import text2image
 
-engine = OmniEngine(max_concurrency=2, pipeline_cache_size=4,
-                    batch_window_ms=0, max_batch_size=1)
-job = engine.submit(text2image(model="sd15", prompt="..."))
-result = engine.wait(job.id)
+engine = OmniEngine(max_concurrency=2, batch_window_ms=50, max_batch_size=4)
+job = engine.submit(text2image(model="sdxl-base-1.0", prompt="a lighthouse"))
+resolved = engine.wait(job.id)
+print(resolved.result.metadata.batch_size)
 ```
 
-## Known limits
+## Distributed execution
 
-!!! warning
+When `serve` is configured with `--remote-worker`, requests go through `Controller` and may be forwarded to a gRPC worker:
 
-    - Batching only applies to **same task + same model + same backend**; mixed requests fall back to serial execution
-    - On Ascend keep `max_concurrency=1`: NPU memory fragmentation is not promptly reclaimed under concurrency (see [Ascend Backend](../deployment/ascend.md))
-    - `pipeline_cache_size` directly controls resident VRAM; video models (Wan2.2, Hunyuan) each take 20–40 GB, so don't crank it
+```bash
+omnirt worker --host 0.0.0.0 --port 50061 --worker-id sdxl-a
+omnirt serve --remote-worker 'sdxl-a=127.0.0.1:50061@sdxl-base-1.0'
+```
+
+When `--redis-url` is also enabled, job state and event streams are stored in `RedisJobStore` so they can be observed across processes.
+
+## Tuning guidance
+
+- low latency: keep `batch_window_ms=0` to disable batching
+- same-model throughput: raise `batch_window_ms` and `max_batch_size` gradually
+- memory-sensitive hosts: reduce `pipeline_cache_size` and `max_concurrency`
+- remote workers: start with one worker and confirm `remote_worker_count` from `/readyz`
 
 ## Related
 
-- [HTTP Server](../serving/http_server.md) — serving and OpenAI-compatible routes
-- [Telemetry](telemetry.md) — engine-level metrics
-- [Architecture](../../developer_guide/architecture.md) — `BasePipeline` 5-stage model and backend layer
+- [HTTP Server](../serving/http_server.md)
+- [Distributed Serving](../deployment/distributed_serving.md)
+- [Telemetry](telemetry.md)

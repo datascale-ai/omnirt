@@ -1,7 +1,7 @@
 import json
 
 from omnirt.core.registry import ModelCapabilities, ModelSpec
-from omnirt.cli.main import build_parser, main, render_model_summary, request_from_args
+from omnirt.cli.main import build_parser, main, parse_remote_worker_specs, render_model_summary, request_from_args
 
 
 def test_build_parser_accepts_generate_command() -> None:
@@ -320,6 +320,28 @@ def test_build_parser_accepts_serve_redis_and_otlp_flags() -> None:
 
     assert args.redis_url == "redis://cache:6379/0"
     assert args.otlp_endpoint == "http://collector:4318/v1/traces"
+
+
+def test_build_parser_accepts_worker_command() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["worker", "--host", "0.0.0.0", "--port", "50061", "--worker-id", "worker-a"])
+
+    assert args.command == "worker"
+    assert args.port == 50061
+    assert args.worker_id == "worker-a"
+
+
+def test_parse_remote_worker_specs_supports_models_and_tags() -> None:
+    parsed = parse_remote_worker_specs(["worker-a=127.0.0.1:50061@sdxl-base-1.0,flux-dev#gpu,cn-shanghai"])
+
+    assert parsed == [
+        {
+            "worker_id": "worker-a",
+            "address": "127.0.0.1:50061",
+            "models": ("sdxl-base-1.0", "flux-dev"),
+            "tags": ("gpu", "cn-shanghai"),
+        }
+    ]
 
 
 def test_request_from_args_accepts_device_placement_flags() -> None:

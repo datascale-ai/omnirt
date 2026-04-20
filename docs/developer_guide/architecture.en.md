@@ -1,46 +1,115 @@
 # OmniRT Architecture
 
-`omnirt` is organized around a component-oriented runtime that keeps the public interface stable while allowing backend-specific execution strategies.
+OmniRT has evolved from a single-process pipeline wrapper into a generation runtime with queues, executors, observability, and remote-worker extension points.
 
-## Layers
+## Main layers
 
-1. **User interface layer** — [src/omnirt/api.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/api.py) + [src/omnirt/cli/main.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/cli/main.py)
-   `omnirt.generate(...)`, `omnirt.validate(...)`, `omnirt.pipeline(...)`, and the `omnirt` CLI all normalize inputs into `GenerateRequest` before handing them down the stack.
-2. **Pipeline layer** — [src/omnirt/core/base_pipeline.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/core/base_pipeline.py)
-   `BasePipeline` provides the five-stage skeleton: `prepare_conditions`, `prepare_latents`, `denoise_loop`, `decode`, `export`. Every stage is timed by the telemetry layer.
-3. **Component / model layer** — [src/omnirt/models/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/models)
-   Each model family (SDXL, SVD, Flux2, Wan2.2, Qwen-Image, CogVideoX, HunyuanVideo, and more) implements a `BasePipeline` subclass and attaches to the registry via `@register_model`. The live list is at [Supported Models](../user_guide/models/supported_models.md).
-4. **Scheduler layer** — [src/omnirt/schedulers/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/schedulers)
-   Thin wrappers for common schedulers (`euler-discrete`, `euler-ancestral`, `ddim`, `dpm-solver`, `dpm-solver-karras`) are dispatched by `SCHEDULER_REGISTRY` + `build_scheduler(config)`. Pipelines never import Diffusers scheduler classes directly.
-5. **Backend layer** — [src/omnirt/backends/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/backends)
-   `BackendRuntime.wrap_module(...)` attempts `compile`, then `kernel_override`, then eager. Each attempt is recorded in `RunReport.backend_timeline`. Current runtimes: `CudaBackend`, `AscendBackend`, `CpuStubBackend`.
-6. **Telemetry layer** — [src/omnirt/telemetry/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/telemetry)
-   `log.py` emits structured logs; `report.py` builds the `RunReport` (stage timings, peak memory, backend-fallback chain, terminal latent statistics).
-7. **Support infrastructure** — [src/omnirt/core/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/core)
-   Registry, `safetensors`-only weight loading, adapter loading, presets, validation, and parity helpers all live here.
+### 1. Interface layer
 
-## Public contracts
+- Python API: `omnirt.generate(...)`, `omnirt.validate(...)`
+- CLI: `generate / validate / models / serve / bench / worker`
+- HTTP: native `/v1/generate` plus OpenAI-compatible routes
 
-- `GenerateRequest` carries `task`, `model`, `backend`, task-specific `inputs`, generation `config`, and optional adapters.
-- `GenerateResult` contains exported artifacts and a `RunReport`.
-- `RunReport` records stage timings, resolved config, peak memory, backend fallback attempts, terminal-latent statistics (for cross-backend parity), and any surfaced error.
-- Field-level reference: [Service Schema](../user_guide/features/service_schema.md).
+This layer normalizes all external inputs into `GenerateRequest`.
 
-## Registry and aliases
+### 2. Contract and registry layer
 
-A single pipeline class can expose multiple registry ids by stacking `@register_model(...)` decorators — this is exactly how `flux2.dev` and `flux2-dev` share an implementation. Aliases declare themselves via `ModelCapabilities.alias_of`, and `omnirt models --format markdown` renders canonical ids separately from alias rows. See [Model Onboarding](model_onboarding.md) for how to add either.
+- `GenerateRequest` / `GenerateResult` / `RunReport`
+- registry / presets / validation
+- model alias resolution
 
-## Presets
+This layer answers "is the request valid?" and "what final execution config should be used?"
 
-All pipelines share one preset vocabulary (`fast` / `balanced` / `quality` / `low-vram`), merged into `config` during `prepare_conditions`. What each preset changes per task/model is documented in [Presets](../user_guide/features/presets.md), sourced from [src/omnirt/core/presets.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/core/presets.py).
+### 3. Engine and dispatch layer
 
-## Artifact export
+- `OmniEngine`
+- `JobQueue`
+- `RequestBatcher`
+- `InMemoryJobStore` / `RedisJobStore`
+- `Controller`
 
-- `text2image` writes PNG artifacts via Pillow.
-- `text2video` / `image2video` / `audio2video` mux MP4 via `imageio-ffmpeg` in [src/omnirt/core/media.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/core/media.py).
+This layer owns:
 
-## Test tiers
+- unified sync and async entry points
+- local queueing and job lifecycle
+- batching
+- deciding whether a request stays local or is forwarded to a remote worker
 
-- `tests/unit/` covers contracts, registry, CLI, and pipeline behavior using fake runtimes and fake Diffusers objects.
-- `tests/parity/` covers latent statistics plus image / video metric helpers.
-- `tests/integration/` contains CUDA/Ascend smoke tests and error-path coverage; hardware-dependent cases skip automatically when prerequisites are missing.
+### 4. Executor layer
+
+There are currently three execution paths:
+
+| execution_mode | Meaning |
+|---|---|
+| `modular` | component-oriented path for migrated families |
+| `legacy_call` | wrapper path around existing Diffusers pipelines |
+| `subprocess` | external script / repository-driven execution such as FlashTalk |
+
+`ModelSpec.execution_mode` decides which path the engine takes.
+
+### 5. Model / launcher / backend layer
+
+- model-family implementations live under `src/omnirt/models/`
+- launchers handle `python / torchrun / accelerate`
+- backends wrap device and compile behavior
+
+This is also where OmniRT applies:
+
+- `device_map` / `devices`
+- legacy official optimization switches
+- quantization / layerwise casting / TeaCache
+
+### 6. Observability layer
+
+- `RunReport`
+- Prometheus metrics
+- trace recorder plus OTLP exporter
+- SSE / WebSocket / Realtime event streams
+
+This layer makes one execution visible both inside the response and outside the process.
+
+## Synchronous execution path
+
+1. the interface layer builds `GenerateRequest`
+2. validation resolves the model, task, and config
+3. `OmniEngine.run_sync()` selects either a local executor or a remote worker
+4. the executor runs the model and returns `GenerateResult`
+5. telemetry fills `RunReport`
+
+## Asynchronous execution path
+
+1. `POST /v1/generate` with `async_run=true`
+2. the engine creates a job and writes it to JobStore
+3. the queue, batcher, and controller process the job
+4. events are continuously appended to the job stream
+5. clients consume the job through `GET /v1/jobs/{id}`, SSE, WebSocket, or the trace route
+
+## Distributed extension points
+
+Extension points already implemented:
+
+- gRPC worker transport
+- `Controller` routing to remote workers
+- `RedisJobStore`
+- OTLP/HTTP trace export
+
+Still intentionally lightweight:
+
+- the gRPC transport is a minimal unary RPC transport, not a full control plane
+- `ROCm / XPU` remain experimental backend placeholders
+
+## Stable public contracts
+
+The most important stable public surfaces are:
+
+- `GenerateRequest`
+- `GenerateResult`
+- `RunReport.schema_version`
+
+Executors, middleware, and launchers can continue to evolve internally, but these three should remain backward compatible whenever possible.
+
+## Related
+
+- [Service Schema](../user_guide/features/service_schema.md)
+- [Dispatch & Queue](../user_guide/features/dispatch_queue.md)
+- [Telemetry](../user_guide/features/telemetry.md)

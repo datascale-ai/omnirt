@@ -1,46 +1,115 @@
 # OmniRT 架构说明
 
-`omnirt` 采用组件化运行时结构，在保持公开接口稳定的同时，允许不同后端使用各自的执行策略。
+OmniRT 当前已经从“单进程 pipeline 包装器”演进成一个带 queue、executor、观测和远程 worker 扩展位的生成运行时。
 
-## 分层
+## 主体分层
 
-1. **用户接口层** — [src/omnirt/api.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/api.py) + [src/omnirt/cli/main.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/cli/main.py)
-   `omnirt.generate(...)`、`omnirt.validate(...)`、`omnirt.pipeline(...)` 和 `omnirt` CLI 都会把输入归一化成 `GenerateRequest`，再下发给 pipeline 层。
-2. **Pipeline 层** — [src/omnirt/core/base_pipeline.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/core/base_pipeline.py)
-   `BasePipeline` 提供五阶段骨架：`prepare_conditions`、`prepare_latents`、`denoise_loop`、`decode`、`export`。每阶段都会被 telemetry 层打点计时。
-3. **组件层** — [src/omnirt/models/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/models)
-   具体模型家族（SDXL、SVD、Flux2、Wan2.2、Qwen-Image、CogVideoX、HunyuanVideo 等）各自实现一个 `BasePipeline` 子类，通过 `@register_model` 装饰器挂进 registry。完整清单见 [模型清单](../user_guide/models/supported_models.md)。
-4. **Scheduler 层** — [src/omnirt/schedulers/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/schedulers)
-   薄封装常用调度器（`euler-discrete`、`euler-ancestral`、`ddim`、`dpm-solver`、`dpm-solver-karras`），由 `SCHEDULER_REGISTRY` 和 `build_scheduler(config)` 统一分发，pipeline 不直接依赖 Diffusers 具体调度器类。
-5. **后端层** — [src/omnirt/backends/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/backends)
-   `BackendRuntime.wrap_module(...)` 依次尝试 `compile`、`kernel_override`，最后回退到 eager。每一步都被记录到 `RunReport.backend_timeline`。当前实现：`CudaBackend`、`AscendBackend`、`CpuStubBackend`。
-6. **Telemetry 层** — [src/omnirt/telemetry/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/telemetry)
-   `log.py` 负责结构化日志；`report.py` 负责 `RunReport` 构建（阶段耗时、峰值显存、后端回退、latent 统计）。
-7. **支撑设施** — [src/omnirt/core/](https://github.com/datascale-ai/omnirt/tree/main/src/omnirt/core)
-   registry、仅 `safetensors` 权重加载、adapter 加载、presets、validation、parity helper 都位于这一层。
+### 1. 接口层
 
-## 公开契约
+- Python API：`omnirt.generate(...)`、`omnirt.validate(...)`
+- CLI：`generate / validate / models / serve / bench / worker`
+- HTTP：原生 `/v1/generate` 与 OpenAI 兼容路由
 
-- `GenerateRequest` 负责携带 `task`、`model`、`backend`、任务相关 `inputs`、执行 `config` 以及可选 adapters。
-- `GenerateResult` 包含导出产物和一份 `RunReport`。
-- `RunReport` 记录阶段耗时、解析后的配置、峰值内存、后端回退尝试、终端 latent 统计（用于跨后端 parity）以及最终暴露出的错误。
-- 详细字段见 [服务协议](../user_guide/features/service_schema.md)。
+这一层的职责是把外部输入统一归一成 `GenerateRequest`。
 
-## Registry 与 alias
+### 2. 契约与注册层
 
-同一个 pipeline 类可以通过多次 `@register_model(...)` 暴露多个 id，这就是 `flux2.dev` / `flux2-dev` 这类别名的由来；在 `ModelCapabilities.alias_of` 上标记，`omnirt models --format markdown` 会把规范 id 与别名分开渲染。接入细节见 [模型接入](model_onboarding.md)。
+- `GenerateRequest` / `GenerateResult` / `RunReport`
+- registry / presets / validation
+- 模型别名解析
 
-## Preset
+这一层决定“一个请求是否合法、最终解析成什么执行配置”。
 
-所有 pipeline 共享同一组 preset (`fast` / `balanced` / `quality` / `low-vram`)，在 `prepare_conditions` 阶段被合并进 `config`；具体 preset 对不同 task / model 产生的变化见 [预设](../user_guide/features/presets.md)，源头在 [src/omnirt/core/presets.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/core/presets.py) 的 `_BASE_PRESETS` / `_TASK_PRESETS` / `_MODEL_PRESETS`。
+### 3. Engine 与派发层
 
-## 产物导出
+- `OmniEngine`
+- `JobQueue`
+- `RequestBatcher`
+- `InMemoryJobStore` / `RedisJobStore`
+- `Controller`
 
-- `text2image` 导出 PNG 产物（Pillow 写盘）。
-- `text2video` / `image2video` / `audio2video` 通过 `imageio-ffmpeg` 封装 MP4（见 [src/omnirt/core/media.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/core/media.py)）。
+这一层负责：
 
-## 测试分层
+- 同步与异步入口统一
+- 本地队列和 job 生命周期
+- batching
+- 将请求留在本地执行，或转发给远程 worker
 
-- `tests/unit/` 覆盖契约、registry、CLI、pipeline 行为（用 fake runtime + fake Diffusers）。
-- `tests/parity/` 覆盖 latent 统计与图像/视频指标 helper。
-- `tests/integration/` 提供 CUDA / Ascend smoke 与错误路径覆盖；依赖硬件的 case 在缺少前置条件时会自动跳过。
+### 4. Executor 层
+
+当前有三条执行路径：
+
+| execution_mode | 说明 |
+|---|---|
+| `modular` | 面向已迁移家族的组件化执行路径 |
+| `legacy_call` | 对现有 Diffusers pipeline 的包装执行 |
+| `subprocess` | 外部脚本 / 仓库驱动的执行模式，如 FlashTalk |
+
+`ModelSpec.execution_mode` 决定 engine 最终落到哪条路径。
+
+### 5. 模型 / 启动器 / 后端层
+
+- 模型家族实现位于 `src/omnirt/models/`
+- launcher 负责 `python / torchrun / accelerate`
+- backend 负责运行时设备与编译封装
+
+这里同时承接：
+
+- `device_map` / `devices`
+- legacy 官方优化开关
+- quantization / layerwise casting / TeaCache
+
+### 6. 观测层
+
+- `RunReport`
+- Prometheus metrics
+- Trace recorder + OTLP exporter
+- SSE / WebSocket / Realtime 事件流
+
+这一层让一次执行既能被“请求内返回”，也能被“服务外部抓取”。
+
+## 同步执行路径
+
+1. 接口层创建 `GenerateRequest`
+2. validation 解析模型、任务和 config
+3. `OmniEngine.run_sync()` 选择本地 executor 或远程 worker
+4. executor 运行模型并生成 `GenerateResult`
+5. telemetry 填充 `RunReport`
+
+## 异步执行路径
+
+1. `POST /v1/generate` 带 `async_run=true`
+2. engine 创建 job，写入 JobStore
+3. queue / batcher / controller 处理该 job
+4. 事件持续写入 job stream
+5. 客户端从 `GET /v1/jobs/{id}`、SSE、WebSocket 或 trace 路由消费
+
+## 分布式扩展点
+
+当前已经落地的扩展点：
+
+- gRPC worker transport
+- `Controller` 路由远程 worker
+- `RedisJobStore`
+- OTLP/HTTP trace 导出
+
+当前仍然保持轻量的部分：
+
+- gRPC transport 是最小 unary RPC，不是完整控制面
+- `ROCm / XPU` 仍是实验性 backend 占位
+
+## 稳定契约
+
+OmniRT 对外最重要的稳定面是：
+
+- `GenerateRequest`
+- `GenerateResult`
+- `RunReport.schema_version`
+
+内部 executor、middleware、launcher 可以继续演进，但这三项应尽量保持向后兼容。
+
+## 相关
+
+- [服务协议](../user_guide/features/service_schema.md)
+- [派发与队列](../user_guide/features/dispatch_queue.md)
+- [遥测](../user_guide/features/telemetry.md)

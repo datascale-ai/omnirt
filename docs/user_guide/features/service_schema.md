@@ -1,24 +1,24 @@
 # OmniRT 服务协议
 
-本文档定义了面向服务化集成场景的 OmniRT 公开请求与响应结构。
+本文档描述 OmniRT 当前公开的请求 / 响应结构，以及服务化场景下最重要的兼容性约定。
 
 ## 版本约定
 
-- 当前 schema 版本：`0.1.0`
-- 在 OmniRT 仍处于 1.0 之前时，breaking change 应提升 minor version
-- 新增字段应尽量保持向后兼容
+- 当前 `RunReport.schema_version`：`1.0.0`
+- 客户端应把**未知字段**视为前向兼容新增
+- 客户端应通过 `schema_version` 决定解析升级策略
 
 ## 请求结构
 
-推荐的服务请求结构与 `GenerateRequest` 保持一致。
+OmniRT 原生请求与 `GenerateRequest` 对齐：
 
 ```json
 {
   "task": "text2image",
-  "model": "flux2.dev",
+  "model": "sdxl-base-1.0",
   "backend": "auto",
   "inputs": {
-    "prompt": "a cinematic sci-fi city at sunrise"
+    "prompt": "a cinematic lighthouse under storm clouds"
   },
   "config": {
     "preset": "balanced",
@@ -29,34 +29,36 @@
 }
 ```
 
-## 请求规则
+服务侧 `POST /v1/generate` 额外支持一个提交层字段：
 
-- `task` 用于标识用户可见的任务面，例如 `text2image`、`text2video`、`image2video`
-- `model` 必须是 OmniRT 的 registry id，而不是上游 Diffusers 的原始类名
-- `inputs` 放语义内容输入，例如 `prompt`、`negative_prompt`、`image`、`num_frames`、`fps`
-- `config` 放执行设置，例如 `preset`、`scheduler`、`num_inference_steps`、`guidance_scale`、`height`、`width`、`dtype`、`output_dir`
-- `adapters` 放可选的 LoRA 引用
+```json
+{
+  "...GenerateRequest fields...": "...",
+  "async_run": true
+}
+```
 
-## 校验契约
+当 `async_run=true` 时，返回的是 job 记录而不是最终 `GenerateResult`。
 
-在真正执行之前，服务层应该暴露与 `omnirt validate` 一致的校验行为：
+## 字段规则
 
-- 对未知模型给出相近建议
-- 拒绝任务与模型不匹配的请求
-- 拒绝不支持的输入和配置字段
-- 解析模型默认值和命名 preset
-- 返回最终解析出的后端
+- `task`：任务面，当前包括 `text2image`、`image2image`、`inpaint`、`edit`、`text2video`、`image2video`、`audio2video`
+- `model`：OmniRT registry id，而不是上游框架类名
+- `backend`：`auto`、`cuda`、`ascend`、`rocm`、`xpu`、`cpu-stub`
+- `inputs`：语义输入，如 `prompt`、`image`、`mask`、`audio`
+- `config`：执行配置，如 `preset`、`scheduler`、`device_map`、`quantization`
+- `adapters`：可选的 LoRA 列表
 
-## 响应结构
+## 同步响应
 
-执行响应与 `GenerateResult` 保持一致。
+同步 `POST /v1/generate` 返回 `GenerateResult`：
 
 ```json
 {
   "outputs": [
     {
       "kind": "image",
-      "path": "outputs/flux2.dev-random-0.png",
+      "path": "outputs/sdxl-base-1.0-0000.png",
       "mime": "image/png",
       "width": 1024,
       "height": 1024,
@@ -64,32 +66,56 @@
     }
   ],
   "metadata": {
-    "run_id": "3f33c54e-f4a9-4d22-a4f5-8de4d0c5f5d4",
+    "run_id": "8a1d...",
     "task": "text2image",
-    "model": "flux2.dev",
+    "model": "sdxl-base-1.0",
     "backend": "cuda",
-    "timings": {
-      "prepare_conditions_ms": 3.1
-    },
-    "memory": {
-      "peak_mb": 4096
-    },
-    "backend_timeline": [],
-    "config_resolved": {
-      "width": 1024,
-      "height": 1024,
-      "num_inference_steps": 40
-    },
-    "artifacts": [],
-    "error": null,
-    "latent_stats": null,
-    "schema_version": "0.1.0"
+    "trace_id": "5e5f...",
+    "worker_id": "coordinator",
+    "execution_mode": "modular",
+    "timings": {"denoise": 1.42, "export": 0.08},
+    "memory": {"peak_bytes": 8589934592},
+    "cache_hits": ["text_embedding"],
+    "device_placement": {"unet": "cuda:0", "vae": "cuda:1"},
+    "batch_size": 1,
+    "stream_events": [],
+    "schema_version": "1.0.0"
   }
 }
 ```
 
-## 稳定性建议
+## 异步响应
 
-- 客户端应把未知响应字段视为前向兼容的新增内容
-- 客户端应通过 `schema_version` 决定解析升级策略
-- `artifact.path` 默认表示本地运行时输出路径，除非上层服务额外把它映射成对象存储 URL
+`async_run=true` 时，`POST /v1/generate` 会先返回 job 记录：
+
+```json
+{
+  "id": "job-123",
+  "state": "queued",
+  "trace_id": "trace-123"
+}
+```
+
+随后可通过以下接口消费：
+
+- `GET /v1/jobs/{id}`
+- `GET /v1/jobs/{id}/events`
+- `WS /v1/jobs/{id}/stream`
+- `GET /v1/jobs/{id}/trace`
+
+## OpenAI 兼容层
+
+当前已提供这些兼容入口：
+
+- `POST /v1/images/generations`
+- `POST /v1/images/edits`
+- `POST /v1/videos/generations`
+- `WS /v1/realtime`
+
+`POST /v1/audio/speech` 当前保留，返回 `501`。
+
+## 相关
+
+- [HTTP 服务](../serving/http_server.md)
+- [遥测](telemetry.md)
+- [CLI 参考](../../cli_reference/index.md)

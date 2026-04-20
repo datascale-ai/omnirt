@@ -1,24 +1,24 @@
 # OmniRT Service Schema
 
-This document defines the public request and response shape for service-oriented OmniRT integrations.
+This document describes OmniRT's current public request and response shapes plus the most important compatibility rules for service integrations.
 
 ## Versioning
 
-- current schema version: `0.1.0`
-- breaking changes should increment the minor version while OmniRT is pre-1.0
-- additive fields should preserve backward compatibility
+- current `RunReport.schema_version`: `1.0.0`
+- clients should treat **unknown fields** as forward-compatible additions
+- clients should key parsing upgrades off `schema_version`
 
-## Request
+## Request shape
 
-The recommended service request mirrors `GenerateRequest`.
+The native OmniRT request mirrors `GenerateRequest`:
 
 ```json
 {
   "task": "text2image",
-  "model": "flux2.dev",
+  "model": "sdxl-base-1.0",
   "backend": "auto",
   "inputs": {
-    "prompt": "a cinematic sci-fi city at sunrise"
+    "prompt": "a cinematic lighthouse under storm clouds"
   },
   "config": {
     "preset": "balanced",
@@ -29,34 +29,36 @@ The recommended service request mirrors `GenerateRequest`.
 }
 ```
 
-## Request rules
+`POST /v1/generate` adds one submission-layer field:
 
-- `task` identifies the user-facing generation surface such as `text2image`, `text2video`, or `image2video`
-- `model` is the OmniRT registry id, not a raw upstream Diffusers class name
-- `inputs` contains semantic content inputs such as `prompt`, `negative_prompt`, `image`, `num_frames`, and `fps`
-- `config` contains execution settings such as `preset`, `scheduler`, `num_inference_steps`, `guidance_scale`, `height`, `width`, `dtype`, and `output_dir`
-- `adapters` contains optional LoRA references
+```json
+{
+  "...GenerateRequest fields...": "...",
+  "async_run": true
+}
+```
 
-## Validation contract
+When `async_run=true`, the server returns a job record instead of the final `GenerateResult`.
 
-Before execution, the service should expose the same validation behavior as `omnirt validate`:
+## Field rules
 
-- reject unknown models with nearby suggestions
-- reject task/model mismatches
-- reject unsupported input and config keys
-- resolve model defaults and named presets
-- report the resolved backend
+- `task`: task surface, currently including `text2image`, `image2image`, `inpaint`, `edit`, `text2video`, `image2video`, `audio2video`
+- `model`: OmniRT registry id, not an upstream framework class name
+- `backend`: `auto`, `cuda`, `ascend`, `rocm`, `xpu`, `cpu-stub`
+- `inputs`: semantic inputs such as `prompt`, `image`, `mask`, `audio`
+- `config`: execution settings such as `preset`, `scheduler`, `device_map`, `quantization`
+- `adapters`: optional LoRA list
 
-## Response
+## Sync response
 
-The execution response mirrors `GenerateResult`.
+Synchronous `POST /v1/generate` returns a `GenerateResult`:
 
 ```json
 {
   "outputs": [
     {
       "kind": "image",
-      "path": "outputs/flux2.dev-random-0.png",
+      "path": "outputs/sdxl-base-1.0-0000.png",
       "mime": "image/png",
       "width": 1024,
       "height": 1024,
@@ -64,32 +66,56 @@ The execution response mirrors `GenerateResult`.
     }
   ],
   "metadata": {
-    "run_id": "3f33c54e-f4a9-4d22-a4f5-8de4d0c5f5d4",
+    "run_id": "8a1d...",
     "task": "text2image",
-    "model": "flux2.dev",
+    "model": "sdxl-base-1.0",
     "backend": "cuda",
-    "timings": {
-      "prepare_conditions_ms": 3.1
-    },
-    "memory": {
-      "peak_mb": 4096
-    },
-    "backend_timeline": [],
-    "config_resolved": {
-      "width": 1024,
-      "height": 1024,
-      "num_inference_steps": 40
-    },
-    "artifacts": [],
-    "error": null,
-    "latent_stats": null,
-    "schema_version": "0.1.0"
+    "trace_id": "5e5f...",
+    "worker_id": "coordinator",
+    "execution_mode": "modular",
+    "timings": {"denoise": 1.42, "export": 0.08},
+    "memory": {"peak_bytes": 8589934592},
+    "cache_hits": ["text_embedding"],
+    "device_placement": {"unet": "cuda:0", "vae": "cuda:1"},
+    "batch_size": 1,
+    "stream_events": [],
+    "schema_version": "1.0.0"
   }
 }
 ```
 
-## Stability guidance
+## Async response
 
-- clients should treat unknown response fields as forward-compatible additions
-- clients should rely on `schema_version` for parsing upgrades
-- artifact `path` values are local runtime outputs unless a higher-level service maps them to object storage URLs
+When `async_run=true`, `POST /v1/generate` first returns a job record:
+
+```json
+{
+  "id": "job-123",
+  "state": "queued",
+  "trace_id": "trace-123"
+}
+```
+
+You can then consume it through:
+
+- `GET /v1/jobs/{id}`
+- `GET /v1/jobs/{id}/events`
+- `WS /v1/jobs/{id}/stream`
+- `GET /v1/jobs/{id}/trace`
+
+## OpenAI compatibility layer
+
+These compatibility routes are currently available:
+
+- `POST /v1/images/generations`
+- `POST /v1/images/edits`
+- `POST /v1/videos/generations`
+- `WS /v1/realtime`
+
+`POST /v1/audio/speech` is currently reserved and returns `501`.
+
+## Related
+
+- [HTTP Server](../serving/http_server.md)
+- [Telemetry](telemetry.md)
+- [CLI Reference](../../cli_reference/index.md)

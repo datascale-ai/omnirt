@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from omnirt.engine import OmniEngine
+from omnirt.engine import Controller, GrpcWorkerClient, OmniEngine, WorkerEndpoint
 from omnirt.engine.redis_store import RedisJobStore
 from omnirt.server.auth import ApiKeyMiddleware, load_api_keys
 from omnirt.server.model_aliases import load_model_aliases
@@ -27,11 +27,27 @@ def create_app(
     model_aliases_path: str | None = None,
     redis_url: str | None = None,
     otlp_endpoint: str | None = None,
+    worker_id: str = "coordinator",
+    remote_workers: list[dict[str, object]] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="OmniRT", version="1.0.0")
     metrics = PrometheusMetrics()
     tracer = TraceRecorder(exporters=[OtlpExporter(endpoint=otlp_endpoint)] if otlp_endpoint else None)
     job_store = RedisJobStore(redis_url=redis_url) if redis_url else None
+    controller = None
+    worker_clients = None
+    if remote_workers:
+        controller = Controller()
+        worker_clients = {}
+        for item in remote_workers:
+            endpoint = WorkerEndpoint(
+                worker_id=str(item["worker_id"]),
+                address=str(item["address"]),
+                models=tuple(str(model) for model in item.get("models", ()) or ()),
+                tags=tuple(str(tag) for tag in item.get("tags", ()) or ()),
+            )
+            controller.register_worker(endpoint)
+            worker_clients[endpoint.worker_id] = GrpcWorkerClient(endpoint.address)
     app.state.engine = OmniEngine(
         max_concurrency=max_concurrency,
         pipeline_cache_size=pipeline_cache_size,
@@ -40,10 +56,14 @@ def create_app(
         metrics=metrics,
         tracer=tracer,
         job_store=job_store,
+        controller=controller,
+        worker_id=worker_id,
+        worker_clients=worker_clients,
     )
     app.state.metrics = metrics
     app.state.tracer = tracer
     app.state.job_store_backend = "redis" if redis_url else "memory"
+    app.state.remote_workers = list(remote_workers or [])
     app.state.default_backend = default_backend
     app.state.default_request_config = dict(default_request_config or {})
     app.state.model_aliases = load_model_aliases(model_aliases_path)

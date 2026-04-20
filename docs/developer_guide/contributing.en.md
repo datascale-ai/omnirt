@@ -101,7 +101,7 @@ Bilingual convention: the Chinese source is `foo.md` and its English sibling is 
 
 ## References
 
-- [Architecture](architecture.md) — repo layout and the seven runtime layers
+- [Architecture](architecture.md) — repo layout and the current runtime topology
 - [Model Onboarding](model_onboarding.md) — `@register_model` + `ModelCapabilities`
 - [Backend Onboarding](backend_onboarding.md) — `BackendRuntime.wrap_module` contract
 - [pyproject.toml](https://github.com/datascale-ai/omnirt/blob/main/pyproject.toml) — extras and entry points

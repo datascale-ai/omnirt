@@ -1,124 +1,137 @@
 # HTTP Server (FastAPI)
 
-The `server` extra ships a ready-to-run FastAPI application with OmniRT's native `/v1/generate` endpoint plus **OpenAI-compatible** routes (`/v1/images/generations`, `/v1/videos/generations`, `/v1/audio/speech`) that accept existing OpenAI client SDKs.
+`omnirt serve` is the recommended service entry point. In one process it combines:
 
-## Install and launch
+- FastAPI routes
+- `OmniEngine`
+- Prometheus `/metrics`
+- optional Redis-backed job storage
+- optional OTLP trace export
+- optional remote gRPC worker routing
+
+## Startup
 
 ```bash
-# Install the server extra (FastAPI / uvicorn / pydantic / sse-starlette)
 python -m pip install -e '.[runtime,server]'
 
-# Simplest launch
-uvicorn 'omnirt.server.app:create_app' --factory --host 0.0.0.0 --port 8000
+omnirt serve \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --backend auto
 ```
 
-`create_app()` accepts the following parameters (overridable via env vars or a `--factory` wrapper):
+## Common flags
 
-| Parameter | Default | Description |
-|---|---|---|
-| `default_backend` | `"auto"` | Server-wide default backend; a request's `backend` field still overrides |
-| `max_concurrency` | `1` | Max concurrent jobs in the engine; keep `1` on Ascend |
-| `pipeline_cache_size` | `4` | LRU cache size for loaded model pipelines; lower when VRAM-constrained |
-| `batch_window_ms` | `0` | Dynamic-batching aggregation window; `0` disables |
-| `max_batch_size` | `1` | Dynamic-batching cap |
-| `api_key_file` | `None` | Line-separated API-key file; presence enables `ApiKeyMiddleware` |
-| `model_aliases_path` | `None` | YAML / JSON map of OpenAI-style model names → OmniRT registry ids |
+| Flag | Purpose |
+|---|---|
+| `--backend` | default backend when the request does not specify one |
+| `--max-concurrency` | max local engine concurrency |
+| `--pipeline-cache-size` | number of resident executors / pipelines |
+| `--batch-window-ms` | batching wait window |
+| `--max-batch-size` | batching cap |
+| `--device-map` / `--devices` | default request config passed to all server entry points |
+| `--api-key-file` | API-key file |
+| `--model-aliases` | alias map for OpenAI-compatible model names |
+| `--redis-url` | enable `RedisJobStore` |
+| `--otlp-endpoint` | enable OTLP/HTTP trace export |
+| `--remote-worker` | register a remote gRPC worker |
 
-## Route map
-
-### Native endpoints
+## Route overview
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/healthz` | liveness probe |
-| `GET` | `/readyz` | readiness probe (engine initialized) |
-| `POST` | `/v1/generate` | synchronous generation; returns `GenerateResult` |
-| `POST` | `/v1/jobs` | async submission; returns `job_id` |
-| `GET` | `/v1/jobs/{job_id}` | job status / result |
-| `DELETE` | `/v1/jobs/{job_id}` | cancel a job |
-| `GET` | `/v1/jobs/{job_id}/events` | SSE event stream |
+| `GET` | `/readyz` | readiness probe including `job_store_backend` and `remote_worker_count` |
+| `GET` | `/metrics` | Prometheus text exposition |
+| `POST` | `/v1/generate` | sync or async generation |
+| `GET` | `/v1/jobs/{id}` | job state and result |
+| `DELETE` | `/v1/jobs/{id}` | cancel a job |
+| `GET` | `/v1/jobs/{id}/events` | SSE event stream |
+| `GET` | `/v1/jobs/{id}/trace` | per-job trace view |
+| `WS` | `/v1/jobs/{id}/stream` | WebSocket event stream plus cancel |
+| `POST` | `/v1/images/generations` | OpenAI-compatible text-to-image |
+| `POST` | `/v1/images/edits` | OpenAI-compatible image editing |
+| `POST` | `/v1/videos/generations` | OpenAI-compatible video generation |
+| `WS` | `/v1/realtime` | minimal OpenAI Realtime subset |
 
-### OpenAI-compatible endpoints
+`POST /v1/jobs` is currently reserved and is not the submission entry point.
 
-| Method | Path | Mapped to |
-|---|---|---|
-| `POST` | `/v1/images/generations` | `text2image` |
-| `POST` | `/v1/images/edits` | `inpaint` / `edit` |
-| `POST` | `/v1/videos/generations` | `text2video` |
-| `POST` | `/v1/audio/speech` | (external TTS adapter) |
-
-These endpoints accept OpenAI-client payloads; `model_aliases_path` maps names like `gpt-image-1` to OmniRT registry ids like `flux2.dev`.
-
-## Minimal examples
-
-=== "Native /v1/generate"
-
-    ```bash
-    curl -sS http://localhost:8000/v1/generate \
-      -H 'Content-Type: application/json' \
-      -d '{
-        "task": "text2image",
-        "model": "sd15",
-        "inputs": {"prompt": "a lighthouse"},
-        "config": {"preset": "fast"}
-      }'
-    ```
-
-=== "OpenAI-compatible"
-
-    ```python
-    from openai import OpenAI
-    client = OpenAI(base_url="http://localhost:8000/v1", api_key="sk-omnirt-local")
-    resp = client.images.generate(
-        model="sd15",
-        prompt="a lighthouse in fog",
-        size="512x512",
-    )
-    print(resp.data[0].url)
-    ```
-
-=== "Async job"
-
-    ```bash
-    # Submit
-    curl -sS -X POST http://localhost:8000/v1/jobs \
-      -H 'Content-Type: application/json' \
-      -d '{"task": "text2video", "model": "wan2.2-t2v-14b",
-           "inputs": {"prompt": "..."}, "config": {"num_frames": 81}}'
-    # -> {"job_id": "abc123", "status": "queued"}
-
-    # Poll
-    curl -sS http://localhost:8000/v1/jobs/abc123
-
-    # Subscribe (SSE)
-    curl -sS -N http://localhost:8000/v1/jobs/abc123/events
-    ```
-
-## API keys
+## Sync generation
 
 ```bash
-# /etc/omnirt/api-keys.txt — one key per line
-printf 'sk-omnirt-alice\nsk-omnirt-bob\n' > api-keys.txt
-
-OMNIRT_API_KEY_FILE=api-keys.txt \
-uvicorn 'omnirt.server.app:create_app' --factory \
-  --host 0.0.0.0 --port 8000
+curl -sS http://127.0.0.1:8000/v1/generate \
+  -H 'content-type: application/json' \
+  -d '{
+    "task": "text2image",
+    "model": "sdxl-base-1.0",
+    "inputs": {"prompt": "a lighthouse at dusk"},
+    "config": {"preset": "fast"}
+  }'
 ```
 
-Clients send `Authorization: Bearer <key>`.
+## Async generation
 
-## Concurrency and batching
+```bash
+curl -sS http://127.0.0.1:8000/v1/generate \
+  -H 'content-type: application/json' \
+  -d '{
+    "task": "text2video",
+    "model": "wan2.2-t2v-14b",
+    "inputs": {"prompt": "a paper ship drifting on moonlit water"},
+    "config": {"num_frames": 81},
+    "async_run": true
+  }'
+```
 
-- `max_concurrency=N` — at most N requests in the engine at once
-- `pipeline_cache_size=K` — keep K pipelines warm (shared weights across requests)
-- `batch_window_ms=10, max_batch_size=4` — aggregate same-task same-model requests inside the window; benchmark before enabling — batching is latency-sensitive
+Then use:
 
-**Ascend-specific**: use `max_concurrency=1, pipeline_cache_size=1` to avoid NPU memory fragmentation (see the "memory not released" note in [Ascend Backend](../deployment/ascend.md)).
+```bash
+curl -sS http://127.0.0.1:8000/v1/jobs/<job_id>
+curl -sS -N http://127.0.0.1:8000/v1/jobs/<job_id>/events
+```
 
-## Containerization
+## OpenAI compatibility
 
-Docker / k8s templates live in [Docker Deployment](../deployment/docker.md).
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-local")
+resp = client.images.generate(model="sdxl-base-1.0", prompt="a lighthouse at dusk")
+print(resp.data[0].url)
+```
+
+Notes:
+
+- `audio/speech` still returns `501`
+- `images/videos/edits` also inherit default `device_map` / `devices` configured on `serve`
+
+## Remote workers
+
+```bash
+omnirt worker --host 0.0.0.0 --port 50061 --worker-id sdxl-a --backend cuda
+
+omnirt serve \
+  --remote-worker 'sdxl-a=127.0.0.1:50061@sdxl-base-1.0,sdxl-refiner-1.0'
+```
+
+For full rollout guidance see [Distributed Serving](../deployment/distributed_serving.md).
 
 ## Observability
 
-The server writes stage timings, peak memory, and fallback events into structured logs and each `RunReport`. See [Telemetry](../features/telemetry.md).
+```bash
+omnirt serve \
+  --redis-url redis://127.0.0.1:6379/0 \
+  --otlp-endpoint http://127.0.0.1:4318/v1/traces
+```
+
+Recommended checks:
+
+- `curl /readyz`
+- `curl /metrics`
+- run one async job and verify `/v1/jobs/{id}/trace`
+
+## Related
+
+- [CLI](cli.md)
+- [Dispatch & Queue](../features/dispatch_queue.md)
+- [Telemetry](../features/telemetry.md)

@@ -101,7 +101,7 @@ mkdocs build --strict
 
 ## 参考
 
-- [架构说明](architecture.md) — 代码组织与七层分层
+- [架构说明](architecture.md) — 代码组织与当前 runtime 拓扑
 - [模型接入](model_onboarding.md) — `@register_model` 与 `ModelCapabilities`
 - [后端接入](backend_onboarding.md) — `BackendRuntime.wrap_module` 契约
 - [pyproject.toml](https://github.com/datascale-ai/omnirt/blob/main/pyproject.toml) — extras 与脚本入口

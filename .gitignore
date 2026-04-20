@@ -209,3 +209,4 @@ __marimo__/
 # machine
 machine.md
 PLAN.md
+.playwright-cli/

@@ -15,6 +15,7 @@ from omnirt.core.presets import available_presets
 from omnirt.core.registry import list_model_variants, supported_config_for_spec
 from omnirt.core.types import GenerateRequest, OmniRTError
 from omnirt.server import create_app
+from omnirt.engine import GrpcWorkerServer, probe_worker_health
 
 PUBLIC_TASK_SURFACES = frozenset(
     {
@@ -159,6 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--model-aliases", help="Optional YAML/JSON alias mapping file.")
     serve_parser.add_argument("--redis-url", help="Optional Redis URL for cross-process job storage.")
     serve_parser.add_argument("--otlp-endpoint", help="Optional OTLP/HTTP endpoint used to export traces.")
+    serve_parser.add_argument(
+        "--remote-worker",
+        action="append",
+        default=[],
+        help="Remote worker spec: worker_id=host:port@model1,model2#tag1,tag2 . May be repeated.",
+    )
     serve_parser.add_argument("--device-map", help="Default device placement policy for incoming requests.")
     serve_parser.add_argument("--devices", help="Default comma-separated device list for incoming requests.")
     serve_parser.add_argument("--batch-window-ms", type=int, default=0, help="Queue batching window in milliseconds.")
@@ -175,7 +182,43 @@ def build_parser() -> argparse.ArgumentParser:
     bench_parser.add_argument("--output", help="Optional JSON output path.")
     bench_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON to stdout.")
 
+    worker_parser = subparsers.add_parser("worker", help="Run the OmniRT gRPC worker server.")
+    worker_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
+    worker_parser.add_argument("--port", type=int, default=50061, help="TCP port to bind.")
+    worker_parser.add_argument("--worker-id", default="worker", help="Stable worker identifier.")
+    worker_parser.add_argument(
+        "--backend",
+        choices=["auto", "cuda", "ascend", "rocm", "xpu", "cpu-stub"],
+        default="auto",
+        help="Default backend for requests that omit backend.",
+    )
+    worker_parser.add_argument("--max-concurrency", type=int, default=1, help="Worker concurrency for execution.")
+    worker_parser.add_argument("--pipeline-cache-size", type=int, default=4, help="Maximum cached executor instances.")
+    worker_parser.add_argument("--redis-url", help="Optional Redis URL for cross-process job storage.")
+    worker_parser.add_argument("--otlp-endpoint", help="Optional OTLP/HTTP endpoint used to export traces.")
+
     return parser
+
+
+def parse_remote_worker_specs(specs: Sequence[str]) -> list[dict[str, object]]:
+    parsed: list[dict[str, object]] = []
+    for spec in specs:
+        worker_id_and_target, sep, remainder = spec.partition("=")
+        if not sep or not worker_id_and_target or not remainder:
+            raise ValueError(f"Invalid remote worker spec {spec!r}; expected worker_id=host:port@models")
+        address_part, at_sep, models_and_tags = remainder.partition("@")
+        models_part, hash_sep, tags_part = models_and_tags.partition("#")
+        models = tuple(item for item in models_part.split(",") if item) if at_sep else ()
+        tags = tuple(item for item in tags_part.split(",") if item) if hash_sep else ()
+        parsed.append(
+            {
+                "worker_id": worker_id_and_target,
+                "address": address_part,
+                "models": models,
+                "tags": tags,
+            }
+        )
+    return parsed
 
 
 def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> GenerateRequest:
@@ -508,6 +551,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             return 2
 
+        try:
+            remote_workers = parse_remote_worker_specs(args.remote_worker or [])
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        for worker in remote_workers:
+            try:
+                probe_worker_health(str(worker["address"]))
+            except Exception as exc:
+                print(f"error: remote worker {worker['worker_id']} is unreachable: {exc}", file=sys.stderr)
+                return 2
         app = create_app(
             default_backend=args.backend,
             max_concurrency=args.max_concurrency,
@@ -526,8 +580,31 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             max_batch_size=args.max_batch_size,
             redis_url=args.redis_url,
             otlp_endpoint=args.otlp_endpoint,
+            remote_workers=remote_workers,
         )
         uvicorn.run(app, host=args.host, port=args.port)
+        return 0
+
+    if args.command == "worker":
+        from omnirt.engine import OmniEngine
+        from omnirt.engine.redis_store import RedisJobStore
+        from omnirt.telemetry import OtlpExporter, TraceRecorder
+
+        tracer = TraceRecorder(exporters=[OtlpExporter(endpoint=args.otlp_endpoint)] if args.otlp_endpoint else None)
+        job_store = RedisJobStore(redis_url=args.redis_url) if args.redis_url else None
+
+        worker_engine = OmniEngine(
+            max_concurrency=args.max_concurrency,
+            pipeline_cache_size=args.pipeline_cache_size,
+            worker_id=args.worker_id,
+            tracer=tracer,
+            job_store=job_store,
+        )
+        server = GrpcWorkerServer(worker_engine, host=args.host, port=args.port).start()
+        try:
+            server.wait_for_termination()
+        except KeyboardInterrupt:
+            server.stop(0.0)
         return 0
 
     if args.command == "bench":

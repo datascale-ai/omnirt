@@ -130,6 +130,7 @@ plugins:
                     - Ascend Backend: user_guide/deployment/ascend.md
                     - Domestic Deployment: user_guide/deployment/china_mirrors.md
                     - Docker: user_guide/deployment/docker.md
+                    - Distributed Serving: user_guide/deployment/distributed_serving.md
                 - Models:
                     - Overview: user_guide/models/index.md
                     - Supported Models: user_guide/models/supported_models.md
@@ -146,6 +147,8 @@ plugins:
                 - Overview: developer_guide/index.md
                 - Contributing: developer_guide/contributing.md
                 - Architecture: developer_guide/architecture.md
+                - Legacy Optimization Guide: developer_guide/legacy_optimization_guide.md
+                - Benchmark Baseline: developer_guide/benchmark_baseline.md
                 - Model Onboarding: developer_guide/model_onboarding.md
                 - Backend Onboarding: developer_guide/backend_onboarding.md
             - API Reference:
@@ -192,6 +195,7 @@ nav:
           - Ascend 后端: user_guide/deployment/ascend.md
           - 国内部署: user_guide/deployment/china_mirrors.md
           - Docker: user_guide/deployment/docker.md
+          - 分布式服务: user_guide/deployment/distributed_serving.md
       - 模型:
           - 概览: user_guide/models/index.md
           - 模型清单: user_guide/models/supported_models.md
@@ -208,6 +212,8 @@ nav:
       - 概览: developer_guide/index.md
       - 参与贡献: developer_guide/contributing.md
       - 架构说明: developer_guide/architecture.md
+      - Legacy 优化指南: developer_guide/legacy_optimization_guide.md
+      - Benchmark 基线: developer_guide/benchmark_baseline.md
       - 模型接入: developer_guide/model_onboarding.md
       - 后端接入: developer_guide/backend_onboarding.md
   - API 参考:
