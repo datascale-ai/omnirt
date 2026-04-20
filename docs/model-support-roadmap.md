@@ -37,10 +37,16 @@ Highest-priority unsupported targets:
 - `sdxl-turbo`
 - `flux-dev`
 - `flux-schnell`
+- `glm-image`
+- `hunyuan-image-2.1`
+- `omnigen`
 - `qwen-image`
 - `qwen-image-edit`
 - `cogvideox-2b`
+- `kandinsky5-t2v`
+- `kandinsky5-i2v`
 - `hunyuan-video`
+- `helios`
 
 ## Planning principles
 
@@ -126,9 +132,14 @@ Models:
 - `flux-dev`
 - `flux-schnell`
 - `flux-fill`
+- `glm-image`
+- `hunyuan-image-2.1`
+- `omnigen`
 - `qwen-image`
 - `qwen-image-edit`
 - `sana-1.6b`
+- `ovis-image`
+- `hidream-i1`
 
 ### Phase C: Video-first expansion
 
@@ -140,12 +151,16 @@ Models:
 
 - `cogvideox-2b`
 - `cogvideox-5b`
+- `kandinsky5-t2v`
+- `kandinsky5-i2v`
 - `wan2.2-t2v-14b`
 - `wan2.2-i2v-14b`
 - `wan2.1-t2v-14b`
 - `wan2.1-i2v-14b`
 - `hunyuan-video`
 - `hunyuan-video-1.5`
+- `helios`
+- `sana-video`
 - `ltx-video`
 - `ltx2-i2v`
 
@@ -160,6 +175,7 @@ Models:
 - `flux-depth`
 - `flux-canny`
 - `flux-kontext`
+- `chronoedit`
 - `qwen-image-edit-plus`
 - `qwen-image-layered`
 - `animate-diff-sdxl`
@@ -184,20 +200,30 @@ Models:
 | P1 | `flux-dev` | text2image | required | recommended | major ecosystem priority |
 | P1 | `flux-schnell` | text2image | required | recommended | low-step Flux variant |
 | P1 | `flux-fill` | inpaint, outpaint | required | optional | high-value editing path |
+| P1 | `glm-image` | text2image, image2image | required | watch | strong text rendering and instruction-following image generation |
+| P1 | `hunyuan-image-2.1` | text2image | required | recommended | strong Chinese-language image generation target |
+| P1 | `omnigen` | multimodal-to-image | required | watch | unified instruction, editing, and conditional image generation path |
 | P1 | `qwen-image` | text2image | required | recommended | especially valuable for multilingual text rendering |
 | P1 | `qwen-image-edit` | image editing | required | recommended | editing path for Qwen image family |
 | P1 | `sana-1.6b` | text2image | recommended | optional | efficient high-res image generation |
+| P1 | `ovis-image` | text2image | recommended | watch | compact model with strong text rendering focus |
+| P1 | `hidream-i1` | text2image | watch | watch | newer modern image family worth tracking |
 | P1 | `cogvideox-2b` | text2video | required | watch | lower barrier video entry point |
 | P1 | `cogvideox-5b` | text2video | required | watch | stronger open video baseline |
+| P1 | `kandinsky5-t2v` | text2video | required | watch | high-quality open video family with lite and pro variants |
+| P1 | `kandinsky5-i2v` | image2video | required | watch | paired image-to-video path in the same family |
 | P1 | `wan2.1-t2v-14b` | text2video | required | watch | one of the most important current video targets |
 | P1 | `wan2.1-i2v-14b` | image2video | required | watch | especially aligned with OmniRT's video focus |
 | P1 | `hunyuan-video` | text2video | required | watch | strong open video family |
 | P1 | `hunyuan-video-1.5` | text2video, image2video | required | watch | newer family version worth tracking |
+| P1 | `helios` | text2video, image2video, video2video | required | watch | long-video and real-time generation candidate |
+| P1 | `sana-video` | text2video | recommended | watch | efficient small-model video option |
 | P1 | `ltx-video` | text2video | required | watch | attractive long-video and efficient inference path |
 | P1 | `ltx2-i2v` | image2video | required | watch | strong fit for OmniRT's video roadmap |
 | P2 | `flux-depth` | controlled text2image | required | optional | structure conditioning |
 | P2 | `flux-canny` | controlled text2image | required | optional | edge-conditioned generation |
 | P2 | `flux-kontext` | image editing | required | watch | next-generation Flux editing path |
+| P2 | `chronoedit` | physically consistent image editing | recommended | watch | video-backed image editing with temporal reasoning |
 | P2 | `qwen-image-edit-plus` | image editing | required | watch | more advanced Qwen editing |
 | P2 | `qwen-image-layered` | layered image editing | recommended | watch | useful for compositing workflows |
 | P2 | `kolors` | text2image | recommended | optional | optional multilingual image model add-on |
@@ -267,6 +293,24 @@ Recommended capability layers:
 - image editing
 - layered or compositing-aware export
 
+### Generalist image families
+
+Base targets:
+
+- `glm-image`
+- `omnigen`
+- `hunyuan-image-2.1`
+- `ovis-image`
+- `hidream-i1`
+
+Recommended capability layers:
+
+- instruction-following image generation
+- image editing
+- multi-image conditioning
+- text rendering quality
+- Chinese-language prompt coverage
+
 ### Video families
 
 Base targets:
@@ -277,10 +321,14 @@ Base targets:
 - `wan2.2-i2v-14b`
 - `cogvideox-2b`
 - `cogvideox-5b`
+- `kandinsky5-t2v`
+- `kandinsky5-i2v`
 - `wan2.1-t2v-14b`
 - `wan2.1-i2v-14b`
 - `hunyuan-video`
 - `hunyuan-video-1.5`
+- `helios`
+- `sana-video`
 - `ltx-video`
 - `ltx2-i2v`
 
@@ -296,10 +344,10 @@ Recommended capability layers:
 
 1. Finish hardware validation for `sdxl-base-1.0`, `svd`, `svd-xt`, `flux2.dev`, `wan2.2-t2v-14b`, and `wan2.2-i2v-14b`.
 2. Add `sd15`, `sdxl-refiner-1.0`, `sdxl-turbo`, `flux-dev`, and `flux-schnell`.
-3. Add `sd3-medium`, `sd3.5-large`, `qwen-image`, and `qwen-image-edit`.
-4. Add `cogvideox-2b`, `hunyuan-video`, `wan2.1-i2v-14b`, and `wan2.1-t2v-14b` where backward compatibility or ecosystem parity still matters.
-5. Add `ltx-video` and `ltx2-i2v`.
-6. Add control and editing variants such as `flux-fill`, `flux-depth`, `flux-canny`, `flux-kontext`, and the higher-value Qwen image editing variants.
+3. Add `glm-image`, `hunyuan-image-2.1`, `qwen-image`, `qwen-image-edit`, and `omnigen`.
+4. Add `cogvideox-2b`, `hunyuan-video`, `kandinsky5-t2v`, `kandinsky5-i2v`, and `helios`.
+5. Add `wan2.1-i2v-14b` and `wan2.1-t2v-14b` where backward compatibility or ecosystem parity still matters, then add `ltx-video` and `ltx2-i2v`.
+6. Add control and editing variants such as `flux-fill`, `flux-depth`, `flux-canny`, `flux-kontext`, `chronoedit`, and the higher-value Qwen image editing variants.
 
 ## Models to deprioritize
 
@@ -316,10 +364,20 @@ Reason:
 - Stable Video Diffusion guide: <https://huggingface.co/docs/diffusers/using-diffusers/svd>
 - Stable Diffusion 3 pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/stable_diffusion/stable_diffusion_3>
 - Flux pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/flux>
+- Flux2 pipeline docs: <https://huggingface.co/docs/diffusers/en/api/pipelines/flux2>
+- GLM-Image pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/glm_image>
+- OmniGen pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/omnigen>
+- HiDream-I1 pipeline docs: <https://huggingface.co/docs/diffusers/main/api/pipelines/hidream>
+- HunyuanImage 2.1 pipeline docs: <https://huggingface.co/docs/diffusers/en/api/pipelines/hunyuanimage21>
+- Ovis-Image pipeline docs: <https://huggingface.co/docs/diffusers/en/api/pipelines/ovis_image>
 - QwenImage pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/qwenimage>
 - Sana pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/sana>
+- Sana-Video pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/sana_video>
 - HunyuanVideo pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/hunyuan_video>
 - HunyuanVideo-1.5 pipeline docs: <https://huggingface.co/docs/diffusers/en/api/pipelines/hunyuan_video15>
+- Helios pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/helios>
+- Kandinsky 5.0 Video pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/kandinsky5_video>
+- ChronoEdit pipeline docs: <https://huggingface.co/docs/diffusers/api/pipelines/chronoedit>
 - LTX-2 pipeline docs: <https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2>
 - I2VGen-XL docs: <https://huggingface.co/docs/diffusers/en/api/pipelines/i2vgenxl>
 - ComfyUI model concepts: <https://docs.comfy.org/development/core-concepts/models>
