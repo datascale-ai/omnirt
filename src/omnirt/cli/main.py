@@ -10,17 +10,24 @@ from typing import Optional, Sequence
 
 from omnirt.api import describe_model, generate, list_available_models, validate
 from omnirt.core.presets import available_presets
+from omnirt.core.registry import list_model_variants
 from omnirt.core.types import GenerateRequest, OmniRTError
 
 
 def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", help="Path to a YAML or JSON request file.")
-    parser.add_argument("--task", choices=["text2image", "text2video", "image2video"], help="Task to run.")
+    parser.add_argument(
+        "--task",
+        choices=["text2image", "image2image", "inpaint", "edit", "text2video", "image2video", "audio2video"],
+        help="Task to run.",
+    )
     parser.add_argument("--model", help="Model registry id to execute.")
     parser.add_argument("--backend", choices=["auto", "cuda", "ascend", "cpu-stub"], help="Override backend selection.")
-    parser.add_argument("--prompt", help="Prompt for text2image, text2video, or prompt-guided image2video.")
+    parser.add_argument("--prompt", help="Prompt for image or video generation tasks.")
     parser.add_argument("--negative-prompt", help="Negative prompt for prompt-driven generation.")
-    parser.add_argument("--image", help="Input image for image2video generation.")
+    parser.add_argument("--image", help="Input image for image-guided generation.")
+    parser.add_argument("--mask", help="Input mask image for inpainting.")
+    parser.add_argument("--audio", help="Input audio for audio2video generation.")
     parser.add_argument("--num-frames", type=int, help="Frame count for text2video or image2video generation.")
     parser.add_argument("--fps", type=int, help="Frames per second for exported video.")
     parser.add_argument("--frame-bucket", type=int, help="Motion bucket hint for SVD image2video.")
@@ -31,6 +38,7 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--preset", choices=available_presets(), help="Apply a named preset before explicit config values.")
     parser.add_argument("--scheduler", help="Scheduler override for models that support alternate schedulers.")
     parser.add_argument("--seed", type=int, help="Random seed.")
+    parser.add_argument("--strength", type=float, help="Transformation strength for image editing tasks.")
     parser.add_argument("--width", type=int, help="Output width for image generation.")
     parser.add_argument("--height", type=int, help="Output height for image generation.")
     parser.add_argument("--dtype", choices=["fp16", "bf16", "fp32"], help="Computation dtype.")
@@ -44,6 +52,22 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", help="Output directory for saved artifacts.")
     parser.add_argument("--model-path", help="Override the default model source.")
     parser.add_argument("--motion-bucket-id", type=int, help="Alias for SVD frame bucket / motion bucket id.")
+    parser.add_argument("--repo-path", help="External repository checkout path for script-backed models such as SoulX-FlashTalk.")
+    parser.add_argument("--ckpt-dir", help="Checkpoint directory for script-backed models.")
+    parser.add_argument("--wav2vec-dir", help="wav2vec checkpoint directory for FlashTalk.")
+    parser.add_argument("--audio-encode-mode", choices=["stream", "once"], help="Audio encoding mode for FlashTalk.")
+    parser.add_argument("--cpu-offload", action="store_true", help="Enable CPU offload for script-backed models that support it.")
+    parser.add_argument("--max-chunks", type=int, help="Limit generated audio chunks for streaming avatar models.")
+    parser.add_argument("--python-executable", help="Python interpreter used to launch external model scripts.")
+    parser.add_argument("--launcher", choices=["python", "torchrun"], help="External launcher for script-backed models.")
+    parser.add_argument("--nproc-per-node", type=int, help="Process count for multi-card torchrun launches.")
+    parser.add_argument("--visible-devices", help="Device visibility override, for example 0,1,2,3,4,5,6,7 on Ascend.")
+    parser.add_argument("--ascend-env-script", help="Ascend environment script to source before launching an external model.")
+    parser.add_argument("--t5-quant", choices=["int8", "fp8"], help="T5 quantization mode for FlashTalk.")
+    parser.add_argument("--t5-quant-dir", help="Directory containing T5 quantized weights for FlashTalk.")
+    parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan weight-only quantization mode for FlashTalk.")
+    parser.add_argument("--wan-quant-include", help="Comma-separated Wan module allowlist for FlashTalk quantization.")
+    parser.add_argument("--wan-quant-exclude", help="Comma-separated Wan module denylist for FlashTalk quantization.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -85,7 +109,7 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
                 inputs["num_frames"] = args.num_frames
             if args.fps is not None:
                 inputs["fps"] = args.fps
-    else:
+    elif args.task == "image2video":
         if not args.image:
             parser.error("--image is required for --task image2video")
         inputs["image"] = args.image
@@ -97,6 +121,43 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
             inputs["num_frames"] = args.num_frames
         if args.fps is not None:
             inputs["fps"] = args.fps
+    elif args.task == "image2image":
+        if not args.image:
+            parser.error("--image is required for --task image2image")
+        if not args.prompt:
+            parser.error("--prompt is required for --task image2image")
+        inputs["image"] = args.image
+        inputs["prompt"] = args.prompt
+        if args.negative_prompt:
+            inputs["negative_prompt"] = args.negative_prompt
+    elif args.task == "inpaint":
+        if not args.image:
+            parser.error("--image is required for --task inpaint")
+        if not args.mask:
+            parser.error("--mask is required for --task inpaint")
+        if not args.prompt:
+            parser.error("--prompt is required for --task inpaint")
+        inputs["image"] = args.image
+        inputs["mask"] = args.mask
+        inputs["prompt"] = args.prompt
+        if args.negative_prompt:
+            inputs["negative_prompt"] = args.negative_prompt
+    elif args.task == "edit":
+        if not args.image:
+            parser.error("--image is required for --task edit")
+        if not args.prompt:
+            parser.error("--prompt is required for --task edit")
+        inputs["image"] = args.image
+        inputs["prompt"] = args.prompt
+    else:
+        if not args.image:
+            parser.error("--image is required for --task audio2video")
+        if not args.audio:
+            parser.error("--audio is required for --task audio2video")
+        inputs["image"] = args.image
+        inputs["audio"] = args.audio
+        if args.prompt:
+            inputs["prompt"] = args.prompt
 
     config = {}
     for field in (
@@ -105,6 +166,7 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "preset",
         "scheduler",
         "seed",
+        "strength",
         "width",
         "height",
         "dtype",
@@ -116,12 +178,29 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "motion_bucket_id",
         "decode_chunk_size",
         "noise_aug_strength",
+        "repo_path",
+        "ckpt_dir",
+        "wav2vec_dir",
+        "audio_encode_mode",
+        "max_chunks",
+        "python_executable",
+        "launcher",
+        "nproc_per_node",
+        "visible_devices",
+        "ascend_env_script",
+        "t5_quant",
+        "t5_quant_dir",
+        "wan_quant",
+        "wan_quant_include",
+        "wan_quant_exclude",
     ):
         value = getattr(args, field)
         if value is not None:
             config[field] = value
     if args.model_path:
         config["model_path"] = args.model_path
+    if getattr(args, "cpu_offload", False):
+        config["cpu_offload"] = True
 
     return GenerateRequest(
         task=args.task,
@@ -132,7 +211,7 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
     )
 
 
-def render_model_summary(spec) -> str:
+def render_model_summary(spec, *, variants=()) -> str:
     caps = spec.capabilities
     lines = [
         f"model={spec.id}",
@@ -140,6 +219,8 @@ def render_model_summary(spec) -> str:
         f"default_backend={spec.default_backend}",
         f"maturity={caps.maturity}",
     ]
+    if variants:
+        lines.append(f"supported_tasks={', '.join(variants)}")
     if caps.summary:
         lines.append(f"summary={caps.summary}")
     if caps.alias_of:
@@ -214,12 +295,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except (OmniRTError, ValueError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2
+            variants = tuple(list_model_variants(args.model))
             if args.json:
                 print(
                     json.dumps(
                         {
                             "id": spec.id,
                             "task": spec.task,
+                            "supported_tasks": variants,
                             "default_backend": spec.default_backend,
                             "resource_hint": spec.resource_hint,
                             "presets": list(available_presets()),
@@ -230,7 +313,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     )
                 )
             else:
-                print(render_model_summary(spec))
+                print(render_model_summary(spec, variants=variants))
             return 0
 
         specs = list_available_models(include_aliases=False)

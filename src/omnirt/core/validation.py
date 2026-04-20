@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from omnirt.backends import resolve_backend
 from omnirt.core.presets import resolve_preset
-from omnirt.core.registry import ModelSpec, list_models
-from omnirt.core.types import GenerateRequest, OmniRTError
+from omnirt.core.registry import ModelSpec, get_model, list_model_variants, list_models
+from omnirt.core.types import GenerateRequest, ModelNotRegisteredError, OmniRTError
 
 
 @dataclass
@@ -65,8 +65,15 @@ def validate_request(request: GenerateRequest, *, backend: Optional[str] = None)
     result = ValidationResult(request=request)
 
     try:
-        spec = list_models()[request.model]
-    except KeyError:
+        spec = get_model(request.model, task=request.task)
+    except ModelNotRegisteredError:
+        variants = list_model_variants(request.model)
+        if variants:
+            supported_tasks = ", ".join(variants)
+            result.add_error(
+                f"Model {request.model!r} supports tasks [{supported_tasks}], got {request.task!r}."
+            )
+            return result
         suggestions = get_close_matches(request.model, sorted(list_models()), n=3)
         hint = f" Nearby models: {', '.join(suggestions)}." if suggestions else ""
         result.add_error(f"Unknown model {request.model!r}.{hint}")
@@ -88,12 +95,6 @@ def validate_request(request: GenerateRequest, *, backend: Optional[str] = None)
             result.add_warning(f"Applied preset {preset_name!r}. Explicit config values still win over preset defaults.")
     result.resolved_config.update(user_config)
 
-    if request.task != spec.task:
-        example = caps.example or f"omnirt generate --task {spec.task} --model {spec.id}"
-        result.add_error(
-            f"Model {spec.id!r} only supports task {spec.task!r}, got {request.task!r}. Try: {example}"
-        )
-
     allowed_inputs = set(caps.required_inputs) | set(caps.optional_inputs)
     unsupported_inputs = sorted(set(request.inputs) - allowed_inputs)
     if unsupported_inputs:
@@ -112,11 +113,39 @@ def validate_request(request: GenerateRequest, *, backend: Optional[str] = None)
         if value is None or value == "":
             result.add_error(f"Missing required input {key!r} for model {spec.id!r}.")
 
-    image_path = request.inputs.get("image")
-    if isinstance(image_path, str) and image_path:
-        path = Path(image_path).expanduser()
-        if not path.exists():
-            result.add_error(f"Input image does not exist locally: {path}")
+    for media_key, label in (("image", "image"), ("audio", "audio"), ("mask", "mask")):
+        media_path = request.inputs.get(media_key)
+        if isinstance(media_path, str) and media_path:
+            path = Path(media_path).expanduser()
+            if not path.exists():
+                result.add_error(f"Input {label} does not exist locally: {path}")
+
+    strength = result.resolved_config.get("strength")
+    if strength is not None:
+        try:
+            strength_value = float(strength)
+        except (TypeError, ValueError):
+            result.add_error(f"Invalid strength value {strength!r}; expected a float between 0 and 1.")
+        else:
+            if not 0.0 <= strength_value <= 1.0:
+                result.add_error(f"Invalid strength value {strength!r}; expected a float between 0 and 1.")
+
+    repo_root = result.resolved_config.get("repo_path")
+    repo_root_path = Path(str(repo_root)).expanduser() if isinstance(repo_root, str) and repo_root else None
+    for config_key, label in (
+        ("repo_path", "repository checkout"),
+        ("ckpt_dir", "checkpoint directory"),
+        ("wav2vec_dir", "wav2vec directory"),
+        ("ascend_env_script", "Ascend environment script"),
+        ("python_executable", "Python executable"),
+    ):
+        config_path = result.resolved_config.get(config_key)
+        if isinstance(config_path, str) and config_path:
+            path = Path(config_path).expanduser()
+            if config_key in {"ckpt_dir", "wav2vec_dir"} and not path.is_absolute() and repo_root_path is not None:
+                path = repo_root_path / path
+            if not path.exists():
+                result.add_error(f"Configured {label} does not exist locally: {path}")
 
     scheduler_name = result.resolved_config.get("scheduler")
     if scheduler_name is not None and caps.supported_schedulers and scheduler_name not in caps.supported_schedulers:

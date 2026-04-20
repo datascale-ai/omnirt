@@ -33,9 +33,9 @@ def list_available_models(*, include_aliases: bool = True) -> List[ModelSpec]:
     return sorted(specs, key=lambda spec: spec.id)
 
 
-def describe_model(model_id: str) -> ModelSpec:
+def describe_model(model_id: str, *, task: Optional[str] = None) -> ModelSpec:
     ensure_registered()
-    return get_model(model_id)
+    return get_model(model_id, task=task)
 
 
 def validate(request: RequestLike, *, backend: Optional[str] = None) -> ValidationResult:
@@ -132,7 +132,7 @@ def generate(request: RequestLike, *, backend: Optional[str] = None) -> Generate
         adapters=req.adapters,
     )
 
-    spec = get_model(normalized_request.model)
+    spec = get_model(normalized_request.model, task=normalized_request.task)
     selected = backend if backend is not None else (req.backend or "auto")
     runtime = resolve_backend(selected)
     pipeline = spec.pipeline_cls(runtime=runtime, model_spec=spec, adapters=normalized_request.adapters)

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Type, TypeVar, 
 import yaml
 
 
-TaskName = Literal["text2image", "text2video", "image2video"]
+TaskName = Literal["text2image", "image2image", "inpaint", "edit", "text2video", "image2video", "audio2video"]
 BackendName = Literal["cuda", "ascend", "cpu-stub", "auto"]
 ArtifactKind = Literal["image", "video"]
 AdapterKind = Literal["lora"]
@@ -261,6 +261,64 @@ class TextToVideoRequest(GenerateRequest):
         super().__init__(task="text2video", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
 
 
+class ImageToImageRequest(GenerateRequest):
+    task: Literal["image2image"] = "image2image"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        image: str,
+        prompt: str,
+        negative_prompt: Optional[str] = None,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs: Dict[str, Any] = {"image": image, "prompt": prompt}
+        if negative_prompt:
+            inputs["negative_prompt"] = negative_prompt
+        super().__init__(task="image2image", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
+
+
+class InpaintRequest(GenerateRequest):
+    task: Literal["inpaint"] = "inpaint"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        image: str,
+        mask: str,
+        prompt: str,
+        negative_prompt: Optional[str] = None,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs: Dict[str, Any] = {"image": image, "mask": mask, "prompt": prompt}
+        if negative_prompt:
+            inputs["negative_prompt"] = negative_prompt
+        super().__init__(task="inpaint", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
+
+
+class EditRequest(GenerateRequest):
+    task: Literal["edit"] = "edit"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        image: str,
+        prompt: str,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs: Dict[str, Any] = {"image": image, "prompt": prompt}
+        super().__init__(task="edit", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
+
+
 class ImageToVideoRequest(GenerateRequest):
     task: Literal["image2video"] = "image2video"
 
@@ -287,6 +345,26 @@ class ImageToVideoRequest(GenerateRequest):
         if fps is not None:
             inputs["fps"] = fps
         super().__init__(task="image2video", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
+
+
+class AudioToVideoRequest(GenerateRequest):
+    task: Literal["audio2video"] = "audio2video"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        image: str,
+        audio: str,
+        prompt: Optional[str] = None,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs: Dict[str, Any] = {"image": image, "audio": audio}
+        if prompt:
+            inputs["prompt"] = prompt
+        super().__init__(task="audio2video", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
 
 
 def dataclass_to_dict(instance: Any) -> Dict[str, Any]:

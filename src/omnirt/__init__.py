@@ -5,14 +5,28 @@ from omnirt import models
 from omnirt import requests
 from omnirt.core.presets import available_presets
 from omnirt.api import describe_model, generate, list_available_models, pipeline, validate
-from omnirt.core.types import GenerateRequest, GenerateResult, ImageToVideoRequest, TextToImageRequest, TextToVideoRequest
+from omnirt.core.types import (
+    AudioToVideoRequest,
+    EditRequest,
+    GenerateRequest,
+    GenerateResult,
+    ImageToImageRequest,
+    ImageToVideoRequest,
+    InpaintRequest,
+    TextToImageRequest,
+    TextToVideoRequest,
+)
 
 __all__ = [
     "GenerateRequest",
     "GenerateResult",
     "TextToImageRequest",
     "TextToVideoRequest",
+    "ImageToImageRequest",
+    "InpaintRequest",
+    "EditRequest",
     "ImageToVideoRequest",
+    "AudioToVideoRequest",
     "generate",
     "validate",
     "list_available_models",

@@ -122,6 +122,58 @@ def test_request_from_args_builds_image2video_request() -> None:
     assert request.config["frame_bucket"] == 96
 
 
+def test_request_from_args_builds_image2image_request() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--task",
+            "image2image",
+            "--model",
+            "sd15",
+            "--image",
+            "input.png",
+            "--prompt",
+            "watercolor",
+            "--strength",
+            "0.6",
+        ]
+    )
+
+    request = request_from_args(args, parser)
+
+    assert request.task == "image2image"
+    assert request.inputs["image"] == "input.png"
+    assert request.inputs["prompt"] == "watercolor"
+    assert request.config["strength"] == 0.6
+
+
+def test_request_from_args_builds_inpaint_request() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--task",
+            "inpaint",
+            "--model",
+            "sdxl-base-1.0",
+            "--image",
+            "input.png",
+            "--mask",
+            "mask.png",
+            "--prompt",
+            "repair the wall",
+        ]
+    )
+
+    request = request_from_args(args, parser)
+
+    assert request.task == "inpaint"
+    assert request.inputs["image"] == "input.png"
+    assert request.inputs["mask"] == "mask.png"
+    assert request.inputs["prompt"] == "repair the wall"
+
+
 def test_request_from_args_builds_text2video_request() -> None:
     parser = build_parser()
     args = parser.parse_args(
@@ -149,6 +201,42 @@ def test_request_from_args_builds_text2video_request() -> None:
     assert request.inputs["num_frames"] == 81
     assert request.inputs["fps"] == 16
     assert request.config["guidance_scale"] == 5.0
+
+
+def test_request_from_args_builds_audio2video_request() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--task",
+            "audio2video",
+            "--model",
+            "soulx-flashtalk-14b",
+            "--image",
+            "speaker.png",
+            "--audio",
+            "voice.wav",
+            "--prompt",
+            "talking head",
+            "--repo-path",
+            "/srv/SoulX-FlashTalk",
+            "--launcher",
+            "python",
+            "--audio-encode-mode",
+            "once",
+            "--cpu-offload",
+        ]
+    )
+
+    request = request_from_args(args, parser)
+
+    assert request.task == "audio2video"
+    assert request.inputs["image"] == "speaker.png"
+    assert request.inputs["audio"] == "voice.wav"
+    assert request.config["repo_path"] == "/srv/SoulX-FlashTalk"
+    assert request.config["launcher"] == "python"
+    assert request.config["audio_encode_mode"] == "once"
+    assert request.config["cpu_offload"] is True
 
 
 def test_request_from_args_accepts_presets_and_scheduler() -> None:

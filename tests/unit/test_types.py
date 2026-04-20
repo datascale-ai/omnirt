@@ -1,7 +1,15 @@
 from pathlib import Path
 
 from omnirt import requests
-from omnirt.core.types import GenerateRequest, GenerateResult, ImageToVideoRequest, RunReport, TextToImageRequest, TextToVideoRequest
+from omnirt.core.types import (
+    AudioToVideoRequest,
+    GenerateRequest,
+    GenerateResult,
+    ImageToVideoRequest,
+    RunReport,
+    TextToImageRequest,
+    TextToVideoRequest,
+)
 
 
 def test_generate_request_round_trip() -> None:
@@ -58,11 +66,13 @@ def test_typed_requests_capture_task_specific_inputs() -> None:
     image_request = TextToImageRequest(model="sd15", prompt="hello", config={"seed": 1})
     video_request = TextToVideoRequest(model="wan2.2-t2v-14b", prompt="hello", num_frames=81, fps=16)
     image_video_request = ImageToVideoRequest(model="svd", image="frame.png", prompt="animate")
+    audio_video_request = AudioToVideoRequest(model="soulx-flashtalk-14b", image="face.png", audio="voice.wav", prompt="talk")
 
     assert image_request.task == "text2image"
     assert image_request.inputs["prompt"] == "hello"
     assert video_request.inputs["fps"] == 16
     assert image_video_request.inputs["image"] == "frame.png"
+    assert audio_video_request.inputs["audio"] == "voice.wav"
 
 
 def test_request_helpers_are_ergonomic() -> None:
@@ -72,3 +82,20 @@ def test_request_helpers_are_ergonomic() -> None:
     assert request.inputs["prompt"] == "hello"
     assert request.config["width"] == 1024
     assert request.config["guidance_scale"] == 2.5
+
+
+def test_audio2video_request_helper_is_ergonomic() -> None:
+    request = requests.audio2video(
+        model="soulx-flashtalk-14b",
+        image="face.png",
+        audio="voice.wav",
+        prompt="talking portrait",
+        repo_path="/srv/SoulX-FlashTalk",
+        launcher="python",
+    )
+
+    assert request.task == "audio2video"
+    assert request.inputs["image"] == "face.png"
+    assert request.inputs["audio"] == "voice.wav"
+    assert request.config["repo_path"] == "/srv/SoulX-FlashTalk"
+    assert request.config["launcher"] == "python"

@@ -33,7 +33,17 @@ class ModelSpec:
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
 
 
-_MODEL_REGISTRY: Dict[str, ModelSpec] = {}
+_MODEL_REGISTRY: Dict[Tuple[str, str], ModelSpec] = {}
+
+_PRIMARY_TASK_PRIORITY: Tuple[str, ...] = (
+    "text2image",
+    "image2image",
+    "inpaint",
+    "edit",
+    "text2video",
+    "image2video",
+    "audio2video",
+)
 
 
 def clear_registry() -> None:
@@ -60,7 +70,7 @@ def register_model(
             }
         )
         pipeline_cls._omnirt_model_registrations = registrations
-        _MODEL_REGISTRY[id] = ModelSpec(
+        _MODEL_REGISTRY[(id, task)] = ModelSpec(
             id=id,
             task=task,
             pipeline_cls=pipeline_cls,
@@ -73,12 +83,42 @@ def register_model(
     return decorator
 
 
-def get_model(model_id: str) -> ModelSpec:
+def _primary_task_key(spec: ModelSpec) -> tuple:
     try:
-        return _MODEL_REGISTRY[model_id]
-    except KeyError as exc:
-        raise ModelNotRegisteredError(f"Model {model_id!r} is not registered.") from exc
+        priority = _PRIMARY_TASK_PRIORITY.index(spec.task)
+    except ValueError:
+        priority = len(_PRIMARY_TASK_PRIORITY)
+    return (priority, spec.task)
+
+
+def has_model_variant(model_id: str, task: str) -> bool:
+    return (model_id, task) in _MODEL_REGISTRY
+
+
+def list_model_variants(model_id: str) -> Dict[str, ModelSpec]:
+    variants = {task: spec for (registered_model_id, task), spec in _MODEL_REGISTRY.items() if registered_model_id == model_id}
+    return dict(sorted(variants.items(), key=lambda item: _primary_task_key(item[1])))
+
+
+def get_model(model_id: str, task: Optional[str] = None) -> ModelSpec:
+    if task is not None:
+        try:
+            return _MODEL_REGISTRY[(model_id, task)]
+        except KeyError as exc:
+            raise ModelNotRegisteredError(f"Model {model_id!r} with task {task!r} is not registered.") from exc
+
+    variants = list_model_variants(model_id)
+    if not variants:
+        raise ModelNotRegisteredError(f"Model {model_id!r} is not registered.")
+    return min(variants.values(), key=_primary_task_key)
 
 
 def list_models() -> Dict[str, ModelSpec]:
+    models: Dict[str, ModelSpec] = {}
+    for model_id, _task in _MODEL_REGISTRY:
+        models[model_id] = get_model(model_id)
+    return dict(sorted(models.items()))
+
+
+def list_model_specs() -> Dict[Tuple[str, str], ModelSpec]:
     return dict(_MODEL_REGISTRY)

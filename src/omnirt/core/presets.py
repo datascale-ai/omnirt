@@ -41,6 +41,12 @@ _TASK_PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {
     },
 }
 
+_TASK_PRESET_ALIASES: Dict[str, str] = {
+    "image2image": "text2image",
+    "inpaint": "text2image",
+    "edit": "text2image",
+}
+
 _MODEL_PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {
     "flux2.dev": {
         "fast": {"guidance_scale": 2.0, "max_sequence_length": 384},
@@ -67,7 +73,8 @@ def resolve_preset(*, task: str, model: str, preset: str) -> Dict[str, Any]:
         raise ValueError(f"Unknown preset {preset!r}. Available presets: [{available}]")
 
     merged: Dict[str, Any] = {}
+    task_key = _TASK_PRESET_ALIASES.get(task, task)
     merged.update(_BASE_PRESETS.get(preset, {}))
-    merged.update(_TASK_PRESETS.get(task, {}).get(preset, {}))
+    merged.update(_TASK_PRESETS.get(task_key, {}).get(preset, {}))
     merged.update(_MODEL_PRESETS.get(model, {}).get(preset, {}))
     return merged

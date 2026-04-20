@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from omnirt.core.types import AdapterRef, BackendName, ImageToVideoRequest, TextToImageRequest, TextToVideoRequest
+from omnirt.core.types import (
+    AdapterRef,
+    AudioToVideoRequest,
+    BackendName,
+    EditRequest,
+    ImageToImageRequest,
+    ImageToVideoRequest,
+    InpaintRequest,
+    TextToImageRequest,
+    TextToVideoRequest,
+)
 
 
 def text2image(
@@ -49,6 +59,69 @@ def text2video(
     )
 
 
+def image2image(
+    *,
+    model: str,
+    image: str,
+    prompt: str,
+    negative_prompt: Optional[str] = None,
+    backend: BackendName = "auto",
+    adapters: Optional[List[AdapterRef]] = None,
+    **config: Any,
+) -> ImageToImageRequest:
+    return ImageToImageRequest(
+        model=model,
+        image=image,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        backend=backend,
+        config=dict(config),
+        adapters=adapters,
+    )
+
+
+def inpaint(
+    *,
+    model: str,
+    image: str,
+    mask: str,
+    prompt: str,
+    negative_prompt: Optional[str] = None,
+    backend: BackendName = "auto",
+    adapters: Optional[List[AdapterRef]] = None,
+    **config: Any,
+) -> InpaintRequest:
+    return InpaintRequest(
+        model=model,
+        image=image,
+        mask=mask,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        backend=backend,
+        config=dict(config),
+        adapters=adapters,
+    )
+
+
+def edit(
+    *,
+    model: str,
+    image: str,
+    prompt: str,
+    backend: BackendName = "auto",
+    adapters: Optional[List[AdapterRef]] = None,
+    **config: Any,
+) -> EditRequest:
+    return EditRequest(
+        model=model,
+        image=image,
+        prompt=prompt,
+        backend=backend,
+        config=dict(config),
+        adapters=adapters,
+    )
+
+
 def image2video(
     *,
     model: str,
@@ -68,6 +141,27 @@ def image2video(
         negative_prompt=negative_prompt,
         num_frames=num_frames,
         fps=fps,
+        backend=backend,
+        config=dict(config),
+        adapters=adapters,
+    )
+
+
+def audio2video(
+    *,
+    model: str,
+    image: str,
+    audio: str,
+    prompt: Optional[str] = None,
+    backend: BackendName = "auto",
+    adapters: Optional[List[AdapterRef]] = None,
+    **config: Any,
+) -> AudioToVideoRequest:
+    return AudioToVideoRequest(
+        model=model,
+        image=image,
+        audio=audio,
+        prompt=prompt,
         backend=backend,
         config=dict(config),
         adapters=adapters,

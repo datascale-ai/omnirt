@@ -142,3 +142,28 @@ def test_model_listing_and_description(monkeypatch) -> None:
     assert "Missing required input" in validation.format_errors()
 
     clear_registry()
+
+
+def test_describe_model_defaults_to_primary_task(monkeypatch) -> None:
+    clear_registry()
+
+    @register_model(
+        id="dummy-image",
+        task="image2image",
+        capabilities=ModelCapabilities(required_inputs=("image", "prompt")),
+    )
+    @register_model(
+        id="dummy-image",
+        task="text2image",
+        capabilities=ModelCapabilities(required_inputs=("prompt",)),
+    )
+    class DummyPipeline:
+        pass
+
+    monkeypatch.setattr("omnirt.api.ensure_registered", lambda: None)
+
+    described = describe_model("dummy-image")
+
+    assert described.task == "text2image"
+
+    clear_registry()
