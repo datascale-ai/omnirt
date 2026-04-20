@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, List
 
 from omnirt.backends.base import BackendRuntime
@@ -80,6 +81,8 @@ class CudaBackend(BackendRuntime):
     _NO_COMPILE_TAGS = frozenset({"text_encoder", "text_encoder_2", "image_encoder"})
 
     def _compile(self, module: Any, tag: str) -> Any:
+        if os.getenv("OMNIRT_DISABLE_COMPILE", "").lower() in {"1", "true", "yes", "on"}:
+            raise RuntimeError("disabled by OMNIRT_DISABLE_COMPILE")
         if not hasattr(self.torch, "compile"):
             raise RuntimeError("torch.compile is unavailable")
         if tag in self._NO_COMPILE_TAGS:

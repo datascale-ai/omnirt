@@ -3,6 +3,7 @@ from typing import Optional
 
 from omnirt.backends.ascend import AscendBackend
 from omnirt.backends.base import BackendRuntime
+from omnirt.backends.cuda import CudaBackend
 
 
 class DummyBackend(BackendRuntime):
@@ -79,3 +80,17 @@ def test_ascend_compile_raises_not_implemented() -> None:
         assert "torch_npu compile" in str(exc)
     else:
         raise AssertionError("AscendBackend._compile must raise NotImplementedError in v0.1")
+
+
+def test_cuda_compile_can_be_disabled_with_env(monkeypatch) -> None:
+    backend = object.__new__(CudaBackend)
+    backend.torch = SimpleNamespace(compile=lambda module, mode=None: {"compiled": module, "mode": mode})
+
+    monkeypatch.setenv("OMNIRT_DISABLE_COMPILE", "1")
+
+    try:
+        backend._compile(module="module", tag="unet")
+    except RuntimeError as exc:
+        assert "OMNIRT_DISABLE_COMPILE" in str(exc)
+    else:
+        raise AssertionError("CudaBackend._compile must honor OMNIRT_DISABLE_COMPILE")
