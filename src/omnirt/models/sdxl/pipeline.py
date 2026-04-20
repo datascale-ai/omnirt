@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional
@@ -300,3 +301,18 @@ class SDXLPipeline(BasePipeline):
 
     def _apply_adapters(self, pipeline: Any) -> None:
         self.adapter_manager.apply_to_pipeline(pipeline)
+
+    def _filter_call_kwargs(self, pipeline: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            signature = inspect.signature(pipeline.__call__)
+        except (TypeError, ValueError, AttributeError):
+            return {key: value for key, value in kwargs.items() if value is not None}
+
+        parameters = signature.parameters
+        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()):
+            return {key: value for key, value in kwargs.items() if value is not None}
+        return {
+            key: value
+            for key, value in kwargs.items()
+            if value is not None and key in parameters
+        }

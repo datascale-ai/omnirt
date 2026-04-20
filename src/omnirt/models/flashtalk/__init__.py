@@ -1,0 +1,1 @@
+"""SoulX-FlashTalk model family."""

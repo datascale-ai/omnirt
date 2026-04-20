@@ -18,6 +18,16 @@ def load_image(path: str):
         return image.convert("RGB")
 
 
+def load_mask(path: str):
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise DependencyUnavailableError("Pillow is required to load mask inputs.") from exc
+
+    with Image.open(path) as image:
+        return image.convert("L")
+
+
 def save_video_frames(path: Path, frames: Iterable[object], *, fps: int) -> None:
     try:
         import imageio.v2 as imageio
