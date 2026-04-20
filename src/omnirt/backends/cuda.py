@@ -47,11 +47,42 @@ class CudaBackend(BackendRuntime):
     def available_memory_gb(self):
         if not self.is_available():
             return None
+        mem_get_info = getattr(self.torch.cuda, "mem_get_info", None)
+        if callable(mem_get_info):
+            try:
+                free_bytes, _total = mem_get_info()
+                return round(float(free_bytes) / (1024 ** 3), 3)
+            except Exception:
+                pass
         current_device = self.torch.cuda.current_device()
         props = self.torch.cuda.get_device_properties(current_device)
-        return round(float(props.total_memory) / (1024 ** 3), 3)
+        reserved = 0
+        try:
+            reserved = int(self.torch.cuda.memory_reserved(current_device))
+        except Exception:
+            pass
+        free_bytes = max(int(props.total_memory) - reserved, 0)
+        return round(float(free_bytes) / (1024 ** 3), 3)
+
+    def synchronize(self) -> None:
+        if self.is_available() and hasattr(self.torch.cuda, "synchronize"):
+            try:
+                self.torch.cuda.synchronize()
+            except Exception:
+                pass
+
+    _COMPILE_MODES = {
+        "unet": "max-autotune-no-cudagraphs",
+        "transformer": "max-autotune-no-cudagraphs",
+        "transformer_2": "max-autotune-no-cudagraphs",
+        "vae": "default",
+    }
+    _NO_COMPILE_TAGS = frozenset({"text_encoder", "text_encoder_2", "image_encoder"})
 
     def _compile(self, module: Any, tag: str) -> Any:
         if not hasattr(self.torch, "compile"):
             raise RuntimeError("torch.compile is unavailable")
-        return self.torch.compile(module, mode="reduce-overhead")
+        if tag in self._NO_COMPILE_TAGS:
+            raise RuntimeError(f"skipped by policy: {tag} not compiled by default")
+        mode = self._COMPILE_MODES.get(tag, "default")
+        return self.torch.compile(module, mode=mode)

@@ -30,8 +30,7 @@ class SVDPipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
-        self._pipeline_source = None
-        self._pipeline_dtype = None
+        self._pipeline_key: Optional[tuple] = None
         self._last_seed = None
         self._last_fps = None
 
@@ -183,7 +182,10 @@ class SVDPipeline(BasePipeline):
         scheduler_name: str,
         config: Dict[str, Any],
     ):
-        if self._pipeline is not None and self._pipeline_source == source and self._pipeline_dtype == torch_dtype:
+        cache_key = self.pipeline_cache_key(
+            source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name
+        )
+        if self._pipeline is not None and self._pipeline_key == cache_key:
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
@@ -192,9 +194,8 @@ class SVDPipeline(BasePipeline):
             torch_dtype=torch_dtype,
             use_safetensors=True,
         )
-        if scheduler_name != "euler-discrete":
-            raise ValueError(f"Unsupported SVD scheduler: {scheduler_name}")
         scheduler_config = dict(config)
+        scheduler_config.setdefault("scheduler", scheduler_name)
         if getattr(pipeline, "scheduler", None) is not None and hasattr(pipeline.scheduler, "config"):
             scheduler_config["scheduler_config"] = pipeline.scheduler.config
         pipeline.scheduler = build_scheduler(scheduler_config)
@@ -202,8 +203,7 @@ class SVDPipeline(BasePipeline):
         pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline
-        self._pipeline_source = source
-        self._pipeline_dtype = torch_dtype
+        self._pipeline_key = cache_key
         return pipeline
 
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:

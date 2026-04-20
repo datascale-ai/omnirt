@@ -46,11 +46,12 @@ class FakeDiffusersPipeline:
         self.fused = []
 
     @classmethod
-    def from_pretrained(cls, source, torch_dtype=None, use_safetensors=True):
+    def from_pretrained(cls, source, torch_dtype=None, use_safetensors=True, variant=None):
         pipeline = cls()
         pipeline.source = source
         pipeline.dtype = torch_dtype
         pipeline.use_safetensors = use_safetensors
+        pipeline.variant = variant
         cls.created.append(pipeline)
         return pipeline
 
@@ -140,6 +141,35 @@ def test_sdxl_pipeline_applies_lora_adapters(tmp_path, monkeypatch) -> None:
     assert result.outputs[0].mime == "image/png"
     assert created.loras == [str(adapter_path)]
     assert created.fused == [0.5]
+
+
+def test_sdxl_pipeline_detects_local_fp16_variant(tmp_path, monkeypatch) -> None:
+    for directory, filename in (
+        ("unet", "diffusion_pytorch_model.fp16.safetensors"),
+        ("vae", "diffusion_pytorch_model.fp16.safetensors"),
+        ("text_encoder", "model.fp16.safetensors"),
+        ("text_encoder_2", "model.fp16.safetensors"),
+    ):
+        target_dir = tmp_path / directory
+        target_dir.mkdir(parents=True)
+        (target_dir / filename).write_bytes(b"fake")
+
+    monkeypatch.setattr(SDXLPipeline, "_diffusers_pipeline_cls", lambda self: FakeDiffusersPipeline)
+    monkeypatch.setattr("omnirt.models.sdxl.pipeline.build_scheduler", lambda config: {"name": "euler"})
+
+    request = GenerateRequest(
+        task="text2image",
+        model="sdxl-base-1.0",
+        backend="cuda",
+        inputs={"prompt": "a lighthouse in fog"},
+        config={"output_dir": str(tmp_path), "model_path": str(tmp_path)},
+    )
+    pipeline = SDXLPipeline(runtime=FakeCudaRuntime(), model_spec=build_model_spec())
+
+    pipeline.run(request)
+
+    created = FakeDiffusersPipeline.created[-1]
+    assert created.variant == "fp16"
 
 
 def test_sdxl_pipeline_raises_clear_error_without_diffusers(tmp_path) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import inspect
 from pathlib import Path
 import time
 import uuid
@@ -28,6 +29,7 @@ class BasePipeline(ABC):
         self.last_report = None
         self.components: Dict[str, Any] = {}
         self.loaded_adapters = []
+        self._captured_latent = None
 
         if self.adapters:
             self.loaded_adapters = self.adapter_manager.load_all(self.adapters)
@@ -60,6 +62,59 @@ class BasePipeline(ABC):
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
 
+    def adapter_fingerprint(self) -> tuple:
+        """Stable identity of currently loaded LoRA adapters (path, scale tuples, sorted)."""
+
+        if not self.adapters:
+            return ()
+        return tuple(sorted((str(getattr(a, "path", "")), float(getattr(a, "scale", 1.0))) for a in self.adapters))
+
+    def pipeline_cache_key(self, *, source: Any, torch_dtype: Any, scheduler_name: str) -> tuple:
+        """Shared cache key for Diffusers pipeline reuse across repeat runs."""
+
+        return (str(source), str(torch_dtype), str(scheduler_name), self.adapter_fingerprint())
+
+    def make_latent_callback(self, total_steps: int):
+        """Return a Diffusers-style ``callback_on_step_end`` that captures the final-step latents.
+
+        Pipelines pass this to ``pipeline(callback_on_step_end=self.make_latent_callback(steps))``.
+        Only the last step is kept; intermediate steps are ignored to avoid memory churn.
+        """
+
+        last_index = max(int(total_steps) - 1, 0)
+
+        def _callback(pipe, step, timestep, callback_kwargs):  # noqa: ARG001 - Diffusers signature
+            if step == last_index:
+                latents = callback_kwargs.get("latents") if isinstance(callback_kwargs, dict) else None
+                if latents is not None:
+                    try:
+                        self._captured_latent = latents.detach().to("cpu").float().numpy()
+                    except Exception:
+                        self._captured_latent = None
+            return callback_kwargs if isinstance(callback_kwargs, dict) else {}
+
+        return _callback
+
+    def _supports_callback_on_step_end(self, pipeline: Any) -> bool:
+        try:
+            signature = inspect.signature(pipeline.__call__)
+        except (TypeError, ValueError, AttributeError):
+            return False
+        parameters = signature.parameters
+        if "callback_on_step_end" in parameters:
+            return True
+        return any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values())
+
+    def _compute_latent_stats(self) -> Optional[Dict[str, float]]:
+        if self._captured_latent is None:
+            return None
+        try:
+            from omnirt.core.parity import latent_statistics
+
+            return latent_statistics(self._captured_latent)
+        except Exception:
+            return None
+
     def ensure_resource_budget(self) -> None:
         minimum = self.model_spec.resource_hint.get("min_vram_gb")
         if minimum is None:
@@ -82,7 +137,10 @@ class BasePipeline(ABC):
         outputs: List[Artifact] = []
         self.runtime.backend_timeline = []
         self.runtime.reset_memory_stats()
+        self._captured_latent = None
         self.ensure_resource_budget()
+
+        sync_stages = {"denoise_loop", "decode"}
 
         def timed(stage: str, fn: Any) -> Any:
             started = time.perf_counter()
@@ -90,6 +148,11 @@ class BasePipeline(ABC):
             try:
                 return fn()
             finally:
+                if stage in sync_stages:
+                    try:
+                        self.runtime.synchronize()
+                    except Exception:
+                        pass
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 timings[f"{stage}_ms"] = round(elapsed_ms, 3)
                 self.logger.info(
@@ -115,6 +178,7 @@ class BasePipeline(ABC):
                 config_resolved=resolved_config,
                 artifacts=outputs,
                 error=None,
+                latent_stats=self._compute_latent_stats(),
             )
             self.last_report = report
             return GenerateResult(outputs=outputs, metadata=report)
@@ -129,6 +193,7 @@ class BasePipeline(ABC):
                 config_resolved=locals().get("resolved_config", dict(req.config)),
                 artifacts=outputs,
                 error=str(exc),
+                latent_stats=self._compute_latent_stats(),
             )
             self.last_report = report
             self.logger.error(

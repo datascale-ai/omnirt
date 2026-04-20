@@ -28,8 +28,7 @@ class Flux2Pipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
-        self._pipeline_source = None
-        self._pipeline_dtype = None
+        self._pipeline_key: Optional[tuple] = None
         self._last_seed = None
 
     def prepare_conditions(self, req: GenerateRequest) -> Dict[str, Any]:
@@ -169,7 +168,10 @@ class Flux2Pipeline(BasePipeline):
         return DiffusersFlux2Pipeline
 
     def _load_pipeline(self, *, source: str, torch_dtype: Any, scheduler_name: str):
-        if self._pipeline is not None and self._pipeline_source == source and self._pipeline_dtype == torch_dtype:
+        cache_key = self.pipeline_cache_key(
+            source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name
+        )
+        if self._pipeline is not None and self._pipeline_key == cache_key:
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
@@ -180,8 +182,7 @@ class Flux2Pipeline(BasePipeline):
         pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline
-        self._pipeline_source = source
-        self._pipeline_dtype = torch_dtype
+        self._pipeline_key = cache_key
         return pipeline
 
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:

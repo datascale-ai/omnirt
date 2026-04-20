@@ -23,8 +23,7 @@ class SDXLPipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._pipeline = None
-        self._pipeline_source = None
-        self._pipeline_dtype = None
+        self._pipeline_key: Optional[tuple] = None
         self._last_seed = None
 
     def prepare_conditions(self, req: GenerateRequest) -> Dict[str, Any]:
@@ -66,6 +65,12 @@ class SDXLPipeline(BasePipeline):
     def denoise_loop(self, latents: Any, conditions: Any, config: Dict[str, Any]) -> Dict[str, Any]:
         started = time.perf_counter()
         pipeline = latents["pipeline"]
+        callback_kwargs = {}
+        if self._supports_callback_on_step_end(pipeline):
+            callback_kwargs = {
+                "callback_on_step_end": self.make_latent_callback(latents["steps"]),
+                "callback_on_step_end_tensor_inputs": ["latents"],
+            }
         result = pipeline(
             prompt=conditions["prompt"],
             negative_prompt=conditions.get("negative_prompt"),
@@ -76,6 +81,7 @@ class SDXLPipeline(BasePipeline):
             width=conditions["width"],
             num_images_per_prompt=conditions["num_images_per_prompt"],
             output_type="pil",
+            **callback_kwargs,
         )
         return {
             "images": list(result.images),
@@ -166,18 +172,16 @@ class SDXLPipeline(BasePipeline):
         scheduler_name: str,
         config: Dict[str, Any],
     ):
-        if self._pipeline is not None and self._pipeline_source == source and self._pipeline_dtype == torch_dtype:
+        cache_key = self.pipeline_cache_key(
+            source=source, torch_dtype=torch_dtype, scheduler_name=scheduler_name
+        )
+        if self._pipeline is not None and self._pipeline_key == cache_key:
             return self._pipeline
 
         pipeline_cls = self._diffusers_pipeline_cls()
-        pipeline = pipeline_cls.from_pretrained(
-            source,
-            torch_dtype=torch_dtype,
-            use_safetensors=True,
-        )
-        if scheduler_name != "euler-discrete":
-            raise ValueError(f"Unsupported SDXL scheduler: {scheduler_name}")
+        pipeline = pipeline_cls.from_pretrained(source, **self._from_pretrained_kwargs(source, torch_dtype))
         scheduler_config = dict(config)
+        scheduler_config.setdefault("scheduler", scheduler_name)
         if getattr(pipeline, "scheduler", None) is not None and hasattr(pipeline.scheduler, "config"):
             scheduler_config["scheduler_config"] = pipeline.scheduler.config
         pipeline.scheduler = build_scheduler(scheduler_config)
@@ -185,9 +189,33 @@ class SDXLPipeline(BasePipeline):
         pipeline = self.runtime.to_device(pipeline, dtype=torch_dtype)
         self._apply_adapters(pipeline)
         self._pipeline = pipeline
-        self._pipeline_source = source
-        self._pipeline_dtype = torch_dtype
+        self._pipeline_key = cache_key
         return pipeline
+
+    def _from_pretrained_kwargs(self, source: str, torch_dtype: Any) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
+            "torch_dtype": torch_dtype,
+            "use_safetensors": True,
+        }
+        variant = self._detect_local_variant(source)
+        if variant is not None:
+            kwargs["variant"] = variant
+        return kwargs
+
+    def _detect_local_variant(self, source: str) -> Optional[str]:
+        root = Path(source)
+        if not root.is_dir():
+            return None
+
+        fp16_layout = {
+            "unet": "diffusion_pytorch_model.fp16.safetensors",
+            "vae": "diffusion_pytorch_model.fp16.safetensors",
+            "text_encoder": "model.fp16.safetensors",
+            "text_encoder_2": "model.fp16.safetensors",
+        }
+        if all((root / subdir / filename).is_file() for subdir, filename in fp16_layout.items()):
+            return "fp16"
+        return None
 
     def _wrap_pipeline_modules(self, pipeline: Any) -> None:
         for tag in ("text_encoder", "text_encoder_2", "unet", "vae"):

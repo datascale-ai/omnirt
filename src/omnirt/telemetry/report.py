@@ -18,6 +18,7 @@ def build_run_report(
     config_resolved: Dict[str, object],
     artifacts: Iterable[Artifact],
     error: Optional[str],
+    latent_stats: Optional[Dict[str, float]] = None,
 ) -> RunReport:
     return RunReport(
         run_id=run_id,
@@ -30,4 +31,5 @@ def build_run_report(
         config_resolved=dict(config_resolved),
         artifacts=list(artifacts),
         error=error,
+        latent_stats=dict(latent_stats) if latent_stats is not None else None,
     )

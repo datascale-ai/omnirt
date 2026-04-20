@@ -43,6 +43,12 @@ class BackendRuntime(ABC):
     def available_memory_gb(self) -> Optional[float]:
         return None
 
+    def synchronize(self) -> None:
+        """Block until in-flight accelerator work completes.
+
+        Default is a no-op; CUDA/Ascend override for accurate stage timing.
+        """
+
     def wrap_module(self, module: Any, tag: str) -> Any:
         attempts: List[BackendAttempt] = []
         wrapped: Any = None

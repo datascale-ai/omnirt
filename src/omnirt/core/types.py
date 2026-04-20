@@ -136,6 +136,8 @@ class RunReport:
     config_resolved: Dict[str, Any] = field(default_factory=dict)
     artifacts: List[Artifact] = field(default_factory=list)
     error: Optional[str] = None
+    latent_stats: Optional[Dict[str, float]] = None
+    schema_version: str = "0.1.0"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -153,6 +155,8 @@ class RunReport:
             config_resolved=payload.get("config_resolved", {}),
             artifacts=[Artifact.from_dict(item) for item in payload.get("artifacts", [])],
             error=payload.get("error"),
+            latent_stats=payload.get("latent_stats"),
+            schema_version=str(payload.get("schema_version", "0.0.0")),
         )
 
 
