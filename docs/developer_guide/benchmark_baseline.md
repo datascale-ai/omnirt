@@ -15,7 +15,7 @@
 | `cache_hit_ratio` | 命中结果缓存的请求比例 |
 | `batch_size_mean` | 平均 batch 大小 |
 | `batched_request_ratio` | 被合批请求的比例 |
-| `execution_mode_breakdown` | `modular / legacy_call / subprocess` 分布 |
+| `execution_mode_breakdown` | `modular / legacy_call / subprocess / persistent_worker` 分布 |
 
 建议每次都把 JSON 落盘：
 

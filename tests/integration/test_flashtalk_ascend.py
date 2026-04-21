@@ -55,3 +55,6 @@ def test_flashtalk_ascend_smoke(tmp_path) -> None:
     assert result.outputs
     assert result.outputs[0].path.endswith(".mp4")
     assert Path(result.outputs[0].path).exists()
+    assert result.metadata.execution_mode == "persistent_worker"
+    assert result.metadata.timings["chunk_count"] >= 1.0
+    assert "chunk_core_ms_avg" in result.metadata.timings

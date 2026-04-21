@@ -37,15 +37,18 @@ OmniRT 当前已经从“单进程 pipeline 包装器”演进成一个带 queue
 
 ### 4. Executor 层
 
-当前有三条执行路径：
+当前有四条执行路径：
 
 | execution_mode | 说明 |
 |---|---|
 | `modular` | 面向已迁移家族的组件化执行路径 |
 | `legacy_call` | 对现有 Diffusers pipeline 的包装执行 |
-| `subprocess` | 外部脚本 / 仓库驱动的执行模式，如 FlashTalk |
+| `subprocess` | 外部脚本 / 仓库驱动的执行模式 |
+| `persistent_worker` | 常驻 worker / 常驻多卡进程组执行模式，适合 FlashTalk 这类高初始化成本模型 |
 
 `ModelSpec.execution_mode` 决定 engine 最终落到哪条路径。
+
+其中 `persistent_worker` 会把模型加载、分布式初始化和常驻生命周期前移到独立 worker 中，后续请求只做请求级推理与结果导出。当前 `soulx-flashtalk-14b` 已作为首个 `persistent_worker` 模型在 `Ascend 910B2 x8` 上完成真机验证。
 
 ### 5. 模型 / 启动器 / 后端层
 

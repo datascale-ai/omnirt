@@ -230,6 +230,9 @@ def test_flashtalk_resident_worker_runs_distributed_mode_on_rank0(tmp_path: Path
     assert result is not None
     assert Path(result.outputs[0].path).exists()
     assert result.metadata.execution_mode == "persistent_worker"
+    assert result.metadata.timings["chunk_count"] == 1.0
+    assert "chunk_core_ms_avg" in result.metadata.timings
+    assert "chunk_total_ms_avg" in result.metadata.timings
 
 
 def test_flashtalk_resident_worker_initializes_process_group_from_torchrun_env(tmp_path: Path, monkeypatch) -> None:
@@ -406,6 +409,9 @@ def test_flashtalk_resident_worker_runs_single_process_once_mode(tmp_path: Path,
     assert captured["run_pipeline_calls"] == 2
     assert Path(first.outputs[0].path).exists()
     assert second.metadata.execution_mode == "persistent_worker"
+    assert first.metadata.timings["chunk_count"] == 1.0
+    assert "chunk_core_ms_avg" in first.metadata.timings
+    assert "chunk_total_ms_avg" in second.metadata.timings
 
 
 def test_flashtalk_pipeline_can_return_remote_resident_proxy() -> None:

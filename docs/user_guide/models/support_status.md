@@ -2,7 +2,7 @@
 
 本文档记录 `omnirt` 当前已经接入、已做真机 smoke、以及尚未完成的重点模型。
 
-最近更新：`2026-04-20`
+最近更新：`2026-04-21`
 
 ## 当前公开任务面
 
@@ -26,6 +26,9 @@
 - `svd-xt`
   CUDA: `<cuda-host>`
   Ascend: `<ascend-host>`
+- `soulx-flashtalk-14b`
+  Ascend: `<ascend-host>`
+  说明: `persistent_worker` 常驻 8 卡 `Ascend 910B2` 链路已跑通；冷启动约 `91s`，实时配置热态 `steady_chunk_core_ms_avg ≈ 891ms`
 
 ## 已接入但仍待真机 smoke
 

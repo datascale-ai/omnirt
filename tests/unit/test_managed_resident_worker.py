@@ -132,5 +132,7 @@ def test_build_flashtalk_resident_worker_command_uses_torchrun_wrapper(tmp_path:
         worker_id="flashtalk-resident-50071",
     )
 
-    assert command[:5] == ["/tmp/py", "-m", "torch.distributed.run", "--nproc_per_node=8", "-m"]
+    assert command[:4] == ["/tmp/py", "-m", "torch.distributed.run", "--nproc_per_node=8"]
+    assert any(part.startswith("--master_port=") for part in command)
+    assert "-m" in command
     assert "resident-flashtalk-worker" in command

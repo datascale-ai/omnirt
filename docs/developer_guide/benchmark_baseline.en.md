@@ -15,7 +15,7 @@ This document captures the recommended benchmark methodology for OmniRT and what
 | `cache_hit_ratio` | fraction of requests that hit the result cache |
 | `batch_size_mean` | average batch size |
 | `batched_request_ratio` | fraction of requests that were merged into a batch |
-| `execution_mode_breakdown` | distribution across `modular / legacy_call / subprocess` |
+| `execution_mode_breakdown` | distribution across `modular / legacy_call / subprocess / persistent_worker` |
 
 Always persist the JSON:
 

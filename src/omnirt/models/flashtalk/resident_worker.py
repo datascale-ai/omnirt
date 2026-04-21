@@ -180,12 +180,13 @@ class FlashTalkResidentWorker:
         timings["prepare_conditions_ms"] = round((time.perf_counter() - started) * 1000, 3)
 
         denoise_started = time.perf_counter()
-        generated_list = self._generate_video_frames(
+        generated_list, generation_metrics = self._generate_video_frames(
             audio_path=conditions["audio_path"],
             audio_encode_mode=str(request.config.get("audio_encode_mode", "stream")),
             max_chunks=int(request.config.get("max_chunks", 0)),
         )
         timings["denoise_loop_ms"] = round((time.perf_counter() - denoise_started) * 1000, 3)
+        timings.update(generation_metrics)
 
         artifacts: list[Artifact] = []
         if export_result:
@@ -362,6 +363,10 @@ class FlashTalkResidentWorker:
         slice_len = frame_num - motion_frames_num
 
         generated_list = []
+        audio_embedding_times_ms: list[float] = []
+        chunk_core_times_ms: list[float] = []
+        chunk_copy_times_ms: list[float] = []
+        chunk_total_times_ms: list[float] = []
         human_speech_array_all, _ = librosa.load(str(audio_path), sr=sample_rate, mono=True)
         human_speech_array_slice_len = slice_len * sample_rate // tgt_fps
         human_speech_array_frame_num = frame_num * sample_rate // tgt_fps
@@ -383,11 +388,22 @@ class FlashTalkResidentWorker:
             for chunk_idx, audio_embedding_chunk in enumerate(audio_embedding_chunks_list):
                 if max_chunks > 0 and chunk_idx >= max_chunks:
                     break
+                chunk_started = time.perf_counter()
+                core_started = time.perf_counter()
                 video = self._inference.run_pipeline(self._pipeline, audio_embedding_chunk)
+                chunk_core_times_ms.append((time.perf_counter() - core_started) * 1000)
                 if chunk_idx != 0:
                     video = video[motion_frames_num:]
+                copy_started = time.perf_counter()
                 generated_list.append(video.cpu())
-            return generated_list
+                chunk_copy_times_ms.append((time.perf_counter() - copy_started) * 1000)
+                chunk_total_times_ms.append((time.perf_counter() - chunk_started) * 1000)
+            return generated_list, self._build_generation_metrics(
+                audio_embedding_times_ms=audio_embedding_times_ms,
+                chunk_core_times_ms=chunk_core_times_ms,
+                chunk_copy_times_ms=chunk_copy_times_ms,
+                chunk_total_times_ms=chunk_total_times_ms,
+            )
 
         cached_audio_duration = infer_params["cached_audio_duration"]
         cached_audio_length_sum = sample_rate * cached_audio_duration
@@ -406,13 +422,53 @@ class FlashTalkResidentWorker:
         for chunk_idx, human_speech_array in enumerate(human_speech_array_slices):
             if max_chunks > 0 and chunk_idx >= max_chunks:
                 break
+            chunk_started = time.perf_counter()
             audio_dq.extend(human_speech_array.tolist())
             audio_array = np.array(audio_dq)
+            embed_started = time.perf_counter()
             audio_embedding = self._inference.get_audio_embedding(self._pipeline, audio_array, audio_start_idx, audio_end_idx)
+            audio_embedding_times_ms.append((time.perf_counter() - embed_started) * 1000)
+            core_started = time.perf_counter()
             video = self._inference.run_pipeline(self._pipeline, audio_embedding)
+            chunk_core_times_ms.append((time.perf_counter() - core_started) * 1000)
             video = video[motion_frames_num:]
+            copy_started = time.perf_counter()
             generated_list.append(video.cpu())
-        return generated_list
+            chunk_copy_times_ms.append((time.perf_counter() - copy_started) * 1000)
+            chunk_total_times_ms.append((time.perf_counter() - chunk_started) * 1000)
+        return generated_list, self._build_generation_metrics(
+            audio_embedding_times_ms=audio_embedding_times_ms,
+            chunk_core_times_ms=chunk_core_times_ms,
+            chunk_copy_times_ms=chunk_copy_times_ms,
+            chunk_total_times_ms=chunk_total_times_ms,
+        )
+
+    def _build_generation_metrics(
+        self,
+        *,
+        audio_embedding_times_ms: list[float],
+        chunk_core_times_ms: list[float],
+        chunk_copy_times_ms: list[float],
+        chunk_total_times_ms: list[float],
+    ) -> dict[str, float]:
+        metrics: dict[str, float] = {
+            "chunk_count": float(len(chunk_total_times_ms)),
+        }
+        if audio_embedding_times_ms:
+            metrics["audio_embedding_ms_avg"] = round(sum(audio_embedding_times_ms) / len(audio_embedding_times_ms), 3)
+        if chunk_core_times_ms:
+            metrics["chunk_core_ms_avg"] = round(sum(chunk_core_times_ms) / len(chunk_core_times_ms), 3)
+        if chunk_copy_times_ms:
+            metrics["chunk_copy_ms_avg"] = round(sum(chunk_copy_times_ms) / len(chunk_copy_times_ms), 3)
+        if chunk_total_times_ms:
+            metrics["chunk_total_ms_avg"] = round(sum(chunk_total_times_ms) / len(chunk_total_times_ms), 3)
+        if len(chunk_core_times_ms) > 1:
+            steady = chunk_core_times_ms[1:]
+            metrics["steady_chunk_core_ms_avg"] = round(sum(steady) / len(steady), 3)
+        if len(chunk_total_times_ms) > 1:
+            steady_total = chunk_total_times_ms[1:]
+            metrics["steady_chunk_total_ms_avg"] = round(sum(steady_total) / len(steady_total), 3)
+        return metrics
 
 
 class _PendingDistributedCall:

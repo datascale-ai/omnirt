@@ -27,6 +27,7 @@ def build_flashtalk_resident_worker_command(
     worker_id: str,
 ) -> list[str]:
     python_executable = runtime_config.python_executable or sys.executable
+    master_port = reserve_local_port()
     worker_args = [
         "resident-flashtalk-worker",
         "--host",
@@ -78,6 +79,7 @@ def build_flashtalk_resident_worker_command(
             "-m",
             "torch.distributed.run",
             f"--nproc_per_node={runtime_config.nproc_per_node}",
+            f"--master_port={master_port}",
             "-m",
             "omnirt",
             *worker_args,
