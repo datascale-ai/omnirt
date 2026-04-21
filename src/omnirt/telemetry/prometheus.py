@@ -58,6 +58,28 @@ class PrometheusMetrics:
     def set_vram_peak_bytes(self, *, device: str, bytes_value: float) -> None:
         self._set_gauge("omnirt_vram_peak_bytes", {"device": str(device)}, max(float(bytes_value), 0.0))
 
+    def set_worker_inflight(self, *, worker_id: str, model: str, count: int) -> None:
+        self._set_gauge(
+            "omnirt_worker_inflight",
+            {"worker_id": worker_id, "model": model},
+            max(int(count), 0),
+        )
+
+    def set_worker_queue_depth(self, *, worker_id: str, model: str, depth: int) -> None:
+        self._set_gauge(
+            "omnirt_worker_queue_depth",
+            {"worker_id": worker_id, "model": model},
+            max(int(depth), 0),
+        )
+
+    def observe_worker_chunk_duration(self, *, worker_id: str, model: str, seconds: float) -> None:
+        self._observe_histogram(
+            "omnirt_worker_chunk_duration_seconds",
+            {"worker_id": worker_id, "model": model},
+            max(float(seconds), 0.0),
+            buckets=_DEFAULT_BUCKETS,
+        )
+
     def render(self) -> str:
         with self._lock:
             lines: list[str] = []
@@ -66,6 +88,9 @@ class PrometheusMetrics:
             lines.extend(self._render_counter("omnirt_cache_hits_total", "counter"))
             lines.extend(self._render_gauge("omnirt_queue_depth", "gauge"))
             lines.extend(self._render_gauge("omnirt_vram_peak_bytes", "gauge"))
+            lines.extend(self._render_gauge("omnirt_worker_inflight", "gauge"))
+            lines.extend(self._render_gauge("omnirt_worker_queue_depth", "gauge"))
+            lines.extend(self._render_histogram("omnirt_worker_chunk_duration_seconds", "histogram"))
         return "\n".join(lines) + "\n"
 
     def _inc(self, name: str, labels: Dict[str, str] | None = None, value: float = 1.0) -> None:

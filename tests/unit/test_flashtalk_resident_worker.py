@@ -213,14 +213,7 @@ def test_flashtalk_resident_worker_runs_distributed_mode_on_rank0(tmp_path: Path
         },
     )
 
-    worker.start()
-    pending = _PendingDistributedCall(request=request)
-    worker._pending_call = pending
-    worker._run_distributed_step()
-    assert worker._pending_call is None
-    assert pending.done is True
-    assert pending.error is None
-    result = pending.result
+    result = worker.submit(request)
     worker.shutdown()
 
     assert worker.ready() is False

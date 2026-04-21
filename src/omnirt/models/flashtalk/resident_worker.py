@@ -1,4 +1,32 @@
-"""Resident worker implementation for FlashTalk execution."""
+"""Resident worker implementation for FlashTalk execution.
+
+Architecture
+------------
+
+There are three distinct concerns this module keeps separate:
+
+* **Ingress (gRPC / in-process callers)** — :meth:`FlashTalkResidentWorker.submit`
+  is safe to call from multiple threads concurrently. Each submission is
+  wrapped in a :class:`_QueuedRequest` and placed on a thread-safe
+  :class:`queue.Queue`. The caller waits on the request's own Event; it no
+  longer spins on a shared Condition.
+
+* **Engine (serial execution)** — on rank 0 a dedicated coordinator thread
+  pulls one request at a time off the queue, broadcasts the payload to peer
+  ranks via ``torch.distributed.broadcast_object_list``, runs the pipeline on
+  rank 0, and resolves the caller's Event. Non-rank-0 processes run a mirror
+  loop driven by the same broadcasts.
+
+* **Observability** — ``queue.qsize()`` feeds the health endpoint and
+  ``omnirt_worker_queue_depth`` gauge; :attr:`_inflight` feeds
+  ``omnirt_worker_inflight``; per-chunk durations are recorded on the
+  Prometheus registry if one is attached.
+
+This separation is the smallest change that removes the single-slot lock and
+lets the gRPC thread pool accept N concurrent ``submit`` calls without busy
+waiting. Execution itself is still serial — adding continuous batching later
+means replacing the ``queue.get()`` policy, not rewriting ingress.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +35,7 @@ from contextlib import contextmanager
 import importlib
 import os
 from pathlib import Path
+import queue
 import sys
 import threading
 import time
@@ -48,11 +77,37 @@ def _repo_on_path(path: Path) -> Iterator[None]:
                 pass
 
 
+class _QueuedRequest:
+    """A submission waiting for the coordinator to pick it up.
+
+    ``done`` is an Event (not a sleep-poll loop) — the submitting thread blocks
+    on ``event.wait()`` until the coordinator sets it after writing ``result``
+    or ``error``. This is the ingress half of the rank 0 split.
+    """
+
+    __slots__ = ("request", "result", "error", "done", "enqueued_at")
+
+    def __init__(self, request: GenerateRequest) -> None:
+        self.request = request
+        self.result: GenerateResult | None = None
+        self.error: Exception | None = None
+        self.done = threading.Event()
+        self.enqueued_at = time.monotonic()
+
+
+# Alias preserved for tests that referenced the old name.
+_PendingDistributedCall = _QueuedRequest
+
+
 class FlashTalkResidentWorker:
     """Resident FlashTalk worker.
 
-    Supports both a single-process in-memory worker and a torchrun-backed
-    distributed resident worker where rank 0 exposes the gRPC service.
+    Supports three modes:
+
+    * Single-process in-memory worker (non-distributed).
+    * torchrun-backed distributed resident worker, rank 0 serving the gRPC
+      endpoint.
+    * Non-rank-0 distributed participants that run a passive broadcast loop.
     """
 
     def __init__(self, *, runtime, model_spec, config, adapters) -> None:
@@ -68,10 +123,21 @@ class FlashTalkResidentWorker:
         self._dist = None
         self._rank = 0
         self._world_size = 1
-        self._pending_call: _PendingDistributedCall | None = None
-        self._pending_lock = threading.Condition()
-        self._shutdown_requested = False
         self.serves_rpc = True
+
+        # Rank 0 concurrency primitives.
+        self._request_queue: "queue.Queue[_QueuedRequest | None]" = queue.Queue()
+        self._coordinator_thread: threading.Thread | None = None
+        self._shutdown_requested = False
+        self._inflight_lock = threading.Lock()
+        self._inflight = 0
+        self._last_error: str | None = None
+
+        # Optional observability hooks; set by PersistentWorkerExecutor or tests.
+        self.metrics = None  # PrometheusMetrics-compatible
+        self.worker_id = f"flashtalk-resident-{id(self):x}"
+
+    # ------------------------------------------------------------------ lifecycle
 
     def start(self) -> None:
         if self._started:
@@ -103,6 +169,13 @@ class FlashTalkResidentWorker:
             self._world_size = int(dist_module.get_world_size())
             self.serves_rpc = self._rank == 0
             self._shutdown_requested = False
+            if self.serves_rpc:
+                self._coordinator_thread = threading.Thread(
+                    target=self._coordinator_loop,
+                    name=f"{self.worker_id}-coordinator",
+                    daemon=True,
+                )
+                self._coordinator_thread.start()
         self._started = True
 
     def ready(self) -> bool:
@@ -113,40 +186,15 @@ class FlashTalkResidentWorker:
             and self._save_video is not None
         )
 
-    def submit(self, request: GenerateRequest) -> GenerateResult:
-        self.start()
-        if not self.ready():
-            raise RuntimeError("FlashTalk resident worker failed to initialize.")
-        if self._dist is not None:
-            if not self.serves_rpc:
-                raise RuntimeError("Only rank 0 accepts resident FlashTalk RPC requests.")
-            call = _PendingDistributedCall(request=request)
-            with self._pending_lock:
-                while self._pending_call is not None:
-                    self._pending_lock.wait(timeout=0.1)
-                self._pending_call = call
-                self._pending_lock.notify_all()
-                while not call.done:
-                    self._pending_lock.wait(timeout=0.1)
-            if call.error is not None:
-                raise call.error
-            if call.result is None:
-                raise RuntimeError("Distributed FlashTalk worker finished without producing a result.")
-            return call.result
-        return self._run_request(request, export_result=True)
-
-    def wait_for_termination(self, timeout: float | None = None) -> bool:
-        if self._dist is None:
-            return False
-        self.serve_forever(timeout=timeout)
-        return self._shutdown_requested
-
     def shutdown(self) -> None:
-        if self._dist is not None:
-            with self._pending_lock:
-                self._shutdown_requested = True
-                self._pending_lock.notify_all()
-        self._pending_call = None
+        if self._dist is not None and self.serves_rpc:
+            self._shutdown_requested = True
+            # Wake coordinator so it can observe the shutdown flag.
+            self._request_queue.put(None)
+            if self._coordinator_thread is not None:
+                self._coordinator_thread.join(timeout=5.0)
+        self._coordinator_thread = None
+        self._drain_queue()
         self._shutdown_requested = False
         self._dist = None
         self._rank = 0
@@ -156,6 +204,203 @@ class FlashTalkResidentWorker:
         self._inference = None
         self._save_video = None
         self._started = False
+        with self._inflight_lock:
+            self._inflight = 0
+
+    def _drain_queue(self) -> None:
+        """Fail any requests still queued when shutdown happens."""
+        while True:
+            try:
+                item = self._request_queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(item, _QueuedRequest):
+                item.error = RuntimeError("FlashTalk resident worker shut down before request was served.")
+                item.done.set()
+
+    # ------------------------------------------------------------------ ingress
+
+    def submit(self, request: GenerateRequest) -> GenerateResult:
+        self.start()
+        if not self.ready():
+            raise RuntimeError("FlashTalk resident worker failed to initialize.")
+        if self._dist is not None:
+            if not self.serves_rpc:
+                raise RuntimeError("Only rank 0 accepts resident FlashTalk RPC requests.")
+            queued = _QueuedRequest(request=request)
+            self._request_queue.put(queued)
+            self._report_queue_metrics()
+            queued.done.wait()
+            if queued.error is not None:
+                raise queued.error
+            if queued.result is None:
+                raise RuntimeError("Distributed FlashTalk worker finished without producing a result.")
+            return queued.result
+        # Non-distributed path stays inline; callers that need concurrency run
+        # multiple workers via WorkerPool instead.
+        with self._inflight_scope():
+            return self._run_request(request, export_result=True)
+
+    # ------------------------------------------------------------------ observability
+
+    def status_snapshot(self) -> dict[str, Any]:
+        """Return a dict consumable by ``GrpcWorkerServer._handle_health``."""
+        if not self._started:
+            state = "loading"
+        elif not self.ready():
+            state = "degraded"
+        elif self._last_error:
+            state = "degraded"
+        else:
+            state = "ready"
+        gpu_mem_used_gb: float | None = None
+        memory_stats = getattr(self.runtime, "memory_stats", None)
+        if callable(memory_stats):
+            try:
+                stats = memory_stats()
+            except Exception:
+                stats = {}
+            peak_mb = stats.get("peak_mb") if isinstance(stats, dict) else None
+            if isinstance(peak_mb, (int, float)) and peak_mb > 0:
+                gpu_mem_used_gb = round(float(peak_mb) / 1024.0, 3)
+        return {
+            "state": state,
+            "model_loaded": self.ready(),
+            "queue_depth": self._request_queue.qsize(),
+            "inflight": self._inflight,
+            "last_error": self._last_error,
+            "gpu_mem_used_gb": gpu_mem_used_gb,
+            "worker_id": self.worker_id,
+            "rank": self._rank,
+            "world_size": self._world_size,
+        }
+
+    def _report_queue_metrics(self) -> None:
+        metrics = self.metrics
+        if metrics is None:
+            return
+        setter = getattr(metrics, "set_worker_queue_depth", None)
+        if callable(setter):
+            setter(
+                worker_id=self.worker_id,
+                model=self.model_spec.id if self.model_spec is not None else "unknown",
+                depth=self._request_queue.qsize(),
+            )
+
+    def _report_inflight_metrics(self) -> None:
+        metrics = self.metrics
+        if metrics is None:
+            return
+        setter = getattr(metrics, "set_worker_inflight", None)
+        if callable(setter):
+            setter(
+                worker_id=self.worker_id,
+                model=self.model_spec.id if self.model_spec is not None else "unknown",
+                count=self._inflight,
+            )
+
+    @contextmanager
+    def _inflight_scope(self) -> Iterator[None]:
+        with self._inflight_lock:
+            self._inflight += 1
+        self._report_inflight_metrics()
+        try:
+            yield
+        finally:
+            with self._inflight_lock:
+                self._inflight = max(0, self._inflight - 1)
+            self._report_inflight_metrics()
+
+    # ------------------------------------------------------------------ coordinator
+
+    def _coordinator_loop(self) -> None:
+        """Rank 0 only: drain the ingress queue and broadcast one request at a time."""
+        assert self._dist is not None
+        while not self._shutdown_requested:
+            try:
+                item = self._request_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self._report_queue_metrics()
+            if item is None:
+                # shutdown sentinel
+                payload = {"op": "shutdown"}
+                objects = [payload]
+                self._dist.broadcast_object_list(objects, src=0)
+                break
+            with self._inflight_scope():
+                self._run_broadcast_step(item)
+            self._report_queue_metrics()
+
+    def _run_broadcast_step(self, item: _QueuedRequest) -> None:
+        assert self._dist is not None
+        payload = {"op": "run", "request": item.request.to_dict()}
+        objects = [payload]
+        self._dist.broadcast_object_list(objects, src=0)
+        result: GenerateResult | None = None
+        error_message: str | None = None
+        try:
+            result = self._run_request(item.request, export_result=True)
+        except Exception as exc:  # pragma: no cover - exercised via collective error tests
+            error_message = f"{exc.__class__.__name__}: {exc}"
+        if error_message:
+            item.error = RuntimeError(error_message)
+            self._last_error = error_message
+        elif result is None:
+            item.error = RuntimeError(
+                "Distributed FlashTalk worker finished without returning a coordinator result."
+            )
+            self._last_error = str(item.error)
+        else:
+            item.result = result
+            self._last_error = None
+        item.done.set()
+
+    # ------------------------------------------------------------------ non-rank0 loop
+
+    def serve_forever(self, timeout: float | None = None) -> None:
+        """Passive broadcast loop used by non-rank-0 participants.
+
+        Rank 0 does NOT enter this — its coordinator thread is already driving
+        broadcasts. Non-rank-0 ranks block here for the life of the process,
+        waking only to participate in the broadcast collective.
+        """
+        if self._dist is None:
+            if timeout:
+                time.sleep(timeout)
+            return
+        if self.serves_rpc:
+            # Rank 0's coordinator thread handles execution; this method is a
+            # no-op (or blocks for optional shutdown signalling).
+            if timeout:
+                time.sleep(timeout)
+            return
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                return
+            message = self._receive_broadcast()
+            if message.get("op") == "shutdown":
+                return
+            request_payload = message.get("request")
+            if not isinstance(request_payload, dict):
+                raise RuntimeError("FlashTalk distributed worker received an invalid request payload.")
+            request = GenerateRequest.from_dict(request_payload)
+            try:
+                self._run_request(request, export_result=False)
+            except Exception:  # pragma: no cover - peer-rank errors surface on rank 0 via exceptions
+                continue
+
+    def _receive_broadcast(self) -> dict[str, Any]:
+        assert self._dist is not None
+        objects: list[Any] = [None]
+        self._dist.broadcast_object_list(objects, src=0)
+        message = objects[0]
+        if not isinstance(message, dict):
+            raise RuntimeError("FlashTalk distributed worker received a malformed collective message.")
+        return message
+
+    # ------------------------------------------------------------------ execution
 
     def _run_request(self, request: GenerateRequest, *, export_result: bool) -> GenerateResult | None:
         assert self.runtime_config is not None
@@ -234,16 +479,7 @@ class FlashTalkResidentWorker:
         )
         return GenerateResult(outputs=artifacts, metadata=report) if export_result else None
 
-    def serve_forever(self, timeout: float | None = None) -> None:
-        if self._dist is None:
-            if timeout:
-                time.sleep(timeout)
-            return
-        deadline = None if timeout is None else time.monotonic() + timeout
-        while not self._shutdown_requested:
-            if deadline is not None and time.monotonic() >= deadline:
-                return
-            self._run_distributed_step()
+    # ------------------------------------------------------------------ helpers
 
     def _load_runtime_modules(self, repo_path: Path):
         with _repo_on_path(repo_path), _temporary_cwd(repo_path):
@@ -284,58 +520,6 @@ class FlashTalkResidentWorker:
             return int(world_size)
         return max(runtime_config.nproc_per_node, runtime_config.num_processes, 1)
 
-    def _run_distributed_step(self) -> None:
-        assert self._dist is not None
-        message = self._next_distributed_message()
-        if message.get("op") == "shutdown":
-            self._shutdown_requested = True
-            return
-        request_payload = message.get("request")
-        if not isinstance(request_payload, dict):
-            raise RuntimeError("FlashTalk distributed worker received an invalid request payload.")
-        request = GenerateRequest.from_dict(request_payload)
-        result: GenerateResult | None = None
-        error_message: str | None = None
-        try:
-            result = self._run_request(request, export_result=self.serves_rpc)
-        except Exception as exc:  # pragma: no cover - exercised via collective error tests with monkeypatching.
-            error_message = f"{exc.__class__.__name__}: {exc}"
-        if self.serves_rpc:
-            with self._pending_lock:
-                pending = self._pending_call
-                self._pending_call = None
-                if pending is not None:
-                    if error_message:
-                        pending.error = RuntimeError(error_message)
-                    elif result is None:
-                        pending.error = RuntimeError(
-                            "Distributed FlashTalk worker finished without returning a coordinator result."
-                        )
-                    else:
-                        pending.result = result
-                    pending.done = True
-                self._pending_lock.notify_all()
-
-    def _next_distributed_message(self) -> dict[str, Any]:
-        assert self._dist is not None
-        if self.serves_rpc:
-            with self._pending_lock:
-                while self._pending_call is None and not self._shutdown_requested:
-                    self._pending_lock.wait(timeout=0.1)
-                if self._shutdown_requested:
-                    payload = {"op": "shutdown"}
-                else:
-                    assert self._pending_call is not None
-                    payload = {"op": "run", "request": self._pending_call.request.to_dict()}
-        else:
-            payload = None
-        objects = [payload]
-        self._dist.broadcast_object_list(objects, src=0)
-        message = objects[0]
-        if not isinstance(message, dict):
-            raise RuntimeError("FlashTalk distributed worker received a malformed collective message.")
-        return message
-
     def _prepare_conditions(self, request: GenerateRequest) -> dict[str, Any]:
         image_path = Path(str(request.inputs.get("image", ""))).expanduser()
         audio_path = Path(str(request.inputs.get("audio", ""))).expanduser()
@@ -371,6 +555,8 @@ class FlashTalkResidentWorker:
         human_speech_array_slice_len = slice_len * sample_rate // tgt_fps
         human_speech_array_frame_num = frame_num * sample_rate // tgt_fps
 
+        chunk_metric = getattr(self.metrics, "observe_worker_chunk_duration", None)
+
         if audio_encode_mode == "once":
             remainder = (len(human_speech_array_all) - human_speech_array_frame_num) % human_speech_array_slice_len
             if remainder > 0:
@@ -398,6 +584,12 @@ class FlashTalkResidentWorker:
                 generated_list.append(video.cpu())
                 chunk_copy_times_ms.append((time.perf_counter() - copy_started) * 1000)
                 chunk_total_times_ms.append((time.perf_counter() - chunk_started) * 1000)
+                if callable(chunk_metric):
+                    chunk_metric(
+                        worker_id=self.worker_id,
+                        model=self.model_spec.id if self.model_spec is not None else "unknown",
+                        seconds=time.perf_counter() - chunk_started,
+                    )
             return generated_list, self._build_generation_metrics(
                 audio_embedding_times_ms=audio_embedding_times_ms,
                 chunk_core_times_ms=chunk_core_times_ms,
@@ -436,6 +628,12 @@ class FlashTalkResidentWorker:
             generated_list.append(video.cpu())
             chunk_copy_times_ms.append((time.perf_counter() - copy_started) * 1000)
             chunk_total_times_ms.append((time.perf_counter() - chunk_started) * 1000)
+            if callable(chunk_metric):
+                chunk_metric(
+                    worker_id=self.worker_id,
+                    model=self.model_spec.id if self.model_spec is not None else "unknown",
+                    seconds=time.perf_counter() - chunk_started,
+                )
         return generated_list, self._build_generation_metrics(
             audio_embedding_times_ms=audio_embedding_times_ms,
             chunk_core_times_ms=chunk_core_times_ms,
@@ -469,11 +667,3 @@ class FlashTalkResidentWorker:
             steady_total = chunk_total_times_ms[1:]
             metrics["steady_chunk_total_ms_avg"] = round(sum(steady_total) / len(steady_total), 3)
         return metrics
-
-
-class _PendingDistributedCall:
-    def __init__(self, *, request: GenerateRequest) -> None:
-        self.request = request
-        self.result: GenerateResult | None = None
-        self.error: Exception | None = None
-        self.done = False

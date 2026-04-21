@@ -341,7 +341,7 @@ class OmniEngine:
         if model_spec.execution_mode == "subprocess":
             executor = SubprocessExecutor()
         elif model_spec.execution_mode == "persistent_worker":
-            executor = PersistentWorkerExecutor(worker_pool=self.worker_pool)
+            executor = PersistentWorkerExecutor(worker_pool=self.worker_pool, metrics=self.metrics)
         elif model_spec.execution_mode == "modular":
             executor = ModularExecutor()
         else:

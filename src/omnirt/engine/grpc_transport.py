@@ -78,10 +78,26 @@ class GrpcWorkerServer:
 
     def _handle_health(self, payload: bytes, context) -> bytes:
         del payload, context
-        response = {
+        response: dict[str, Any] = {
             "ok": True,
             "worker_id": getattr(self.engine, "worker_id", "worker"),
+            "state": "ready",
+            "model_loaded": True,
+            "queue_depth": 0,
+            "inflight": 0,
+            "last_error": None,
+            "gpu_mem_used_gb": None,
         }
+        status_provider = getattr(self.engine, "worker_status", None)
+        if callable(status_provider):
+            try:
+                snapshot = status_provider()
+            except Exception as exc:  # pragma: no cover - defensive
+                snapshot = {"state": "degraded", "last_error": f"{exc.__class__.__name__}: {exc}"}
+            if isinstance(snapshot, dict):
+                response.update(snapshot)
+                if snapshot.get("state") in {"error", "unavailable"}:
+                    response["ok"] = False
         return json.dumps(response, ensure_ascii=False).encode("utf-8")
 
     def start(self) -> "GrpcWorkerServer":

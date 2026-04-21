@@ -16,9 +16,10 @@ from omnirt.workers import ResidentWorkerHandle
 class PersistentWorkerExecutor(Executor):
     name = "persistent_worker"
 
-    def __init__(self, *, worker_pool: WorkerPool) -> None:
+    def __init__(self, *, worker_pool: WorkerPool, metrics: Any | None = None) -> None:
         super().__init__()
         self.worker_pool = worker_pool
+        self.metrics = metrics
         self.worker_handle: ResidentWorkerHandle | None = None
 
     def load(self, *, runtime, model_spec, config, adapters) -> None:
@@ -67,6 +68,14 @@ class PersistentWorkerExecutor(Executor):
                 "does not define pipeline_cls.create_persistent_worker(...)."
             )
         worker = factory(runtime=runtime, model_spec=model_spec, config=dict(config), adapters=list(adapters or []))
+        # Best-effort attach: workers that expose a writable ``metrics`` attribute
+        # will start emitting queue/inflight/chunk-duration series. Workers that
+        # don't (remote gRPC proxies, mocks) are left unchanged.
+        if self.metrics is not None and hasattr(worker, "metrics"):
+            try:
+                worker.metrics = self.metrics
+            except Exception:  # pragma: no cover - defensive
+                pass
         handle = worker if isinstance(worker, ResidentWorkerHandle) else ResidentWorkerHandle(worker)
         handle.start()
         return handle
