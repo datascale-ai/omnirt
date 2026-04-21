@@ -14,13 +14,36 @@ from omnirt.core.registry import ModelCapabilities, register_model
 from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequest
 from omnirt.launcher import resolve_launcher
 from omnirt.models.flashtalk.components import (
-    DEFAULT_FLASHTALK_ASCEND_ENV_SCRIPT,
-    DEFAULT_FLASHTALK_CKPT_DIR,
     DEFAULT_FLASHTALK_PROMPT,
-    DEFAULT_FLASHTALK_REPO_PATH,
-    DEFAULT_FLASHTALK_WAV2VEC_DIR,
-    resolve_flashtalk_python,
+    flashtalk_setting,
 )
+from omnirt.models.flashtalk.resident_launch import (
+    build_flashtalk_resident_worker_command,
+    build_resident_worker_env,
+    reserve_local_port,
+)
+from omnirt.workers import GrpcResidentWorkerProxy, ManagedGrpcResidentWorkerProxy
+
+
+@dataclass(frozen=True)
+class FlashTalkRuntimeConfig:
+    resident_target: Optional[str]
+    repo_path: Path
+    ckpt_dir: Path
+    wav2vec_dir: Path
+    cpu_offload: bool
+    python_executable: str
+    launcher: str
+    nproc_per_node: int
+    num_processes: int
+    accelerate_executable: Optional[str]
+    visible_devices: Optional[str]
+    ascend_env_script: Optional[str]
+    t5_quant: Optional[str]
+    t5_quant_dir: Optional[Path]
+    wan_quant: Optional[str]
+    wan_quant_include: Optional[str]
+    wan_quant_exclude: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -53,8 +76,13 @@ class FlashTalkLaunchConfig:
     id="soulx-flashtalk-14b",
     task="audio2video",
     default_backend="ascend",
-    execution_mode="subprocess",
-    resource_hint={"min_vram_gb": 64, "dtype": "bf16", "machine": "8.92.7.86", "accelerator": "Ascend 910B2"},
+    execution_mode="persistent_worker",
+    resource_hint={
+        "min_vram_gb": 64,
+        "vram_scope": "aggregate",
+        "dtype": "bf16",
+        "accelerator": "Ascend 910B2",
+    },
     capabilities=ModelCapabilities(
         required_inputs=("image", "audio"),
         optional_inputs=("prompt",),
@@ -63,6 +91,8 @@ class FlashTalkLaunchConfig:
             "repo_path",
             "ckpt_dir",
             "wav2vec_dir",
+            "resident_target",
+            "resident_autostart",
             "seed",
             "output_dir",
             "audio_encode_mode",
@@ -82,14 +112,10 @@ class FlashTalkLaunchConfig:
             "wan_quant_exclude",
         ),
         default_config={
-            "repo_path": DEFAULT_FLASHTALK_REPO_PATH,
-            "ckpt_dir": DEFAULT_FLASHTALK_CKPT_DIR,
-            "wav2vec_dir": DEFAULT_FLASHTALK_WAV2VEC_DIR,
             "audio_encode_mode": "stream",
             "seed": 9999,
             "launcher": "torchrun",
             "nproc_per_node": 8,
-            "ascend_env_script": DEFAULT_FLASHTALK_ASCEND_ENV_SCRIPT,
         },
         supported_schedulers=(),
         adapter_kinds=(),
@@ -97,8 +123,9 @@ class FlashTalkLaunchConfig:
         maturity="beta",
         summary="SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend.",
         example=(
+            "OMNIRT_FLASHTALK_REPO_PATH=/path/to/SoulX-FlashTalk "
             "omnirt generate --task audio2video --model soulx-flashtalk-14b --image speaker.png "
-            "--audio voice.wav --backend ascend --repo-path /home/<user>/SoulX-FlashTalk"
+            "--audio voice.wav --backend ascend"
         ),
     ),
 )
@@ -106,6 +133,47 @@ class FlashTalkPipeline(BasePipeline):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._launch: Optional[FlashTalkLaunchConfig] = None
+
+    @classmethod
+    def create_persistent_worker(cls, *, runtime, model_spec, config, adapters):
+        resident_target = cls._normalize_optional_string(config.get("resident_target"))
+        runtime_config = None
+        if resident_target:
+            autostart = bool(config.get("resident_autostart", False))
+        else:
+            runtime_config = cls.resolve_runtime_config(config)
+            distributed_requested = (
+                runtime_config.launcher != "python"
+                or runtime_config.nproc_per_node > 1
+                or runtime_config.num_processes > 1
+            )
+            if distributed_requested:
+                resident_target = f"127.0.0.1:{reserve_local_port()}"
+            autostart = bool(distributed_requested)
+        if resident_target:
+            if autostart:
+                if runtime_config is None:
+                    runtime_config = cls.resolve_runtime_config(config)
+                project_root = Path(__file__).resolve().parents[4]
+                worker_id = f"flashtalk-resident-{resident_target.rsplit(':', 1)[-1]}"
+                return ManagedGrpcResidentWorkerProxy(
+                    resident_target,
+                    command=build_flashtalk_resident_worker_command(
+                        runtime_config=runtime_config,
+                        backend_name=getattr(runtime, "name", "auto"),
+                        host=resident_target.rsplit(":", 1)[0],
+                        port=int(resident_target.rsplit(":", 1)[1]),
+                        worker_id=worker_id,
+                    ),
+                    cwd=project_root,
+                    env=build_resident_worker_env(project_root=project_root),
+                    env_script=runtime_config.ascend_env_script,
+                    log_file=project_root / "outputs" / f"{worker_id}.log",
+                )
+            return GrpcResidentWorkerProxy(resident_target)
+        from omnirt.models.flashtalk.resident_worker import FlashTalkResidentWorker
+
+        return FlashTalkResidentWorker(runtime=runtime, model_spec=model_spec, config=config, adapters=adapters)
 
     def prepare_conditions(self, req: GenerateRequest) -> Dict[str, Any]:
         image_path = Path(str(req.inputs.get("image", ""))).expanduser()
@@ -118,63 +186,37 @@ class FlashTalkPipeline(BasePipeline):
         return {"image_path": image_path, "audio_path": audio_path, "prompt": prompt}
 
     def prepare_latents(self, req: GenerateRequest, conditions: Any) -> FlashTalkLaunchConfig:
-        repo_path = Path(str(req.config.get("repo_path", DEFAULT_FLASHTALK_REPO_PATH))).expanduser()
-        if not repo_path.exists():
-            raise FileNotFoundError(f"FlashTalk repo_path not found: {repo_path}")
-        script_path = repo_path / "generate_video.py"
+        runtime_config = self.resolve_runtime_config(req.config)
+        script_path = runtime_config.repo_path / "generate_video.py"
         if not script_path.exists():
             raise FileNotFoundError(f"FlashTalk entry script not found: {script_path}")
-
-        ckpt_value = req.config.get("ckpt_dir") or req.config.get("model_path") or DEFAULT_FLASHTALK_CKPT_DIR
-        wav2vec_value = req.config.get("wav2vec_dir", DEFAULT_FLASHTALK_WAV2VEC_DIR)
-        ckpt_dir = self._resolve_repo_relative_path(repo_path, str(ckpt_value))
-        wav2vec_dir = self._resolve_repo_relative_path(repo_path, str(wav2vec_value))
-        if not ckpt_dir.exists():
-            raise FileNotFoundError(f"FlashTalk ckpt_dir not found: {ckpt_dir}")
-        if not wav2vec_dir.exists():
-            raise FileNotFoundError(f"FlashTalk wav2vec_dir not found: {wav2vec_dir}")
-
         output_dir = self.resolve_output_dir(req)
         seed = int(req.config.get("seed", 9999))
         save_file = output_dir / f"{req.model}-{seed}-{int(time.time() * 1000)}.mp4"
-        launcher = str(req.config.get("launcher", "torchrun"))
-        nproc_per_node = int(req.config.get("nproc_per_node", 8))
-        num_processes = int(req.config.get("num_processes", nproc_per_node))
-        t5_quant_dir_value = req.config.get("t5_quant_dir")
-        t5_quant_dir = self._resolve_repo_relative_path(repo_path, str(t5_quant_dir_value)) if t5_quant_dir_value else None
-        python_executable = str(req.config.get("python_executable") or resolve_flashtalk_python())
-        accelerate_executable = self._normalize_optional_string(req.config.get("accelerate_executable"))
-        ascend_env_script = self._normalize_optional_string(req.config.get("ascend_env_script", DEFAULT_FLASHTALK_ASCEND_ENV_SCRIPT))
-        if python_executable and not Path(python_executable).expanduser().exists():
-            raise FileNotFoundError(f"FlashTalk python_executable not found: {python_executable}")
-        if ascend_env_script and not Path(ascend_env_script).expanduser().exists():
-            raise FileNotFoundError(f"FlashTalk ascend_env_script not found: {ascend_env_script}")
-        if t5_quant_dir is not None and not t5_quant_dir.exists():
-            raise FileNotFoundError(f"FlashTalk t5_quant_dir not found: {t5_quant_dir}")
 
         launch = FlashTalkLaunchConfig(
-            repo_path=repo_path,
+            repo_path=runtime_config.repo_path,
             script_path=script_path,
-            ckpt_dir=ckpt_dir,
-            wav2vec_dir=wav2vec_dir,
+            ckpt_dir=runtime_config.ckpt_dir,
+            wav2vec_dir=runtime_config.wav2vec_dir,
             save_file=save_file,
             prompt=str(conditions["prompt"]),
             audio_encode_mode=str(req.config.get("audio_encode_mode", "stream")),
-            cpu_offload=bool(req.config.get("cpu_offload", False)),
+            cpu_offload=runtime_config.cpu_offload,
             max_chunks=int(req.config.get("max_chunks", 0)),
             seed=seed,
-            python_executable=python_executable,
-            launcher=launcher,
-            nproc_per_node=nproc_per_node,
-            num_processes=num_processes,
-            accelerate_executable=accelerate_executable,
-            visible_devices=self._normalize_optional_string(req.config.get("visible_devices")),
-            ascend_env_script=ascend_env_script,
-            t5_quant=self._normalize_optional_string(req.config.get("t5_quant")),
-            t5_quant_dir=t5_quant_dir,
-            wan_quant=self._normalize_optional_string(req.config.get("wan_quant")),
-            wan_quant_include=self._normalize_optional_string(req.config.get("wan_quant_include")),
-            wan_quant_exclude=self._normalize_optional_string(req.config.get("wan_quant_exclude")),
+            python_executable=runtime_config.python_executable,
+            launcher=runtime_config.launcher,
+            nproc_per_node=runtime_config.nproc_per_node,
+            num_processes=runtime_config.num_processes,
+            accelerate_executable=runtime_config.accelerate_executable,
+            visible_devices=runtime_config.visible_devices,
+            ascend_env_script=runtime_config.ascend_env_script,
+            t5_quant=runtime_config.t5_quant,
+            t5_quant_dir=runtime_config.t5_quant_dir,
+            wan_quant=runtime_config.wan_quant,
+            wan_quant_include=runtime_config.wan_quant_include,
+            wan_quant_exclude=runtime_config.wan_quant_exclude,
         )
         self._launch = launch
         return launch
@@ -296,15 +338,81 @@ class FlashTalkPipeline(BasePipeline):
             "wan_quant_exclude": latents.wan_quant_exclude,
         }
 
-    def _resolve_repo_relative_path(self, repo_path: Path, value: str) -> Path:
+    @staticmethod
+    def resolve_runtime_config(config: Dict[str, Any]) -> FlashTalkRuntimeConfig:
+        repo_path_value = config.get("repo_path") or flashtalk_setting("repo_path", required=True)
+        repo_path = Path(str(repo_path_value)).expanduser()
+        if not repo_path.exists():
+            raise FileNotFoundError(f"FlashTalk repo_path not found: {repo_path}")
+
+        ckpt_value = (
+            config.get("ckpt_dir")
+            or config.get("model_path")
+            or flashtalk_setting("ckpt_dir", required=True)
+        )
+        wav2vec_value = config.get("wav2vec_dir") or flashtalk_setting("wav2vec_dir", required=True)
+        ckpt_dir = FlashTalkPipeline._resolve_repo_relative_path(repo_path, str(ckpt_value))
+        wav2vec_dir = FlashTalkPipeline._resolve_repo_relative_path(repo_path, str(wav2vec_value))
+        if not ckpt_dir.exists():
+            raise FileNotFoundError(f"FlashTalk ckpt_dir not found: {ckpt_dir}")
+        if not wav2vec_dir.exists():
+            raise FileNotFoundError(f"FlashTalk wav2vec_dir not found: {wav2vec_dir}")
+
+        launcher = str(config.get("launcher", "torchrun"))
+        nproc_per_node = int(config.get("nproc_per_node", 8))
+        num_processes = int(config.get("num_processes", nproc_per_node))
+        t5_quant_dir_value = config.get("t5_quant_dir")
+        t5_quant_dir = (
+            FlashTalkPipeline._resolve_repo_relative_path(repo_path, str(t5_quant_dir_value))
+            if t5_quant_dir_value
+            else None
+        )
+        python_executable_value = config.get("python_executable") or flashtalk_setting(
+            "python_executable", required=True
+        )
+        python_executable = str(python_executable_value)
+        accelerate_executable = FlashTalkPipeline._normalize_optional_string(config.get("accelerate_executable"))
+        ascend_env_override = FlashTalkPipeline._normalize_optional_string(config.get("ascend_env_script"))
+        ascend_env_script = ascend_env_override or flashtalk_setting("ascend_env_script")
+        if python_executable and not Path(python_executable).expanduser().exists():
+            raise FileNotFoundError(f"FlashTalk python_executable not found: {python_executable}")
+        if ascend_env_script and not Path(ascend_env_script).expanduser().exists():
+            raise FileNotFoundError(f"FlashTalk ascend_env_script not found: {ascend_env_script}")
+        if t5_quant_dir is not None and not t5_quant_dir.exists():
+            raise FileNotFoundError(f"FlashTalk t5_quant_dir not found: {t5_quant_dir}")
+
+        return FlashTalkRuntimeConfig(
+            resident_target=FlashTalkPipeline._normalize_optional_string(config.get("resident_target")),
+            repo_path=repo_path,
+            ckpt_dir=ckpt_dir,
+            wav2vec_dir=wav2vec_dir,
+            cpu_offload=bool(config.get("cpu_offload", False)),
+            python_executable=python_executable,
+            launcher=launcher,
+            nproc_per_node=nproc_per_node,
+            num_processes=num_processes,
+            accelerate_executable=accelerate_executable,
+            visible_devices=FlashTalkPipeline._normalize_optional_string(config.get("visible_devices")),
+            ascend_env_script=ascend_env_script,
+            t5_quant=FlashTalkPipeline._normalize_optional_string(config.get("t5_quant")),
+            t5_quant_dir=t5_quant_dir,
+            wan_quant=FlashTalkPipeline._normalize_optional_string(config.get("wan_quant")),
+            wan_quant_include=FlashTalkPipeline._normalize_optional_string(config.get("wan_quant_include")),
+            wan_quant_exclude=FlashTalkPipeline._normalize_optional_string(config.get("wan_quant_exclude")),
+        )
+
+    @staticmethod
+    def _resolve_repo_relative_path(repo_path: Path, value: str) -> Path:
         candidate = Path(value).expanduser()
         return candidate if candidate.is_absolute() else (repo_path / candidate)
 
-    def _normalize_optional_string(self, value: Any) -> Optional[str]:
+    @staticmethod
+    def _normalize_optional_string(value: Any) -> Optional[str]:
         if value is None:
             return None
         text = str(value).strip()
         return text or None
+
 
 def probe_video_file(path: Path) -> tuple[int, int, int]:
     try:

@@ -52,10 +52,10 @@ OmniRT is an open runtime that unifies **text→image / image→image / text→v
 
 ```bash
 # Minimal install (with dev tooling)
-python -m pip install -e '.[dev]'
+pip install -e '.[dev]'
 
 # Inspect the CLI
-python -m omnirt --help
+omnirt --help
 
 # Local contract & parser tests
 pytest
@@ -65,13 +65,13 @@ Install the extras you need:
 
 ```bash
 # Run real models (diffusers / transformers / safetensors / torch)
-python -m pip install -e '.[runtime,dev]'
+pip install -e '.[runtime,dev]'
 
 # Spin up the HTTP server
-python -m pip install -e '.[server]'
+pip install -e '.[server]'
 
 # Build / preview the docs
-python -m pip install -e '.[docs]'
+pip install -e '.[docs]'
 ```
 
 Full walkthrough — first `validate` / `generate`, YAML request format, presets, `hf://` single-file LoRA refs — see [docs/getting_started/quickstart.en.md](./docs/getting_started/quickstart.en.md).

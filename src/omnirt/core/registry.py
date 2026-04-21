@@ -32,7 +32,7 @@ class ModelSpec:
     default_backend: str = "auto"
     resource_hint: Dict[str, Any] = field(default_factory=dict)
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
-    execution_mode: Literal["legacy_call", "modular", "subprocess"] = "legacy_call"
+    execution_mode: Literal["legacy_call", "modular", "subprocess", "persistent_worker"] = "legacy_call"
     modular_pretrained_id: Optional[str] = None
 
 
@@ -88,7 +88,7 @@ def register_model(
     default_backend: str = "auto",
     resource_hint: Optional[Dict[str, Any]] = None,
     capabilities: Optional[ModelCapabilities] = None,
-    execution_mode: Literal["legacy_call", "modular", "subprocess"] = "legacy_call",
+    execution_mode: Literal["legacy_call", "modular", "subprocess", "persistent_worker"] = "legacy_call",
     modular_pretrained_id: Optional[str] = None,
 ) -> Callable[[Type[Any]], Type[Any]]:
     def decorator(pipeline_cls: Type[Any]) -> Type[Any]:

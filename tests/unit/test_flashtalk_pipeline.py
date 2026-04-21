@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from omnirt.backends.base import BackendRuntime
 from omnirt.core.registry import ModelSpec, get_model
-from omnirt.core.types import GenerateRequest
+from omnirt.core.types import GenerateRequest, InsufficientMemoryError
 from omnirt.models import ensure_registered
 from omnirt.models.flashtalk.pipeline import FlashTalkPipeline
 
@@ -36,8 +38,47 @@ def build_model_spec() -> ModelSpec:
         task="audio2video",
         pipeline_cls=FlashTalkPipeline,
         default_backend="ascend",
-        resource_hint={"min_vram_gb": 64, "dtype": "bf16"},
+        resource_hint={"min_vram_gb": 64, "vram_scope": "aggregate", "dtype": "bf16"},
     )
+
+
+class MediumMemoryAscendRuntime(FakeAscendRuntime):
+    def available_memory_gb(self):
+        return 60.584
+
+
+class LowMemoryAscendRuntime(FakeAscendRuntime):
+    def available_memory_gb(self):
+        return 7.0
+
+
+def test_flashtalk_aggregate_vram_budget_accepts_multi_card_launch() -> None:
+    request = GenerateRequest(
+        task="audio2video",
+        model="soulx-flashtalk-14b",
+        backend="ascend",
+        inputs={"image": "speaker.png", "audio": "voice.wav"},
+        config={"nproc_per_node": 8},
+    )
+
+    pipeline = FlashTalkPipeline(runtime=MediumMemoryAscendRuntime(), model_spec=build_model_spec())
+
+    pipeline.ensure_resource_budget(request)
+
+
+def test_flashtalk_aggregate_vram_budget_still_rejects_insufficient_total_memory() -> None:
+    request = GenerateRequest(
+        task="audio2video",
+        model="soulx-flashtalk-14b",
+        backend="ascend",
+        inputs={"image": "speaker.png", "audio": "voice.wav"},
+        config={"nproc_per_node": 8},
+    )
+
+    pipeline = FlashTalkPipeline(runtime=LowMemoryAscendRuntime(), model_spec=build_model_spec())
+
+    with pytest.raises(InsufficientMemoryError):
+        pipeline.ensure_resource_budget(request)
 
 
 def test_flashtalk_model_is_registered() -> None:

@@ -150,19 +150,58 @@ class BasePipeline(ABC):
         except Exception:
             return None
 
-    def ensure_resource_budget(self) -> None:
+    def _memory_scope(self) -> str:
+        scope = str(self.model_spec.resource_hint.get("vram_scope", "per_device")).strip().lower()
+        return scope if scope in {"per_device", "aggregate"} else "per_device"
+
+    def _parallel_device_count(self, req: GenerateRequest) -> int:
+        merged_config = dict(self.model_spec.capabilities.default_config)
+        merged_config.update(req.config)
+
+        for key in ("nproc_per_node", "num_processes"):
+            value = merged_config.get(key)
+            if value in (None, ""):
+                continue
+            try:
+                count = int(value)
+            except (TypeError, ValueError):
+                continue
+            if count > 0:
+                return count
+
+        visible_devices = merged_config.get("visible_devices")
+        if isinstance(visible_devices, str):
+            count = len([item for item in visible_devices.split(",") if item.strip()])
+            if count > 0:
+                return count
+
+        try:
+            capabilities = self.runtime.capabilities()
+        except Exception:
+            return 1
+        return max(int(getattr(capabilities, "device_count", 1) or 1), 1)
+
+    def ensure_resource_budget(self, req: GenerateRequest) -> None:
         minimum = self.model_spec.resource_hint.get("min_vram_gb")
         if minimum is None:
             return
 
         available = self.runtime.available_memory_gb()
-        if available is None or available >= float(minimum):
+        if available is None:
+            return
+
+        estimated_gb = float(minimum)
+        available_gb = float(available)
+        if self._memory_scope() == "aggregate":
+            available_gb *= float(self._parallel_device_count(req))
+
+        if available_gb >= estimated_gb:
             return
 
         raise InsufficientMemoryError(
             model=self.model_spec.id,
-            estimated_gb=float(minimum),
-            available_gb=float(available),
+            estimated_gb=estimated_gb,
+            available_gb=available_gb,
             hint="use smaller model or upgrade hardware; offload is planned for v0.2",
         )
 
@@ -306,7 +345,7 @@ class BasePipeline(ABC):
         self._active_request = req
         self._active_result_cache = result_cache
         self._active_cache_hits = []
-        self.ensure_resource_budget()
+        self.ensure_resource_budget(req)
 
         sync_stages = {"denoise_loop", "decode"}
 

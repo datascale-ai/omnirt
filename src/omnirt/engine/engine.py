@@ -18,7 +18,8 @@ from omnirt.engine.job import JobRecord
 from omnirt.engine.pipeline_cache import PipelineCache
 from omnirt.engine.result_cache import ResultCache
 from omnirt.engine.store import InMemoryJobStore
-from omnirt.executors import LegacyCallExecutor, ModularExecutor, SubprocessExecutor
+from omnirt.engine.worker_pool import WorkerPool
+from omnirt.executors import LegacyCallExecutor, ModularExecutor, PersistentWorkerExecutor, SubprocessExecutor
 from omnirt.executors.events import emit_event
 from omnirt.middleware.telemetry import attach_stream_events
 from omnirt.telemetry import PrometheusMetrics, TraceRecorder
@@ -42,6 +43,7 @@ class OmniEngine:
     ) -> None:
         self.store = job_store or InMemoryJobStore()
         self.pipeline_cache = PipelineCache(max_size=pipeline_cache_size)
+        self.worker_pool = WorkerPool(max_size=pipeline_cache_size)
         self.result_cache = ResultCache(max_items=result_cache_size)
         self.job_queue = JobQueue()
         self.batcher = RequestBatcher(batch_window_ms=batch_window_ms, max_batch_size=max_batch_size)
@@ -338,6 +340,8 @@ class OmniEngine:
     def _build_executor(self, *, model_spec: ModelSpec, runtime, request: GenerateRequest):
         if model_spec.execution_mode == "subprocess":
             executor = SubprocessExecutor()
+        elif model_spec.execution_mode == "persistent_worker":
+            executor = PersistentWorkerExecutor(worker_pool=self.worker_pool)
         elif model_spec.execution_mode == "modular":
             executor = ModularExecutor()
         else:

@@ -10,12 +10,16 @@ import sys
 from typing import Optional, Sequence
 
 from omnirt.api import describe_model, generate, list_available_models, validate
+from omnirt.backends import resolve_backend
 from omnirt.bench import BenchScenario, get_bench_scenario, list_bench_scenarios, run_bench
 from omnirt.core.presets import available_presets
-from omnirt.core.registry import list_model_variants, supported_config_for_spec
+from omnirt.core.registry import get_model, list_model_variants, supported_config_for_spec
 from omnirt.core.types import GenerateRequest, OmniRTError
+from omnirt.models import ensure_registered
+from omnirt.models.flashtalk.resident_worker import FlashTalkResidentWorker
 from omnirt.server import create_app
 from omnirt.engine import GrpcWorkerServer, probe_worker_health
+from omnirt.workers import ResidentWorkerService
 
 PUBLIC_TASK_SURFACES = frozenset(
     {
@@ -85,6 +89,8 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo-path", help="External repository checkout path for script-backed models such as SoulX-FlashTalk.")
     parser.add_argument("--ckpt-dir", help="Checkpoint directory for script-backed models.")
     parser.add_argument("--wav2vec-dir", help="wav2vec checkpoint directory for FlashTalk.")
+    parser.add_argument("--resident-target", help="Target gRPC address for a pre-warmed resident worker, for example 127.0.0.1:50071.")
+    parser.add_argument("--resident-autostart", action="store_true", help="Auto-launch a managed resident worker for models that support it.")
     parser.add_argument("--audio-encode-mode", choices=["stream", "once"], help="Audio encoding mode for FlashTalk.")
     parser.add_argument("--cpu-offload", action="store_true", help="Enable CPU offload for script-backed models that support it.")
     parser.add_argument("--max-chunks", type=int, help="Limit generated audio chunks for streaming avatar models.")
@@ -197,6 +203,44 @@ def build_parser() -> argparse.ArgumentParser:
     worker_parser.add_argument("--redis-url", help="Optional Redis URL for cross-process job storage.")
     worker_parser.add_argument("--otlp-endpoint", help="Optional OTLP/HTTP endpoint used to export traces.")
 
+    resident_flashtalk_parser = subparsers.add_parser(
+        "resident-flashtalk-worker",
+        help="Run a pre-warmed gRPC resident worker for SoulX-FlashTalk.",
+    )
+    resident_flashtalk_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
+    resident_flashtalk_parser.add_argument("--port", type=int, default=50071, help="TCP port to bind.")
+    resident_flashtalk_parser.add_argument("--worker-id", default="flashtalk-resident", help="Stable worker identifier.")
+    resident_flashtalk_parser.add_argument(
+        "--backend",
+        choices=["auto", "cuda", "ascend", "cpu-stub"],
+        default="auto",
+        help="Backend used to initialize the resident worker.",
+    )
+    resident_flashtalk_parser.add_argument("--repo-path", help="External SoulX-FlashTalk checkout path.")
+    resident_flashtalk_parser.add_argument("--ckpt-dir", help="Checkpoint directory for SoulX-FlashTalk.")
+    resident_flashtalk_parser.add_argument("--wav2vec-dir", help="wav2vec checkpoint directory for FlashTalk.")
+    resident_flashtalk_parser.add_argument("--audio-encode-mode", choices=["stream", "once"], help="Default audio encoding mode.")
+    resident_flashtalk_parser.add_argument("--cpu-offload", action="store_true", help="Enable CPU offload for the resident worker.")
+    resident_flashtalk_parser.add_argument("--max-chunks", type=int, help="Default chunk cap for streaming requests.")
+    resident_flashtalk_parser.add_argument("--python-executable", help="Python interpreter used by FlashTalk helper code.")
+    resident_flashtalk_parser.add_argument(
+        "--launcher",
+        choices=["python", "torchrun", "accelerate"],
+        help="Launcher configuration carried into the resident worker.",
+    )
+    resident_flashtalk_parser.add_argument("--nproc-per-node", type=int, help="Process count for multi-card torchrun launches.")
+    resident_flashtalk_parser.add_argument("--num-processes", type=int, help="Process count for accelerate launches.")
+    resident_flashtalk_parser.add_argument("--accelerate-executable", help="Accelerate executable used for launcher=accelerate.")
+    resident_flashtalk_parser.add_argument("--visible-devices", help="Visible devices override, for example 0,1,2,3,4,5,6,7.")
+    resident_flashtalk_parser.add_argument("--ascend-env-script", help="Ascend environment script path.")
+    resident_flashtalk_parser.add_argument("--t5-quant", choices=["int8", "fp8"], help="T5 quantization mode.")
+    resident_flashtalk_parser.add_argument("--t5-quant-dir", help="Directory containing T5 quantized weights.")
+    resident_flashtalk_parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan quantization mode.")
+    resident_flashtalk_parser.add_argument("--wan-quant-include", help="Comma-separated Wan module allowlist.")
+    resident_flashtalk_parser.add_argument("--wan-quant-exclude", help="Comma-separated Wan module denylist.")
+    resident_flashtalk_parser.add_argument("--output-dir", help="Default output directory for resident-worker requests.")
+    resident_flashtalk_parser.add_argument("--seed", type=int, help="Default seed when the request omits one.")
+
     return parser
 
 
@@ -219,6 +263,39 @@ def parse_remote_worker_specs(specs: Sequence[str]) -> list[dict[str, object]]:
             }
         )
     return parsed
+
+
+def flashtalk_worker_config_from_args(args: argparse.Namespace) -> dict[str, object]:
+    config: dict[str, object] = {}
+    for field in (
+        "repo_path",
+        "ckpt_dir",
+        "wav2vec_dir",
+        "audio_encode_mode",
+        "max_chunks",
+        "python_executable",
+        "launcher",
+        "nproc_per_node",
+        "num_processes",
+        "accelerate_executable",
+        "visible_devices",
+        "ascend_env_script",
+        "t5_quant",
+        "t5_quant_dir",
+        "wan_quant",
+        "wan_quant_include",
+        "wan_quant_exclude",
+        "output_dir",
+        "seed",
+    ):
+        value = getattr(args, field, None)
+        if value is not None:
+            config[field] = value
+    if getattr(args, "cpu_offload", False):
+        config["cpu_offload"] = True
+    if getattr(args, "resident_autostart", False):
+        config["resident_autostart"] = True
+    return config
 
 
 def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> GenerateRequest:
@@ -312,6 +389,8 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "repo_path",
         "ckpt_dir",
         "wav2vec_dir",
+        "resident_target",
+        "resident_autostart",
         "audio_encode_mode",
         "max_chunks",
         "python_executable",
@@ -605,6 +684,34 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             server.wait_for_termination()
         except KeyboardInterrupt:
             server.stop(0.0)
+        return 0
+
+    if args.command == "resident-flashtalk-worker":
+        ensure_registered()
+        worker_runtime = resolve_backend(args.backend)
+        model_spec = get_model("soulx-flashtalk-14b", task="audio2video")
+        worker = FlashTalkResidentWorker(
+            runtime=worker_runtime,
+            model_spec=model_spec,
+            config=flashtalk_worker_config_from_args(args),
+            adapters=None,
+        )
+        service = ResidentWorkerService(worker, worker_id=args.worker_id)
+        service.handle.start()
+        if not getattr(worker, "serves_rpc", True):
+            try:
+                worker.serve_forever()
+            except KeyboardInterrupt:
+                worker.shutdown()
+            return 0
+        server = GrpcWorkerServer(service, host=args.host, port=args.port).start()
+        try:
+            worker.serve_forever()
+        except KeyboardInterrupt:
+            server.stop(0.0)
+        finally:
+            server.stop(0.0)
+            worker.shutdown()
         return 0
 
     if args.command == "bench":

@@ -1,7 +1,14 @@
 import json
 
 from omnirt.core.registry import ModelCapabilities, ModelSpec
-from omnirt.cli.main import build_parser, main, parse_remote_worker_specs, render_model_summary, request_from_args
+from omnirt.cli.main import (
+    build_parser,
+    flashtalk_worker_config_from_args,
+    main,
+    parse_remote_worker_specs,
+    render_model_summary,
+    request_from_args,
+)
 
 
 def test_build_parser_accepts_generate_command() -> None:
@@ -220,6 +227,9 @@ def test_request_from_args_builds_audio2video_request() -> None:
             "talking head",
             "--repo-path",
             "/srv/SoulX-FlashTalk",
+            "--resident-target",
+            "127.0.0.1:50071",
+            "--resident-autostart",
             "--launcher",
             "python",
             "--audio-encode-mode",
@@ -234,6 +244,8 @@ def test_request_from_args_builds_audio2video_request() -> None:
     assert request.inputs["image"] == "speaker.png"
     assert request.inputs["audio"] == "voice.wav"
     assert request.config["repo_path"] == "/srv/SoulX-FlashTalk"
+    assert request.config["resident_target"] == "127.0.0.1:50071"
+    assert request.config["resident_autostart"] is True
     assert request.config["launcher"] == "python"
     assert request.config["audio_encode_mode"] == "once"
     assert request.config["cpu_offload"] is True
@@ -331,6 +343,31 @@ def test_build_parser_accepts_worker_command() -> None:
     assert args.worker_id == "worker-a"
 
 
+def test_build_parser_accepts_resident_flashtalk_worker_command() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "resident-flashtalk-worker",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "50071",
+            "--worker-id",
+            "ft-a",
+            "--repo-path",
+            "/srv/SoulX-FlashTalk",
+            "--launcher",
+            "python",
+        ]
+    )
+
+    assert args.command == "resident-flashtalk-worker"
+    assert args.port == 50071
+    assert args.worker_id == "ft-a"
+    assert args.repo_path == "/srv/SoulX-FlashTalk"
+    assert args.launcher == "python"
+
+
 def test_parse_remote_worker_specs_supports_models_and_tags() -> None:
     parsed = parse_remote_worker_specs(["worker-a=127.0.0.1:50061@sdxl-base-1.0,flux-dev#gpu,cn-shanghai"])
 
@@ -417,6 +454,52 @@ def test_request_from_args_accepts_accelerate_config() -> None:
 
     assert request.config["num_processes"] == 4
     assert request.config["accelerate_executable"] == "/tmp/accelerate"
+
+
+def test_flashtalk_worker_config_from_args_collects_runtime_fields() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "resident-flashtalk-worker",
+            "--repo-path",
+            "/srv/SoulX-FlashTalk",
+            "--ckpt-dir",
+            "models/SoulX-FlashTalk-14B",
+            "--wav2vec-dir",
+            "models/chinese-wav2vec2-base",
+            "--launcher",
+            "accelerate",
+            "--num-processes",
+            "4",
+            "--accelerate-executable",
+            "/tmp/accelerate",
+            "--audio-encode-mode",
+            "once",
+            "--cpu-offload",
+            "--visible-devices",
+            "0,1,2,3",
+            "--output-dir",
+            "/tmp/out",
+            "--seed",
+            "42",
+        ]
+    )
+
+    config = flashtalk_worker_config_from_args(args)
+
+    assert config == {
+        "repo_path": "/srv/SoulX-FlashTalk",
+        "ckpt_dir": "models/SoulX-FlashTalk-14B",
+        "wav2vec_dir": "models/chinese-wav2vec2-base",
+        "launcher": "accelerate",
+        "num_processes": 4,
+        "accelerate_executable": "/tmp/accelerate",
+        "audio_encode_mode": "once",
+        "cpu_offload": True,
+        "visible_devices": "0,1,2,3",
+        "output_dir": "/tmp/out",
+        "seed": 42,
+    }
 
 
 def test_main_prints_clean_omnirt_errors(monkeypatch, capsys) -> None:

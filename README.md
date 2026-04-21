@@ -21,20 +21,20 @@
 
 ---
 
-OmniRT 是一个开源的多模态生成运行时,把 **文本→图像 / 图像→图像 / 文本→视频 / 图像→视频 / 音频→数字人** 这些任务收敛到同一套请求契约、同一份 CLI / Python API / HTTP 服务、以及可替换的硬件后端之下。切换模型家族时,你**不需要**重新学习一整套运行时接口。
+OmniRT 是一个开源的多模态生成运行时，把 **文本→图像 / 图像→图像 / 文本→视频 / 图像→视频 / 音频→数字人** 等任务统一到同一套请求契约、同一组 CLI / Python API / HTTP 服务，以及可替换的硬件后端之上。切换不同模型家族时，你**不需要**重新适应一整套新的运行时接口。
 
 ## ✨ 核心亮点
 
-- **统一请求契约** — `GenerateRequest`、`GenerateResult`、`RunReport` 三对象覆盖全部任务面
-- **跨后端运行时** — 同一份请求在 `cuda` / `ascend` / `cpu-stub` 上都能校验与执行
+- **统一请求契约** — `GenerateRequest`、`GenerateResult`、`RunReport` 三个对象覆盖全部任务面
+- **跨后端运行时** — 同一份请求可在 `cuda` / `ascend` / `cpu-stub` 上完成校验与执行
 - **三种入口** — Python API、CLI (`omnirt generate / validate / models`)、FastAPI 服务
 - **16+ 模型家族** — SD1.5 / SDXL / SD3 / FLUX / FLUX2 / WAN / SVD / AnimateDiff / ChronoEdit / FlashTalk 等
-- **产物标准化** — 图像统一导出 PNG、视频统一导出 MP4,每次运行伴随一份 `RunReport`
-- **离线 & 国内友好** — 本地目录 / Hugging Face / ModelScope / Modelers 快照三等齐
+- **产物标准化** — 图像统一导出为 PNG，视频统一导出为 MP4，每次运行都会生成一份 `RunReport`
+- **离线与国内环境友好** — 同时支持本地目录、Hugging Face、ModelScope、Modelers 快照
 - **LoRA 灵活加载** — 本地 safetensors 与 `hf://` 单文件引用并存
-- **异步派发** — `queue` / `worker` / `policies` 支持批量请求与多模型排队
-- **可插拔遥测** — `middleware.telemetry` 把运行指标接到你已有的观测栈
-- **安全默认** — `--dry-run` 与 `validate` 让你在真机上跑之前就能查出错
+- **异步派发** — `queue` / `worker` / `policies` 支持批量请求与多模型排队执行
+- **可插拔遥测** — `middleware.telemetry` 可将运行指标接入你现有的观测体系
+- **安全默认** — `--dry-run` 与 `validate` 能让你在真机运行前尽早发现问题
 
 ## 🎯 公开任务面
 
@@ -46,35 +46,35 @@ OmniRT 是一个开源的多模态生成运行时,把 **文本→图像 / 图像
 | `image2video` | 首帧引导视频生成 | MP4 |
 | `audio2video` | 音频驱动说话数字人 | MP4 |
 
-`inpaint`、`edit`、`video2video` 仍在演进,当前先以模型特定入口提供。
+`inpaint`、`edit`、`video2video` 仍在持续演进，目前先通过模型特定入口提供。
 
 ## 🚀 快速开始
 
 ```bash
 # 最小安装(含开发工具链)
-python -m pip install -e '.[dev]'
+pip install -e '.[dev]'
 
 # 查看 CLI
-python -m omnirt --help
+omnirt --help
 
 # 运行本地契约与解析层测试
 pytest
 ```
 
-需要真实跑模型时再按需安装:
+如果需要实际运行模型，再按需安装以下扩展：
 
 ```bash
 # 运行模型(diffusers / transformers / safetensors / torch)
-python -m pip install -e '.[runtime,dev]'
+pip install -e '.[runtime,dev]'
 
 # 启动 HTTP 服务
-python -m pip install -e '.[server]'
+pip install -e '.[server]'
 
 # 构建 / 预览文档
-python -m pip install -e '.[docs]'
+pip install -e '.[docs]'
 ```
 
-完整入门流程(首次 `validate` / `generate`、YAML 请求格式、preset、`hf://` 单文件 LoRA 引用)见 [docs/getting_started/quickstart.md](./docs/getting_started/quickstart.md)。
+完整的入门流程（包括首次 `validate` / `generate`、YAML 请求格式、preset，以及 `hf://` 单文件 LoRA 引用）见 [docs/getting_started/quickstart.md](./docs/getting_started/quickstart.md)。
 
 ## 🐍 Python API
 
@@ -90,7 +90,7 @@ result = generate(req, backend="cuda")
 print(result.artifacts, result.report)
 ```
 
-更多 helper(每个 task 的 typed request、`pipeline(...)` 便捷封装、`RunReport` 字段)见 [docs/user_guide/serving/python_api.md](./docs/user_guide/serving/python_api.md)。
+更多 helper（包括各任务的 typed request、`pipeline(...)` 便捷封装，以及 `RunReport` 字段说明）见 [docs/user_guide/serving/python_api.md](./docs/user_guide/serving/python_api.md)。
 
 ## 🖥️ 命令行
 
@@ -112,13 +112,13 @@ CLI 参考见 [docs/cli_reference/index.md](./docs/cli_reference/index.md)。
 
 ## 🧩 已支持模型
 
-权威清单由 registry 实时生成,推荐以 CLI 为准:
+权威清单由 registry 实时生成，建议以 CLI 输出为准：
 
 ```bash
 omnirt models
 ```
 
-文档侧镜像见 [docs/user_guide/models/supported_models.md](./docs/user_guide/models/supported_models.md),当前接入快照见 [support_status.md](./docs/user_guide/models/support_status.md)。
+对应的文档镜像见 [docs/user_guide/models/supported_models.md](./docs/user_guide/models/supported_models.md)，当前接入快照见 [support_status.md](./docs/user_guide/models/support_status.md)。
 
 | 类别 | 代表模型 |
 |---|---|
@@ -149,26 +149,26 @@ omnirt models
 └──────────────────────────────────────────────────────────────┘
 ```
 
-架构分层、后端抽象与模型适配的细节见 [docs/developer_guide/architecture.md](./docs/developer_guide/architecture.md)。
+关于架构分层、后端抽象和模型适配的更多细节，见 [docs/developer_guide/architecture.md](./docs/developer_guide/architecture.md)。
 
 ## 🧪 测试与验证
 
-- `pytest tests/unit tests/parity` — 本地契约层与指标层
-- `pytest tests/integration/test_error_paths.py` — 低显存、坏权重等错误路径
-- CUDA / Ascend smoke 在缺少硬件、运行时包或本地模型目录时自动跳过
+- `pytest tests/unit tests/parity` — 覆盖本地契约层与指标层
+- `pytest tests/integration/test_error_paths.py` — 覆盖低显存、坏权重等错误路径
+- CUDA / Ascend smoke tests 在缺少硬件、运行时依赖或本地模型目录时会自动跳过
 
-真机端到端生成仍依赖目标硬件栈、runtime 库和模型权重。
+真正的端到端生成仍依赖目标硬件环境、运行时依赖和模型权重。
 
 ## 📦 当前状态
 
-- `sdxl-base-1.0` 与 `svd-xt` 已在 CUDA + Ascend 双后端完成真机 smoke
-- `image2image` 已正式公开;`sdxl-refiner-1.0` 的 smoke 用例已具备,真机验证进行中
-- `flux-fill`、`flux-kontext`、`qwen-image-edit*` 等编辑模型已有 smoke 入口,待补齐已验证的本地模型目录
+- `sdxl-base-1.0` 与 `svd-xt` 已在 CUDA 和 Ascend 双后端完成真机 smoke
+- `image2image` 已正式公开；`sdxl-refiner-1.0` 已具备 smoke 用例，真机验证仍在进行中
+- `flux-fill`、`flux-kontext`、`qwen-image-edit*` 等编辑模型已经接入 smoke 入口，待补齐已验证的本地模型目录
 - 更完整的路线图见 [docs/user_guide/models/roadmap.md](./docs/user_guide/models/roadmap.md)
 
 ## 🚢 部署形态
 
-按硬件与规模选择合适的部署形式:
+你可以根据硬件条件与部署规模选择合适的部署形态：
 
 | 形态 | 适用场景 | 文档 |
 |---|---|---|
@@ -179,15 +179,15 @@ omnirt models
 
 ### 按网络环境选择模型源
 
-OmniRT 的模型来源抽象相同,可以根据可达性自由切换:
+OmniRT 对模型来源做了统一抽象，你可以根据网络可达性灵活切换：
 
 | 网络环境 | 推荐模型源 | 建议 |
 |---|---|---|
-| 可直连 Hugging Face | `hf://` 或 `huggingface.co` repo id | 默认方案,享受最完整的模型矩阵与 `hf://` 单文件 LoRA |
-| 国内 / Hugging Face 受限 | ModelScope、HF-Mirror、Modelers | 通过镜像或 `modelscope://` 路径加载,与 HF 路径等价 |
-| 完全离线 / 内网 | 本地模型目录 + 离线快照 | 先在有网机器用 [`prepare_model_snapshot.py`](./scripts/prepare_model_snapshot.py) / [`prepare_modelscope_snapshot.py`](./scripts/prepare_modelscope_snapshot.py) / [`prepare_modelers_snapshot.py`](./scripts/prepare_modelers_snapshot.py) 拉快照,再用 [`sync_model_dir.sh`](./scripts/sync_model_dir.sh) 同步到目标机 |
+| 可直连 Hugging Face | `hf://` 或 `huggingface.co` repo id | 默认方案，可获得最完整的模型矩阵与 `hf://` 单文件 LoRA 支持 |
+| 国内 / Hugging Face 受限 | ModelScope、HF-Mirror、Modelers | 可通过镜像或 `modelscope://` 路径加载，使用体验与 HF 路径等价 |
+| 完全离线 / 内网 | 本地模型目录 + 离线快照 | 可先在有网机器上用 [`prepare_model_snapshot.py`](./scripts/prepare_model_snapshot.py) / [`prepare_modelscope_snapshot.py`](./scripts/prepare_modelscope_snapshot.py) / [`prepare_modelers_snapshot.py`](./scripts/prepare_modelers_snapshot.py) 拉取快照，再用 [`sync_model_dir.sh`](./scripts/sync_model_dir.sh) 同步到目标机器 |
 
-镜像配置、环境变量与离线完整流程见 [docs/user_guide/deployment/china_mirrors.md](./docs/user_guide/deployment/china_mirrors.md)(覆盖 HF-Mirror / ModelScope / Modelers 三类镜像源)。
+镜像配置、环境变量和完整的离线流程见 [docs/user_guide/deployment/china_mirrors.md](./docs/user_guide/deployment/china_mirrors.md)（覆盖 HF-Mirror / ModelScope / Modelers 三类镜像源）。
 
 ## 📚 文档导航
 
@@ -222,7 +222,7 @@ OmniRT 的模型来源抽象相同,可以根据可达性自由切换:
 
 ## 🤝 参与贡献
 
-欢迎提交 Issue / PR!请先阅读 [贡献指南](./docs/developer_guide/contributing.md),并运行 `pytest` 与 `pre-commit run -a` 保证本地通过。
+欢迎提交 Issue 和 PR。提交前请先阅读 [贡献指南](./docs/developer_guide/contributing.md)，并运行 `pytest` 与 `pre-commit run -a`，确保本地检查通过。
 
 ## 📄 许可证
 

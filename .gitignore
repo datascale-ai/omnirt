@@ -210,3 +210,6 @@ __marimo__/
 machine.md
 PLAN.md
 .playwright-cli/
+# Git worktrees (superpowers skill)
+.worktrees/
+
