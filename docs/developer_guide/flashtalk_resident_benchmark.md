@@ -5,7 +5,7 @@
 ## 测试环境
 
 - 日期：`2026-04-21`
-- 机器：`<ascend-host>`
+- 机器：`内部 Ascend 验证主机`
 - 加速器：`Ascend 910B2 x8`
 - 运行入口：`omnirt serve` + `persistent_worker` + resident `torchrun`
 - 模型：
@@ -15,7 +15,7 @@
 
 ## 基准配置
 
-这次对齐的是 `/Users/<user>/Desktop/code/opensource/liveact/SESSION_SUMMARY.md` 里的“速度优先”实时档：
+这次对齐的是对应 LiveAct benchmark summary 里的“速度优先”实时档：
 
 - `FLASHTALK_HEIGHT=704`
 - `FLASHTALK_WIDTH=416`
@@ -79,7 +79,7 @@ resident 服务启动时还带了：
 
 ## 与直接脚本对比
 
-同一台 `195`、同一套 `704x416 + 29/1 + 2 step + stream` 配置下，直接运行 `generate_video.py` 的日志显示：
+同一台内部验证主机、同一套 `704x416 + 29/1 + 2 step + stream` 配置下，直接运行 `generate_video.py` 的日志显示：
 
 - `chunk-0`: `6.59s`
 - `chunk-1`: `0.89s`

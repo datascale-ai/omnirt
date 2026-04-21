@@ -21,11 +21,11 @@ The full list is generated from the live registry: [Supported Models](supported_
 The following models have completed real hardware smoke tests using local model directories:
 
 - `sdxl-base-1.0`
-  CUDA: `<cuda-host>`
-  Ascend: `<ascend-host>`
+  CUDA: `internal CUDA validation host`
+  Ascend: `internal Ascend validation host`
 - `svd-xt`
-  CUDA: `<cuda-host>`
-  Ascend: `<ascend-host>`
+  CUDA: `internal CUDA validation host`
+  Ascend: `internal Ascend validation host`
 
 ## Integrated but still waiting for real hardware smoke
 

@@ -150,12 +150,12 @@ python scripts/check_model_layout.py \
   来源：`modelers.cn` 仓库 `MindSpore-Lab/SDXL_Base1_0`
   已验证本地目录：
   `/data/models/omnirt/SDXL_Base1_0`
-  `/home/<user>/models/omnirt/SDXL_Base1_0`
+  `$HOME/models/omnirt/SDXL_Base1_0`
 - `SVD-XT`
   来源：ModelScope 仓库 `ai-modelscope/stable-video-diffusion-img2vid-xt`
   已验证本地目录：
   `/data/models/omnirt/svd-xt-ms`
-  `/home/<user>/models/omnirt/svd-xt-ms`
+  `$HOME/models/omnirt/svd-xt-ms`
 
 关于 `SVD` 的重要说明：
 
@@ -165,7 +165,7 @@ python scripts/check_model_layout.py \
 
 ## 已验证的 smoke 命令
 
-CUDA 主机 `<cuda-host>`：
+CUDA 验证主机：
 
 ```bash
 export OMNIRT_SDXL_MODEL_SOURCE=/data/models/omnirt/SDXL_Base1_0
@@ -176,16 +176,16 @@ $VENV_PYTHON -m pytest tests/integration/test_sdxl_cuda.py -q
 $VENV_PYTHON -m pytest tests/integration/test_svd_cuda.py -q
 ```
 
-Ascend 主机 `<ascend-host>`：
+Ascend 验证主机：
 
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-export PYTHONPATH=/home/<user>/omnirt-smoke:/home/<user>/omnirt-smoke/src:${PYTHONPATH}
-export OMNIRT_SDXL_MODEL_SOURCE=/home/<user>/models/omnirt/SDXL_Base1_0
-export OMNIRT_SVD_XT_MODEL_SOURCE=/home/<user>/models/omnirt/svd-xt-ms
+export PYTHONPATH=$PWD:$PWD/src:${PYTHONPATH}
+export OMNIRT_SDXL_MODEL_SOURCE=$HOME/models/omnirt/SDXL_Base1_0
+export OMNIRT_SVD_XT_MODEL_SOURCE=$HOME/models/omnirt/svd-xt-ms
 
-/home/<user>/hunyuanworld/venv/bin/python -m pytest tests/integration/test_sdxl_ascend.py -q
-/home/<user>/hunyuanworld/venv/bin/python -m pytest tests/integration/test_svd_ascend.py -q
+$VENV_PYTHON -m pytest tests/integration/test_sdxl_ascend.py -q
+$VENV_PYTHON -m pytest tests/integration/test_svd_ascend.py -q
 ```
 
 ## 同步到目标服务器
@@ -203,7 +203,7 @@ Ascend 机器也是同样方式：
 ```bash
 bash scripts/sync_model_dir.sh \
   /data/models/omnirt/svd-xt \
-  user@<ascend-host>:/home/<user>/models/omnirt/svd-xt
+  user@<ascend-host>:$HOME/models/omnirt/svd-xt
 ```
 
 ## 使用本地模型运行 OmniRT

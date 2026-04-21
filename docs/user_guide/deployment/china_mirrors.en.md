@@ -150,12 +150,12 @@ As of `2026-04-20`, these sources have been validated with real hardware smoke t
   Source: `modelers.cn` repo `MindSpore-Lab/SDXL_Base1_0`
   Verified local layouts on:
   `/data/models/omnirt/SDXL_Base1_0`
-  `/home/<user>/models/omnirt/SDXL_Base1_0`
+  `$HOME/models/omnirt/SDXL_Base1_0`
 - `SVD-XT`
   Source: ModelScope repo `ai-modelscope/stable-video-diffusion-img2vid-xt`
   Verified local layouts on:
   `/data/models/omnirt/svd-xt-ms`
-  `/home/<user>/models/omnirt/svd-xt-ms`
+  `$HOME/models/omnirt/svd-xt-ms`
 
 Important note for `SVD`:
 
@@ -165,7 +165,7 @@ Important note for `SVD`:
 
 ## Verified smoke commands
 
-CUDA host `<cuda-host>`:
+CUDA validation host:
 
 ```bash
 export OMNIRT_SDXL_MODEL_SOURCE=/data/models/omnirt/SDXL_Base1_0
@@ -176,16 +176,16 @@ $VENV_PYTHON -m pytest tests/integration/test_sdxl_cuda.py -q
 $VENV_PYTHON -m pytest tests/integration/test_svd_cuda.py -q
 ```
 
-Ascend host `<ascend-host>`:
+Ascend validation host:
 
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
-export PYTHONPATH=/home/<user>/omnirt-smoke:/home/<user>/omnirt-smoke/src:${PYTHONPATH}
-export OMNIRT_SDXL_MODEL_SOURCE=/home/<user>/models/omnirt/SDXL_Base1_0
-export OMNIRT_SVD_XT_MODEL_SOURCE=/home/<user>/models/omnirt/svd-xt-ms
+export PYTHONPATH=$PWD:$PWD/src:${PYTHONPATH}
+export OMNIRT_SDXL_MODEL_SOURCE=$HOME/models/omnirt/SDXL_Base1_0
+export OMNIRT_SVD_XT_MODEL_SOURCE=$HOME/models/omnirt/svd-xt-ms
 
-/home/<user>/hunyuanworld/venv/bin/python -m pytest tests/integration/test_sdxl_ascend.py -q
-/home/<user>/hunyuanworld/venv/bin/python -m pytest tests/integration/test_svd_ascend.py -q
+$VENV_PYTHON -m pytest tests/integration/test_sdxl_ascend.py -q
+$VENV_PYTHON -m pytest tests/integration/test_svd_ascend.py -q
 ```
 
 ## Syncing to target servers
@@ -203,7 +203,7 @@ You can do the same for Ascend:
 ```bash
 bash scripts/sync_model_dir.sh \
   /data/models/omnirt/svd-xt \
-  user@<ascend-host>:/home/<user>/models/omnirt/svd-xt
+  user@<ascend-host>:$HOME/models/omnirt/svd-xt
 ```
 
 ## Running OmniRT with local models

@@ -21,13 +21,13 @@
 以下模型已经基于本地模型目录完成真实硬件 smoke：
 
 - `sdxl-base-1.0`
-  CUDA: `<cuda-host>`
-  Ascend: `<ascend-host>`
+  CUDA: `内部 CUDA 验证主机`
+  Ascend: `内部 Ascend 验证主机`
 - `svd-xt`
-  CUDA: `<cuda-host>`
-  Ascend: `<ascend-host>`
+  CUDA: `内部 CUDA 验证主机`
+  Ascend: `内部 Ascend 验证主机`
 - `soulx-flashtalk-14b`
-  Ascend: `<ascend-host>`
+  Ascend: `内部 Ascend 验证主机`
   说明: `persistent_worker` 常驻 8 卡 `Ascend 910B2` 链路已跑通；冷启动约 `91s`，实时配置热态 `steady_chunk_core_ms_avg ≈ 891ms`
 
 ## 已接入但仍待真机 smoke

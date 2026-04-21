@@ -5,7 +5,7 @@ This document captures the first real-hardware benchmark for `soulx-flashtalk-14
 ## Test environment
 
 - Date: `2026-04-21`
-- Machine: `<ascend-host>`
+- Machine: `internal Ascend validation host`
 - Accelerator: `Ascend 910B2 x8`
 - Serving path: `omnirt serve` + `persistent_worker` + resident `torchrun`
 - Model stack:
@@ -15,7 +15,7 @@ This document captures the first real-hardware benchmark for `soulx-flashtalk-14
 
 ## Benchmark configuration
 
-This run matches the “speed-first” realtime profile documented in `/Users/<user>/Desktop/code/opensource/liveact/SESSION_SUMMARY.md`:
+This run matches the “speed-first” realtime profile documented in the paired LiveAct benchmark summary:
 
 - `FLASHTALK_HEIGHT=704`
 - `FLASHTALK_WIDTH=416`
@@ -79,7 +79,7 @@ Hot resident telemetry for `max_chunks=3`:
 
 ## Comparison with the standalone script
 
-On the same `195` machine, with the same `704x416 + 29/1 + 2 step + stream` configuration, the direct `generate_video.py` run reported:
+On the same internal validation host, with the same `704x416 + 29/1 + 2 step + stream` configuration, the direct `generate_video.py` run reported:
 
 - `chunk-0`: `6.59s`
 - `chunk-1`: `0.89s`

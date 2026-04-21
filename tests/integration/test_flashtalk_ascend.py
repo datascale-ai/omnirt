@@ -23,7 +23,7 @@ def test_flashtalk_ascend_smoke(tmp_path) -> None:
     audio_path = _require_local_path("OMNIRT_FLASHTALK_AUDIO_PATH", repo_root / "examples" / "cantonese_16k.wav")
     python_executable = _require_local_path(
         "OMNIRT_FLASHTALK_PYTHON_EXECUTABLE",
-        Path("/home/<user>/flashtalk-venv/bin/python"),
+        Path.home() / "flashtalk-venv/bin/python",
     )
     ascend_env_script = _require_local_path(
         "OMNIRT_FLASHTALK_ASCEND_ENV_SCRIPT",
