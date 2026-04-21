@@ -443,16 +443,21 @@ class FlashTalkResidentWorker:
                 fps=self._inference.infer_params["tgt_fps"],
             )
             width, height, num_frames = probe_video_file(save_file)
-            artifacts = [
-                Artifact(
-                    kind="video",
-                    path=str(save_file),
-                    mime="video/mp4",
-                    width=width,
-                    height=height,
-                    num_frames=num_frames,
-                )
-            ]
+            base_artifact = Artifact(
+                kind="video",
+                path=str(save_file),
+                mime="video/mp4",
+                width=width,
+                height=height,
+                num_frames=num_frames,
+            )
+            transport = str(request.config.get("artifact_transport", "path")).strip() or "path"
+            if transport == "inline_bytes":
+                from omnirt.core.artifact_transport import pack_artifact
+
+                artifacts = [pack_artifact(base_artifact, transport="inline_bytes")]
+            else:
+                artifacts = [base_artifact]
             timings["export_ms"] = round((time.perf_counter() - export_started) * 1000, 3)
 
         report = build_run_report(

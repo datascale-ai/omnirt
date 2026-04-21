@@ -19,11 +19,14 @@ dependencies = [
   "numpy>=1.24",
   "PyYAML>=6.0",
   "Pillow>=10.0",
+  "grpcio>=1.60",
+  "protobuf>=5.26",
 ]
 
 [project.optional-dependencies]
 dev = [
   "build>=1.2",
+  "grpcio-tools>=1.60",
   "pytest>=8.0",
   "torch>=2.1",
 ]

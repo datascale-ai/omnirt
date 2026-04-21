@@ -68,6 +68,23 @@ class AdapterRef:
         )
 
 
+ArtifactTransport = Literal["path", "inline_bytes"]
+
+
+class ArtifactTooLargeError(OmniRTError):
+    """Raised when an artifact exceeds the configured inline transport budget."""
+
+    def __init__(self, *, path: str, size_bytes: int, max_bytes: int) -> None:
+        self.path = path
+        self.size_bytes = size_bytes
+        self.max_bytes = max_bytes
+        super().__init__(
+            f"Artifact {path!r} is {size_bytes} bytes, exceeds inline transport limit "
+            f"of {max_bytes} bytes. Set OMNIRT_ARTIFACT_INLINE_MAX_MB to raise the limit "
+            f"or ensure client and worker share a filesystem and request transport='path'."
+        )
+
+
 @dataclass
 class Artifact:
     kind: ArtifactKind
@@ -76,10 +93,17 @@ class Artifact:
     width: int
     height: int
     num_frames: Optional[int] = None
+    transport: ArtifactTransport = "path"
+    data_b64: Optional[str] = None
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "Artifact":
-        return cls(**payload)
+        # Tolerant of older payloads that lack transport/data_b64.
+        accepted = {"kind", "path", "mime", "width", "height", "num_frames", "transport", "data_b64"}
+        filtered = {key: value for key, value in payload.items() if key in accepted}
+        filtered.setdefault("transport", "path")
+        filtered.setdefault("data_b64", None)
+        return cls(**filtered)
 
 
 @dataclass

@@ -1,8 +1,18 @@
-"""Remote resident worker helpers backed by OmniRT gRPC transport."""
+"""Remote resident worker helpers backed by OmniRT gRPC transport.
+
+When a remote worker returns artifacts with ``transport="inline_bytes"`` (the
+default over gRPC), this proxy materializes them to disk under the caller's
+``output_dir`` before handing the result back to the engine. This keeps the
+downstream API identical to the in-process worker path — callers always get
+an :class:`Artifact` with ``transport="path"`` pointing at a local file.
+"""
 
 from __future__ import annotations
 
-from omnirt.core.types import GenerateRequest, GenerateResult
+from pathlib import Path
+
+from omnirt.core.artifact_transport import unpack_artifact
+from omnirt.core.types import Artifact, GenerateRequest, GenerateResult
 from omnirt.engine.grpc_transport import GrpcWorkerClient, probe_worker_health
 from omnirt.workers.resident import ResidentModelWorker, ResidentWorkerHandle
 
@@ -56,7 +66,27 @@ class GrpcResidentWorkerProxy:
         self.start()
         if self._client is None:
             raise RuntimeError(f"Resident worker {self.target} failed to initialize.")
-        return self._client.run_sync(request)
+
+        # Default to inline-bytes transport for cross-process callers unless
+        # the caller explicitly asked for path. The worker will still raise
+        # ArtifactTooLargeError if the file exceeds the budget — silent
+        # fallback to path would hide the cross-host misconfiguration.
+        if "artifact_transport" not in request.config:
+            request = GenerateRequest(
+                task=request.task,
+                model=request.model,
+                backend=request.backend,
+                inputs=dict(request.inputs),
+                config={**request.config, "artifact_transport": "inline_bytes"},
+                adapters=list(request.adapters) if request.adapters else None,
+            )
+
+        result = self._client.run_sync(request)
+        output_dir = Path(str(request.config.get("output_dir", "outputs")))
+        materialized: list[Artifact] = [
+            unpack_artifact(artifact, output_dir=output_dir) for artifact in result.outputs
+        ]
+        return GenerateResult(outputs=materialized, metadata=result.metadata)
 
     def shutdown(self) -> None:
         if self._client is None:

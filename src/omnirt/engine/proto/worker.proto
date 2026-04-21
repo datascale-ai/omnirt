@@ -1,0 +1,107 @@
+// OmniRT worker gRPC contract.
+//
+// This replaces the previous JSON-over-bytes transport. The wire types mirror
+// GenerateRequest / GenerateResult but intentionally carry:
+//
+//   * richer status in HealthResponse (so K8s readiness / orchestration can
+//     consume state, queue depth, inflight count without parsing JSON),
+//   * Artifact.transport + data_bytes for cross-host artifact delivery
+//     (avoids the shared-filesystem assumption the JSON contract had).
+//
+// Generated stubs live next to this file (worker_pb2.py, worker_pb2_grpc.py)
+// and are checked in so consumers don't need grpcio-tools at install time.
+
+syntax = "proto3";
+
+package omnirt.worker;
+
+// --------------------------------------------------------------------- common
+
+message AdapterRef {
+  string kind = 1;
+  string path = 2;
+  double scale = 3;
+}
+
+// Serialized as JSON on the wire; arbitrary user-supplied nested structures
+// (inputs / config) benefit from this over trying to model every shape in
+// proto. The schema version of the outer request/result is still rigid.
+message JsonMap {
+  string json = 1;
+}
+
+// Request from client/controller to worker.
+message GenerateRequest {
+  string task = 1;
+  string model = 2;
+  string backend = 3;
+  JsonMap inputs = 4;
+  JsonMap config = 5;
+  repeated AdapterRef adapters = 6;
+}
+
+// --------------------------------------------------------------------- result
+
+enum ArtifactTransport {
+  ARTIFACT_TRANSPORT_PATH = 0;
+  ARTIFACT_TRANSPORT_INLINE_BYTES = 1;
+}
+
+message Artifact {
+  string kind = 1;
+  string path = 2;
+  string mime = 3;
+  int32 width = 4;
+  int32 height = 5;
+  int32 num_frames = 6;
+  ArtifactTransport transport = 7;
+  bytes data = 8;  // populated when transport == INLINE_BYTES
+}
+
+// RunReport carries everything telemetry cares about. Freeform sub-trees
+// (memory stats, backend_timeline, timings, etc.) stay JSON-encoded — the
+// outer frame stays typed.
+message RunReport {
+  string run_id = 1;
+  string task = 2;
+  string model = 3;
+  string backend = 4;
+  string execution_mode = 5;
+  string schema_version = 6;
+  string job_id = 7;
+  string batch_group_id = 8;
+  int32 batch_size = 9;
+  JsonMap timings = 10;
+  JsonMap memory = 11;
+  JsonMap backend_timeline = 12;
+  JsonMap config_resolved = 13;
+  JsonMap stream_events = 14;
+  string error = 15;
+}
+
+message GenerateResult {
+  repeated Artifact outputs = 1;
+  RunReport metadata = 2;
+}
+
+// ------------------------------------------------------------------ lifecycle
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool ok = 1;
+  string worker_id = 2;
+  string state = 3;
+  bool model_loaded = 4;
+  int32 queue_depth = 5;
+  int32 inflight = 6;
+  string last_error = 7;
+  double gpu_mem_used_gb = 8;
+}
+
+// ------------------------------------------------------------------ service
+
+service Worker {
+  rpc RunSync(GenerateRequest) returns (GenerateResult);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}

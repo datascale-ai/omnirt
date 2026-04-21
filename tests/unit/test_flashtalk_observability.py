@@ -377,9 +377,10 @@ def test_prometheus_render_includes_new_worker_metrics() -> None:
 
 
 def test_grpc_health_handler_merges_worker_status_snapshot() -> None:
-    """_handle_health should merge whatever worker_status() returns."""
+    """Health RPC should merge whatever worker_status() returns into the proto."""
     pytest.importorskip("grpc")
     from omnirt.engine.grpc_transport import GrpcWorkerServer
+    from omnirt.engine.proto import worker_pb2
 
     class FakeEngine:
         worker_id = "flashtalk-test"
@@ -395,19 +396,19 @@ def test_grpc_health_handler_merges_worker_status_snapshot() -> None:
             }
 
     server = GrpcWorkerServer(FakeEngine(), host="127.0.0.1", port=0)
-    body = server._handle_health(b"{}", context=None)
-    payload = json.loads(body.decode("utf-8"))
-    assert payload["ok"] is True
-    assert payload["worker_id"] == "flashtalk-test"
-    assert payload["queue_depth"] == 4
-    assert payload["inflight"] == 2
-    assert payload["gpu_mem_used_gb"] == 3.1
-    assert payload["state"] == "ready"
+    response = server.Health(worker_pb2.HealthRequest(), context=None)
+    assert response.ok is True
+    assert response.worker_id == "flashtalk-test"
+    assert response.queue_depth == 4
+    assert response.inflight == 2
+    assert response.gpu_mem_used_gb == pytest.approx(3.1)
+    assert response.state == "ready"
 
 
 def test_grpc_health_handler_marks_not_ok_on_error_state() -> None:
     pytest.importorskip("grpc")
     from omnirt.engine.grpc_transport import GrpcWorkerServer
+    from omnirt.engine.proto import worker_pb2
 
     class FakeEngine:
         worker_id = "flashtalk-test"
@@ -422,7 +423,7 @@ def test_grpc_health_handler_marks_not_ok_on_error_state() -> None:
             }
 
     server = GrpcWorkerServer(FakeEngine(), host="127.0.0.1", port=0)
-    payload = json.loads(server._handle_health(b"{}", context=None).decode("utf-8"))
-    assert payload["ok"] is False
-    assert payload["state"] == "error"
-    assert payload["last_error"].startswith("RuntimeError:")
+    response = server.Health(worker_pb2.HealthRequest(), context=None)
+    assert response.ok is False
+    assert response.state == "error"
+    assert response.last_error.startswith("RuntimeError:")
