@@ -361,19 +361,24 @@ class FlashTalkResidentWorker:
     def serve_forever(self, timeout: float | None = None) -> None:
         """Passive broadcast loop used by non-rank-0 participants.
 
-        Rank 0 does NOT enter this — its coordinator thread is already driving
-        broadcasts. Non-rank-0 ranks block here for the life of the process,
-        waking only to participate in the broadcast collective.
+        Non-rank-0 ranks block here for the life of the process, waking only
+        to participate in the broadcast collective. Rank 0 uses the same
+        method as a keep-alive loop so the CLI process does not tear down the
+        gRPC server immediately after warmup.
         """
         if self._dist is None:
             if timeout:
                 time.sleep(timeout)
             return
         if self.serves_rpc:
-            # Rank 0's coordinator thread handles execution; this method is a
-            # no-op (or blocks for optional shutdown signalling).
-            if timeout:
-                time.sleep(timeout)
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while self._started and not self._shutdown_requested:
+                if deadline is not None and time.monotonic() >= deadline:
+                    return
+                coordinator = self._coordinator_thread
+                if coordinator is not None and not coordinator.is_alive():
+                    raise RuntimeError("FlashTalk coordinator thread exited unexpectedly.")
+                time.sleep(0.2)
             return
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import threading
 import types
 import sys
 
@@ -226,6 +227,84 @@ def test_flashtalk_resident_worker_runs_distributed_mode_on_rank0(tmp_path: Path
     assert result.metadata.timings["chunk_count"] == 1.0
     assert "chunk_core_ms_avg" in result.metadata.timings
     assert "chunk_total_ms_avg" in result.metadata.timings
+
+
+def test_flashtalk_resident_worker_rank0_serve_forever_waits_for_shutdown(tmp_path: Path, monkeypatch) -> None:
+    repo_path = tmp_path / "SoulX-FlashTalk"
+    ckpt_dir = repo_path / "models" / "SoulX-FlashTalk-14B"
+    wav2vec_dir = repo_path / "models" / "chinese-wav2vec2-base"
+    repo_path.mkdir()
+    ckpt_dir.mkdir(parents=True)
+    wav2vec_dir.mkdir(parents=True)
+    python_executable = tmp_path / "python"
+    python_executable.write_text("", encoding="utf-8")
+    python_executable.chmod(0o755)
+    env_script = tmp_path / "set_env.sh"
+    env_script.write_text("export ASCEND=1\n", encoding="utf-8")
+
+    class FakeDist:
+        def is_initialized(self):
+            return True
+
+        def get_rank(self):
+            return 0
+
+        def get_world_size(self):
+            return 2
+
+        def broadcast_object_list(self, objects, src=0):
+            del src
+            return objects
+
+    fake_inference = SimpleNamespace(
+        infer_params={
+            "sample_rate": 16000,
+            "tgt_fps": 25,
+            "cached_audio_duration": 2,
+            "frame_num": 33,
+            "motion_frames_num": 5,
+        },
+        get_pipeline=lambda **kwargs: "pipeline",
+        get_base_data=lambda pipeline, **kwargs: None,
+        get_audio_embedding=lambda pipeline, audio_array, audio_start_idx=-1, audio_end_idx=-1: None,
+        run_pipeline=lambda pipeline, audio_embedding: None,
+    )
+
+    worker = FlashTalkResidentWorker(
+        runtime=FakeAscendRuntime(),
+        model_spec=build_model_spec(),
+        config={
+            "repo_path": str(repo_path),
+            "ckpt_dir": "models/SoulX-FlashTalk-14B",
+            "wav2vec_dir": "models/chinese-wav2vec2-base",
+            "python_executable": str(python_executable),
+            "ascend_env_script": str(env_script),
+            "launcher": "torchrun",
+            "nproc_per_node": 2,
+        },
+        adapters=None,
+    )
+    monkeypatch.setattr(worker, "_resolve_distributed_context", lambda runtime_config: FakeDist())
+    monkeypatch.setattr(worker, "_load_runtime_modules", lambda repo: (fake_inference, lambda *args, **kwargs: None))
+
+    worker.start()
+    assert worker.serves_rpc is True
+
+    result: dict[str, object] = {"returned": False}
+
+    def runner():
+        worker.serve_forever(timeout=5.0)
+        result["returned"] = True
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join(timeout=0.5)
+    assert thread.is_alive()
+    assert result["returned"] is False
+
+    worker.shutdown()
+    thread.join(timeout=2.0)
+    assert result["returned"] is True
 
 
 def test_flashtalk_resident_worker_initializes_process_group_from_torchrun_env(tmp_path: Path, monkeypatch) -> None:
