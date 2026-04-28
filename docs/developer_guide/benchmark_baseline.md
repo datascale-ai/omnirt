@@ -39,6 +39,24 @@ omnirt bench \
   --output bench-sdxl-c4.json
 ```
 
+## SoulX-LiveAct Ascend 基线
+
+`soulx-liveact-14b` script-backed wrapper 已完成 Ascend 真机验证。测试口径：
+
+- 输入：`examples/image/1.png` + `examples/audio/1.wav`
+- 分辨率 / 帧率：`416*720`，`fps=20`
+- 推理：`--sample-steps 1 --rank0-t5-only --use-lightvae --vae-path models/vae/lightvaew2_1.pth --use-cache-vae --stage-profile`
+- 放置：`--text-cache-visible-devices 2 --visible-devices 2,3,4,5`，即 1 张 NPU 预生成 T5 text cache，再 4 张 NPU 推理
+- 输出视频：`416x720`，`20fps`，`755 frames`，`37.75s`
+
+| run | cache 状态 | wall_s | stage total avg | 关键阶段 |
+|---|---|---:|---:|---|
+| `cold` | text cache 重建；condition cache miss | 190 | 112.9584s | `prepare_text_cache total=11.10s`，`sample_model_forward avg=9.8508s`，`vae_decode avg=21.3054s` |
+| `warm` | text cache hit；condition cache hit；但仍初始化 T5 | 207 | 132.6558s | `prepare_text_cache total=10.09s`，`sample_model_forward avg=16.9334s`，`vae_decode avg=22.7612s` |
+| `warm2` | text cache skip；condition cache hit | 169 | 121.2429s | `sample_model_forward avg=15.9815s`，`vae_decode avg=23.3559s`，`export avg=13.5125s` |
+
+当前推荐把 `warm2` 作为 warm 基线。`warm` 的第一次结果是 `207s`，原因是 wrapper 当时即使命中 text cache 仍会调用上游 `prepare_text_cache.py`，而该脚本会先初始化 T5 再判断 hit，额外约 `10s`。当前 wrapper 已在调用前直接检查 `/tmp/liveact_text_ctx_*.pt`，命中时跳过该步骤。该路径没有使用 CPU T5。
+
 ## P2 收尾基线：结果缓存
 
 目标是验证同 prompt 重复请求时，prompt embedding 缓存是否真正命中。

@@ -22,29 +22,29 @@
 以下模型已经基于本地模型目录完成真实硬件 smoke：
 
 - `sdxl-base-1.0`
-  CUDA: `内部 CUDA 验证主机`
-  Ascend: `内部 Ascend 验证主机`
+  CUDA: `已验证`
+  Ascend: `已验证`
 - `svd-xt`
-  CUDA: `内部 CUDA 验证主机`
-  Ascend: `内部 Ascend 验证主机`
+  CUDA: `已验证`
+  Ascend: `已验证`
 - `soulx-flashtalk-14b`
-  Ascend: `内部 Ascend 验证主机`
+  Ascend: `已验证`
   说明: `persistent_worker` 常驻 8 卡 `Ascend 910B2` 链路已跑通；冷启动约 `91s`，实时配置热态 `steady_chunk_core_ms_avg ≈ 891ms`
+- `soulx-liveact-14b`
+  Ascend: `已验证`
+  说明: 外部 SoulX-LiveAct `generate.py` 已完成 4 卡 `Ascend 910B` 官方案例对齐；OmniRT 当前接入的是 script-backed wrapper，默认先用单张 NPU 生成 text context cache，再做 4 卡推理；推荐 `--text-cache-visible-devices <1张卡> --visible-devices <4张卡> --sample-steps 1` 做快速 smoke
 - `soulx-flashhead-1.3b`
-  Ascend: `内部 Ascend 验证主机`
+  Ascend: `已验证`
   说明: 外部 SoulX-FlashHead checkout 已完成 910B NPU 适配和质量档验证；OmniRT 当前接入的是 script-backed 冷启动包装，默认 `2-step + 2D VAE split + latent_carry off`。OmniRT 真机冷启动 benchmark：2 卡 `82.96s`，4 卡 `84.08s`，输出均为 `512x512 / 10s / 250 frames`
 - `cosyvoice3-triton-trtllm`
-  CUDA: `内部 CUDA 验证主机`
-  说明: 146 机器官方 `runtime/triton_trtllm` 服务已完成真实 benchmark；稳定配置为 `GPU1`、`token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`，容器内 Triton gRPC 端口 `18001`。2026-04-28 复测：OmniRT wrapper 真实生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark `RTF=0.1303`、平均首包 `699.13ms`。客户端 `seed` 已透传，但服务端 BLS 仍需消费该参数才能完全固定采样。
+  CUDA: `已验证`
+  说明: 官方 `runtime/triton_trtllm` 服务已完成真实 benchmark；稳定配置为 `token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`。OmniRT wrapper 真实生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark `RTF=0.1303`、平均首包 `699.13ms`。客户端 `seed` 已透传，但服务端 BLS 仍需消费该参数才能完全固定采样。
 
 ## 已接入但仍待真机 smoke
 
 这一批模型已经完成 registry、请求面和本地单测，但还没有在仓库里沉淀出“已验证”的本地模型目录与双后端 smoke 结果：
 
 - `sdxl-refiner-1.0`
-- `chronoedit`
-- `flux-depth`
-- `flux-canny`
 - `flux-fill`
 - `flux-kontext`
 - `qwen-image-edit`
@@ -76,7 +76,9 @@
 
 ## 尚未完成的重点目标
 
-- 暂无新的高优先级缺口；当前更主要的是把已接入模型继续做真机 smoke 和国内可落地模型源验证
+- `flux-depth`
+- `flux-canny`
+- `chronoedit`
 
 ## 参考文档
 

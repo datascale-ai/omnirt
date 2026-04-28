@@ -62,6 +62,7 @@ _BUILTIN_MODEL_IDS = {
     "ltx2-i2v",
     "skyreels-v2",
     "soulx-flashtalk-14b",
+    "soulx-liveact-14b",
     "soulx-flashhead-1.3b",
     "cosyvoice3-triton-trtllm",
 }
@@ -134,6 +135,7 @@ def ensure_registered() -> None:
     from omnirt.models.video_family import pipeline as _video_family_pipeline  # noqa: F401
     from omnirt.models.wan import pipeline as _wan_pipeline  # noqa: F401
     from omnirt.models.flashtalk import pipeline as _flashtalk_pipeline  # noqa: F401
+    from omnirt.models.liveact import pipeline as _liveact_pipeline  # noqa: F401
     from omnirt.models.flashhead import pipeline as _flashhead_pipeline  # noqa: F401
     from omnirt.models.cosyvoice import pipeline as _cosyvoice_pipeline  # noqa: F401
 
@@ -225,6 +227,12 @@ def ensure_registered() -> None:
         registered_ids = set(list_models())
         if not {"soulx-flashtalk-14b"}.issubset(registered_ids):
             importlib.reload(_flashtalk_pipeline)
+            registered_ids = set(list_models())
+    if not {"soulx-liveact-14b"}.issubset(registered_ids):
+        _re_register_module_classes(_liveact_pipeline)
+        registered_ids = set(list_models())
+        if not {"soulx-liveact-14b"}.issubset(registered_ids):
+            importlib.reload(_liveact_pipeline)
             registered_ids = set(list_models())
     if not {"soulx-flashhead-1.3b"}.issubset(registered_ids):
         _re_register_module_classes(_flashhead_pipeline)

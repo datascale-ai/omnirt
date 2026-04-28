@@ -251,6 +251,68 @@ def test_request_from_args_builds_audio2video_request() -> None:
     assert request.config["cpu_offload"] is True
 
 
+def test_request_from_args_builds_liveact_audio2video_request() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--task",
+            "audio2video",
+            "--model",
+            "soulx-liveact-14b",
+            "--image",
+            "speaker.png",
+            "--audio",
+            "voice.wav",
+            "--repo-path",
+            "/srv/SoulX-LiveAct",
+            "--size",
+            "416*720",
+            "--fps",
+            "20",
+            "--sample-steps",
+            "1",
+            "--condition-cache-dir",
+            "/tmp/liveact_condition_cache_lightvae",
+            "--text-cache-visible-devices",
+            "2",
+            "--text-cache-device",
+            "npu",
+            "--force-text-cache",
+            "--vae-path",
+            "models/vae/lightvaew2_1.pth",
+            "--use-lightvae",
+            "--use-cache-vae",
+            "--rank0-t5-only",
+            "--steam-audio",
+            "--stage-profile",
+        ]
+    )
+
+    request = request_from_args(args, parser)
+
+    assert request.task == "audio2video"
+    assert request.model == "soulx-liveact-14b"
+    assert request.inputs["image"] == "speaker.png"
+    assert request.inputs["audio"] == "voice.wav"
+    assert request.config["repo_path"] == "/srv/SoulX-LiveAct"
+    assert request.config["size"] == "416*720"
+    assert request.config["fps"] == 20
+    assert request.config["sample_steps"] == 1
+    assert request.config["condition_cache_dir"] == "/tmp/liveact_condition_cache_lightvae"
+    assert request.config["text_cache_visible_devices"] == "2"
+    assert request.config["text_cache_device"] == "npu"
+    assert request.config["force_text_cache"] is True
+    assert request.config["vae_path"] == "models/vae/lightvaew2_1.pth"
+    assert request.config["use_lightvae"] is True
+    assert request.config["use_cache_vae"] is True
+    assert request.config["rank0_t5_only"] is True
+    assert "t5_cpu" not in request.config
+    assert request.config["steam_audio"] is True
+    assert request.config["stage_profile"] is True
+    assert "resident_autostart" not in request.config
+
+
 def test_request_from_args_accepts_flashhead_runtime_flags() -> None:
     parser = build_parser()
     args = parser.parse_args(

@@ -1,6 +1,6 @@
 # 数字人（audio2video / talking head）
 
-给一张人脸 portrait + 一段音频，生成口型与头部动作对齐的 MP4。OmniRT 通过 `soulx-flashtalk-14b` 和 `soulx-flashhead-1.3b` 支持这一任务面。
+给一张人脸 portrait + 一段音频，生成口型、头部动作或长时数字人动画对齐的 MP4。OmniRT 通过 `soulx-flashtalk-14b`、`soulx-flashhead-1.3b` 和 `soulx-liveact-14b` 支持这一任务面。
 
 ## 最小示例
 
@@ -68,9 +68,10 @@
 |---|---|---|---|
 | `soulx-flashtalk-14b` | portrait + audio | MP4 | ≥ 20 GB |
 | `soulx-flashhead-1.3b` | portrait + audio | MP4 | ≥ 48 GB aggregate |
+| `soulx-liveact-14b` | portrait + audio | MP4 | 4 卡 Ascend 910B 推荐 |
 
 !!! info "SoulX 数字人模型是 script-backed 模型"
-    当前 `soulx-flashtalk-14b` 与 `soulx-flashhead-1.3b` 都需要外部 SoulX 仓库 checkout、模型权重目录、wav2vec 目录和对应 Python 环境。内网/离线环境请参考 [国内部署](../deployment/china_mirrors.md) 的 "script-backed 模型镜像" 小节。
+    当前 `soulx-flashtalk-14b`、`soulx-flashhead-1.3b` 与 `soulx-liveact-14b` 都需要外部 SoulX 仓库 checkout、模型权重目录、wav2vec 目录和对应 Python 环境。内网/离线环境请参考 [国内部署](../deployment/china_mirrors.md) 的 "script-backed 模型镜像" 小节。
 
 ## FlashHead Ascend 推荐配置
 
@@ -83,10 +84,10 @@ omnirt generate \
   --image inputs/portrait.png \
   --audio inputs/speech.wav \
   --backend ascend \
-  --repo-path /home/wangcong/SoulX-FlashHead \
+  --repo-path /path/to/SoulX-FlashHead \
   --ckpt-dir models/SoulX-FlashHead-1_3B \
   --wav2vec-dir models/wav2vec2-base-960h \
-  --python-executable /home/wangcong/liveact-venv/bin/python \
+  --python-executable /path/to/venv/bin/python \
   --ascend-env-script /usr/local/Ascend/ascend-toolkit/set_env.sh \
   --launcher torchrun \
   --nproc-per-node 4 \
@@ -95,6 +96,10 @@ omnirt generate \
   --vae-2d-split \
   --npu-fusion-attention
 ```
+
+## LiveAct Ascend 推荐配置
+
+`soulx-liveact-14b` 使用外部 SoulX-LiveAct checkout 的 `generate.py`。Ascend 上默认设置 `PLATFORM=ascend_npu`，默认会先用单张 NPU 运行 `prepare_text_cache.py`，再启动 4 卡推理；显式多卡时可用 `--text-cache-visible-devices 2 --visible-devices 2,3,4,5` 固定为 1 卡 T5 + 4 卡推理。快速 smoke 可加 `--sample-steps 1`。若使用 LightVAE，请同时设置 `--vae-path models/vae/lightvaew2_1.pth --use-lightvae --use-cache-vae`，并预热 `--condition-cache-dir`。
 
 ## 错误与排查
 
@@ -105,3 +110,5 @@ omnirt generate \
     - **外部仓库克隆失败** — 在国内网络下走 `GHPROXY` 或离线提供 `repo_path`
     - **FlashHead 输出风格漂移** — 先保持 `latent_carry=false`；该模式虽快，但适合作为实验开关而不是默认展示档
     - **Ascend 上速度显著低于 CUDA** — 检查 `FLASHHEAD_NPU_FUSION_ATTENTION`、`visible_devices`、CANN 环境和外部仓库的 NPU 适配补丁是否生效
+    - **LiveAct 启动时报 CUDA 设备不可用** — 确认 `PLATFORM=ascend_npu` 已设置；OmniRT wrapper 默认会设置，但手工运行外部仓库时容易漏掉
+    - **LiveAct T5 OOM** — 优先使用默认的单卡 NPU text context cache；显式设置 `--text-cache-visible-devices`，并避免让 T5 和 4 卡主推理同时加载

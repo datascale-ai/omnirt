@@ -7,6 +7,7 @@ from contextlib import suppress
 import queue
 import tempfile
 import time
+from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 
@@ -18,11 +19,11 @@ from omnirt.server.request_config import normalize_generate_request
 router = APIRouter()
 
 
-def _resolve_backend(request: Request, backend: str | None) -> str:
+def _resolve_backend(request: Request, backend: Optional[str]) -> str:
     return backend or request.app.state.default_backend
 
 
-def _image_size_to_config(size: str | None) -> dict:
+def _image_size_to_config(size: Optional[str]) -> dict:
     if not size:
         return {}
     try:
@@ -67,7 +68,7 @@ async def openai_images_edits(
     model: str = Form(...),
     prompt: str = Form(...),
     image: UploadFile = File(...),
-    mask: UploadFile | None = File(default=None),
+    mask: Optional[UploadFile] = File(default=None),
 ):
     with tempfile.NamedTemporaryFile(delete=False, suffix=f"-{image.filename or 'image'}") as image_file:
         image_file.write(await image.read())

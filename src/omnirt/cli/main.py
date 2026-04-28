@@ -77,6 +77,7 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--strength", type=float, help="Transformation strength for image editing tasks.")
     parser.add_argument("--width", type=int, help="Output width for image generation.")
     parser.add_argument("--height", type=int, help="Output height for image generation.")
+    parser.add_argument("--size", help="Video size string for script-backed models, for example 416*720.")
     parser.add_argument("--dtype", choices=["fp16", "bf16", "fp32"], help="Computation dtype.")
     parser.add_argument("--num-images-per-prompt", type=int, help="Images to generate per text-to-image prompt.")
     parser.add_argument("--max-sequence-length", type=int, help="Maximum prompt token length for Flux2.")
@@ -130,6 +131,33 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan weight-only quantization mode for FlashTalk.")
     parser.add_argument("--wan-quant-include", help="Comma-separated Wan module allowlist for FlashTalk quantization.")
     parser.add_argument("--wan-quant-exclude", help="Comma-separated Wan module denylist for FlashTalk quantization.")
+    parser.add_argument("--t5-cpu", action="store_true", help="Place LiveAct T5 text encoder on CPU.")
+    parser.add_argument("--rank0-t5-only", action="store_true", help="Only rank 0 performs LiveAct T5 encoding, sharing cached text context.")
+    parser.add_argument("--stop-after-text-context", action="store_true", help="LiveAct debug mode: exit after text-context preparation.")
+    parser.add_argument("--offload-cache", action="store_true", help="Offload LiveAct KV cache to CPU.")
+    parser.add_argument("--fp8-kv-cache", action="store_true", help="Use FP8 LiveAct KV cache.")
+    parser.add_argument("--block-offload", action="store_true", help="Offload LiveAct model blocks to CPU between forwards.")
+    parser.add_argument("--audio-cfg", type=float, help="LiveAct audio classifier-free guidance scale.")
+    parser.add_argument("--dura-print", action="store_true", help="Print LiveAct per-block duration details.")
+    parser.add_argument("--steam-audio", action="store_true", help="Use LiveAct streaming-audio path; name follows upstream's steam_audio flag.")
+    parser.add_argument("--mean-memory", action="store_true", help="Enable LiveAct mean-memory strategy.")
+    parser.add_argument("--use-cache-vae", action="store_true", help="Use LiveAct cached VAE decode.")
+    parser.add_argument("--vae-path", help="LiveAct VAE checkpoint override, for example models/vae/lightvaew2_1.pth.")
+    parser.add_argument("--use-lightvae", action="store_true", help="Use LiveAct LightVAE architecture.")
+    parser.add_argument("--condition-cache-dir", help="LiveAct visual condition cache directory.")
+    parser.add_argument("--disable-condition-cache", action="store_true", help="Disable LiveAct visual condition cache.")
+    parser.add_argument("--text-cache-device", help="Device label for LiveAct prepare_text_cache.py, for example npu.")
+    parser.add_argument("--text-cache-visible-devices", help="Single-device visibility override for LiveAct text-cache preparation.")
+    parser.add_argument("--force-text-cache", action="store_true", help="Regenerate LiveAct text cache even when the cache file exists.")
+    parser.add_argument("--disable-text-cache-prepare", action="store_true", help="Skip LiveAct prepare_text_cache.py before generation.")
+    parser.add_argument("--fast-export", action="store_true", help="Enable LiveAct experimental fast ffmpeg export.")
+    parser.add_argument("--disable-fast-export", action="store_true", help="Force LiveAct legacy export path.")
+    parser.add_argument("--fast-export-preset", help="LiveAct fast-export libx264 preset.")
+    parser.add_argument("--fast-export-crf", type=int, help="LiveAct fast-export CRF.")
+    parser.add_argument("--sequence-parallel-degree", type=int, help="LiveAct sequence parallel degree.")
+    parser.add_argument("--ulysses-degree", type=int, help="LiveAct Ulysses degree.")
+    parser.add_argument("--ring-degree", type=int, help="LiveAct ring degree.")
+    parser.add_argument("--stage-profile", action="store_true", help="Enable LiveAct stage-profile aggregation.")
     parser.add_argument("--device-map", help="Diffusers device placement policy such as balanced or unet:0,vae:1.")
     parser.add_argument("--devices", help="Comma-separated device list used to infer balanced placement, for example cuda:0,cuda:1.")
     parser.add_argument("--cache", choices=["tea_cache"], help="Enable cache middleware, currently tea_cache.")
@@ -403,6 +431,8 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "strength",
         "width",
         "height",
+        "size",
+        "fps",
         "dtype",
         "num_images_per_prompt",
         "max_sequence_length",
@@ -437,6 +467,16 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "wan_quant",
         "wan_quant_include",
         "wan_quant_exclude",
+        "audio_cfg",
+        "vae_path",
+        "condition_cache_dir",
+        "text_cache_device",
+        "text_cache_visible_devices",
+        "fast_export_preset",
+        "fast_export_crf",
+        "sequence_parallel_degree",
+        "ulysses_degree",
+        "ring_degree",
         "device_map",
         "devices",
         "cache",
@@ -456,12 +496,30 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         config["resident_autostart"] = True
     if getattr(args, "cpu_offload", False):
         config["cpu_offload"] = True
-    if getattr(args, "latent_carry", False):
-        config["latent_carry"] = True
-    if getattr(args, "npu_fusion_attention", False):
-        config["npu_fusion_attention"] = True
-    if getattr(args, "profile", False):
-        config["profile"] = True
+    for flag in (
+        "t5_cpu",
+        "rank0_t5_only",
+        "stop_after_text_context",
+        "offload_cache",
+        "fp8_kv_cache",
+        "block_offload",
+        "dura_print",
+        "steam_audio",
+        "mean_memory",
+        "use_cache_vae",
+        "use_lightvae",
+        "disable_condition_cache",
+        "force_text_cache",
+        "disable_text_cache_prepare",
+        "fast_export",
+        "disable_fast_export",
+        "stage_profile",
+        "latent_carry",
+        "npu_fusion_attention",
+        "profile",
+    ):
+        if getattr(args, flag, False):
+            config[flag] = True
     if getattr(args, "enable_layerwise_casting", False):
         config["enable_layerwise_casting"] = True
     if getattr(args, "enable_tea_cache", False):

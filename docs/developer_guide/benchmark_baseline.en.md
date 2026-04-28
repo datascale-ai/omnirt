@@ -39,6 +39,24 @@ omnirt bench \
   --output bench-sdxl-c4.json
 ```
 
+## SoulX-LiveAct Ascend Baseline
+
+The `soulx-liveact-14b` script-backed wrapper has completed an Ascend real-hardware validation run. Test scope:
+
+- Inputs: `examples/image/1.png` + `examples/audio/1.wav`
+- Resolution / FPS: `416*720`, `fps=20`
+- Inference: `--sample-steps 1 --rank0-t5-only --use-lightvae --vae-path models/vae/lightvaew2_1.pth --use-cache-vae --stage-profile`
+- Placement: `--text-cache-visible-devices 2 --visible-devices 2,3,4,5`, meaning one NPU prepares the T5 text cache before the 4-NPU inference job
+- Output video: `416x720`, `20fps`, `755 frames`, `37.75s`
+
+| run | cache state | wall_s | stage total avg | Key stages |
+|---|---|---:|---:|---|
+| `cold` | text cache rebuilt; condition cache miss | 190 | 112.9584s | `prepare_text_cache total=11.10s`, `sample_model_forward avg=9.8508s`, `vae_decode avg=21.3054s` |
+| `warm` | text cache hit; condition cache hit; still initialized T5 | 207 | 132.6558s | `prepare_text_cache total=10.09s`, `sample_model_forward avg=16.9334s`, `vae_decode avg=22.7612s` |
+| `warm2` | text cache skipped; condition cache hit | 169 | 121.2429s | `sample_model_forward avg=15.9815s`, `vae_decode avg=23.3559s`, `export avg=13.5125s` |
+
+Use `warm2` as the current warm baseline. The first `warm` run measured `207s` because the wrapper still called upstream `prepare_text_cache.py` on a cache hit. That script initializes T5 before checking for the hit, adding about `10s`. The wrapper now checks `/tmp/liveact_text_ctx_*.pt` before launching that script and skips it when all expected cache files exist. This path does not use CPU T5.
+
 ## P2 close-out baseline: result cache
 
 The goal is to verify that prompt-embedding reuse actually hits on repeated same-prompt requests.
