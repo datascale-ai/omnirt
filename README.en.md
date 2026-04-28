@@ -21,15 +21,15 @@
 
 ---
 
-OmniRT is an open runtime that unifies **text→image / image→image / text→video / image→video / audio→avatar** generation behind a single request contract, CLI / Python API / HTTP surface, and pluggable hardware backend. Switching model families does **not** require relearning the runtime.
+OmniRT is an open runtime that unifies **text→image / image→image / text→audio / text→video / image→video / audio→avatar** generation behind a single request contract, CLI / Python API / HTTP surface, and pluggable hardware backend. Switching model families does **not** require relearning the runtime.
 
 ## ✨ Highlights
 
 - **Unified contract** — `GenerateRequest`, `GenerateResult`, `RunReport` cover every task surface
 - **Cross-backend** — the same request validates and runs on `cuda` / `ascend` / `cpu-stub`
 - **Three entry points** — Python API, CLI (`omnirt generate / validate / models`), FastAPI server
-- **16+ model families** — SD1.5 / SDXL / SD3 / FLUX / FLUX2 / WAN / SVD / AnimateDiff / ChronoEdit / FlashTalk / FlashHead …
-- **Standard artifacts** — PNG for images, MP4 for videos, each run ships a `RunReport`
+- **50+ registered models** — image, speech, video, and talking-avatar paths across Stable Diffusion / FLUX / Qwen-Image / CosyVoice / Wan / SVD / Hunyuan / SoulX families
+- **Standard artifacts** — PNG for images, WAV for audio, MP4 for videos, each run ships a `RunReport`
 - **Offline-friendly** — local directories, Hugging Face, ModelScope, Modelers snapshots all supported
 - **LoRA flexibility** — local safetensors and `hf://` single-file refs side by side
 - **Async dispatch** — `queue` / `worker` / `policies` for batched requests and multi-model queueing
@@ -42,6 +42,7 @@ OmniRT is an open runtime that unifies **text→image / image→image / text→v
 |---|---|---|
 | `text2image` | prompt-driven image generation | PNG |
 | `image2image` | image-guided image generation | PNG |
+| `text2audio` | prompt-driven speech generation | WAV |
 | `text2video` | prompt-driven video generation | MP4 |
 | `image2video` | first-frame-guided video generation | MP4 |
 | `audio2video` | audio-driven talking avatar generation | MP4 |
@@ -120,12 +121,19 @@ omnirt models
 
 A mirrored doc snapshot is at [docs/user_guide/models/supported_models.en.md](./docs/user_guide/models/supported_models.en.md); the integration snapshot lives in [support_status.en.md](./docs/user_guide/models/support_status.en.md).
 
-| Category | Examples |
+| Task / category | Current registry ids |
 |---|---|
-| Image | `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sd15`, `sd21`, `sd3`, `flux.dev`, `flux2.dev`, `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x` |
-| Image edit | `flux-depth`, `flux-canny`, `flux-fill`, `flux-kontext`, `qwen-image-edit*`, `chronoedit` |
-| Video | `svd-xt`, `wan*`, `animate-diff-sdxl`, `mochi`, `skyreels-v2`, `hunyuan-video-1.5-*`, `helios-*` |
-| Talking avatar | `flashtalk`, `flashhead` |
+| `text2image` | `bria-3.2`, `flux-dev`, `flux-schnell`, `flux2.dev`, `glm-image`, `hidream-i1`, `hunyuan-image-2.1`, `kolors`, `lumina-t2x`, `omnigen`, `ovis-image`, `pixart-sigma`, `qwen-image`, `sana-1.6b`, `sd15`, `sd21`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `sdxl-base-1.0`, `sdxl-turbo` |
+| `text2audio` | `cosyvoice3-triton-trtllm` |
+| `image2image` | `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-refiner-1.0` |
+| `inpaint` | `flux-fill`, `sd15`, `sd21`, `sdxl-base-1.0` |
+| `edit` | `chronoedit`, `flux-canny`, `flux-depth`, `flux-kontext`, `qwen-image-edit`, `qwen-image-edit-plus`, `qwen-image-layered` |
+| `text2video` | `animate-diff-sdxl`, `cogvideox-2b`, `cogvideox-5b`, `helios-t2v`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `kandinsky5-t2v`, `ltx-video`, `mochi`, `sana-video`, `skyreels-v2`, `wan2.1-t2v-14b`, `wan2.2-t2v-14b` |
+| `image2video` | `helios-i2v`, `hunyuan-video-1.5-i2v`, `kandinsky5-i2v`, `ltx2-i2v`, `svd`, `svd-xt`, `wan2.1-i2v-14b`, `wan2.2-i2v-14b` |
+| `audio2video` | `soulx-flashhead-1.3b`, `soulx-flashtalk-14b`, `soulx-liveact-14b` |
+
+The same model id can support multiple tasks; this table expands the model-task registrations in the registry.
+Alias: `flux2-dev` points to `flux2.dev`.
 
 Recommended starting points for `image2image`: `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sd15`, `sd21`.
 
@@ -146,8 +154,9 @@ Real end-to-end generation still depends on the target hardware stack, runtime l
 ## 📦 Project Status
 
 - Real-hardware smoke coverage is confirmed for `sdxl-base-1.0` and `svd-xt` on both CUDA and Ascend
+- `cosyvoice3-triton-trtllm` is wired into `text2audio` and generates WAV audio through the official Triton / TensorRT-LLM route
 - `image2image` is publicly supported; `sdxl-refiner-1.0` already has CUDA and Ascend smoke entry points, pending verified local model directories
-- Editing models such as `flux-fill`, `flux-kontext`, and `qwen-image-edit*` have smoke-test entry points pending verified local model directories
+- Editing models such as `flux-fill`, `flux-kontext`, `qwen-image-edit`, and `qwen-image-edit-plus` have smoke-test entry points pending verified local model directories
 - The broader roadmap lives in [docs/user_guide/models/roadmap.en.md](./docs/user_guide/models/roadmap.en.md)
 
 ## 🚢 Deployment Topologies
