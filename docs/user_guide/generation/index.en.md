@@ -5,6 +5,7 @@ This section is organized by task surface. Every page follows the same structure
 | Task | Shape | Typical models | Page |
 |---|---|---|---|
 | `text2image` | text → single image | `sd15`, `sdxl-base-1.0`, `flux2.dev`, `qwen-image` | [Text to Image](text2image.md) |
+| `text2audio` | text + reference audio → speech | `cosyvoice3-triton-trtllm` | [Text to Audio](text2audio.md) |
 | `image2image` | image + prompt → image | `sd15`, `sdxl-base-1.0` | [Image to Image](image2image.md) |
 | `text2video` | text → video | `wan2.2-t2v-14b`, `cogvideox-2b`, `hunyuan-video` | [Text to Video](text2video.md) |
 | `image2video` | first frame + prompt → video | `svd-xt`, `wan2.2-i2v-14b` | [Image to Video](image2video.md) |

@@ -7,6 +7,7 @@ from omnirt.core.types import (
     GenerateRequest,
     GenerateResult,
     ImageToVideoRequest,
+    TextToAudioRequest,
     RunReport,
     TextToImageRequest,
     TextToVideoRequest,
@@ -69,6 +70,12 @@ def test_typed_requests_capture_task_specific_inputs() -> None:
     image_request = TextToImageRequest(model="sd15", prompt="hello", config={"seed": 1})
     edit_request = EditRequest(model="qwen-image-edit", image=["a.png", "b.png"], prompt="combine references")
     video_request = TextToVideoRequest(model="wan2.2-t2v-14b", prompt="hello", num_frames=81, fps=16)
+    audio_request = TextToAudioRequest(
+        model="cosyvoice3-triton-trtllm",
+        prompt="你好，欢迎使用 OmniRT。",
+        audio="reference.wav",
+        reference_text="示例音色",
+    )
     image_video_request = ImageToVideoRequest(model="svd", image="frame.png", prompt="animate")
     audio_video_request = AudioToVideoRequest(model="soulx-flashtalk-14b", image="face.png", audio="voice.wav", prompt="talk")
 
@@ -76,6 +83,9 @@ def test_typed_requests_capture_task_specific_inputs() -> None:
     assert image_request.inputs["prompt"] == "hello"
     assert edit_request.inputs["image"] == ["a.png", "b.png"]
     assert video_request.inputs["fps"] == 16
+    assert audio_request.task == "text2audio"
+    assert audio_request.inputs["audio"] == "reference.wav"
+    assert audio_request.inputs["reference_text"] == "示例音色"
     assert image_video_request.inputs["image"] == "frame.png"
     assert audio_video_request.inputs["audio"] == "voice.wav"
 
@@ -111,3 +121,23 @@ def test_audio2video_request_helper_is_ergonomic() -> None:
     assert request.inputs["audio"] == "voice.wav"
     assert request.config["repo_path"] == "/srv/SoulX-FlashTalk"
     assert request.config["launcher"] == "python"
+
+
+def test_text2audio_request_helper_is_ergonomic() -> None:
+    request = requests.text2audio(
+        model="cosyvoice3-triton-trtllm",
+        prompt="欢迎来到 OmniRT。",
+        audio="reference.wav",
+        reference_text="欢迎来到测试。",
+        server_addr="8.92.9.146",
+        server_port=8001,
+        seed=42,
+    )
+
+    assert request.task == "text2audio"
+    assert request.inputs["prompt"] == "欢迎来到 OmniRT。"
+    assert request.inputs["audio"] == "reference.wav"
+    assert request.inputs["reference_text"] == "欢迎来到测试。"
+    assert request.config["server_addr"] == "8.92.9.146"
+    assert request.config["server_port"] == 8001
+    assert request.config["seed"] == 42

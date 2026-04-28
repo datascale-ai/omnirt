@@ -28,6 +28,7 @@ PUBLIC_TASK_SURFACES = frozenset(
         "text2video",
         "image2video",
         "audio2video",
+        "text2audio",
     }
 )
 
@@ -48,7 +49,7 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", help="Path to a YAML or JSON request file.")
     parser.add_argument(
         "--task",
-        choices=["text2image", "image2image", "inpaint", "edit", "text2video", "image2video", "audio2video"],
+        choices=["text2image", "image2image", "inpaint", "edit", "text2video", "image2video", "audio2video", "text2audio"],
         help="Task to run.",
     )
     parser.add_argument("--model", help="Model registry id to execute.")
@@ -59,6 +60,7 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--prompt", help="Prompt for image or video generation tasks.")
     parser.add_argument("--negative-prompt", help="Negative prompt for prompt-driven generation.")
+    parser.add_argument("--reference-text", help="Reference transcript for text2audio voice cloning prompts.")
     parser.add_argument("--image", help="Input image for image-guided generation.")
     parser.add_argument("--mask", help="Input mask image for inpainting.")
     parser.add_argument("--audio", help="Input audio for audio2video generation.")
@@ -85,6 +87,10 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--output-dir", help="Output directory for saved artifacts.")
     parser.add_argument("--model-path", help="Override the default model source.")
+    parser.add_argument("--server-addr", help="Triton server address for external service-backed models.")
+    parser.add_argument("--server-port", type=int, help="Triton gRPC server port for external service-backed models.")
+    parser.add_argument("--sample-rate", type=int, help="Output audio sample rate for text2audio models.")
+    parser.add_argument("--request-id", help="Stable external request id for deterministic service probes.")
     parser.add_argument("--motion-bucket-id", type=int, help="Alias for SVD frame bucket / motion bucket id.")
     parser.add_argument(
         "--repo-path",
@@ -320,12 +326,18 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         parser.error("either --config or both --task and --model are required")
 
     inputs = {}
-    if args.task in {"text2image", "text2video"}:
+    if args.task in {"text2image", "text2video", "text2audio"}:
         if not args.prompt:
             parser.error(f"--prompt is required for --task {args.task}")
         inputs["prompt"] = args.prompt
         if args.negative_prompt:
             inputs["negative_prompt"] = args.negative_prompt
+        if args.task == "text2audio":
+            if not args.audio:
+                parser.error("--audio is required for --task text2audio")
+            inputs["audio"] = args.audio
+            if args.reference_text:
+                inputs["reference_text"] = args.reference_text
         if args.task == "text2video":
             if args.num_frames is not None:
                 inputs["num_frames"] = args.num_frames
@@ -396,6 +408,10 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "max_sequence_length",
         "caption_upsample_temperature",
         "output_dir",
+        "server_addr",
+        "server_port",
+        "sample_rate",
+        "request_id",
         "frame_bucket",
         "motion_bucket_id",
         "decode_chunk_size",
@@ -498,9 +514,10 @@ def render_model_summary(spec, *, variants=None) -> str:
     return "\n".join(lines)
 
 
-_MARKDOWN_TASK_ORDER = ("text2image", "text2video", "image2video", "audio2video", "image2image", "inpaint", "edit")
+_MARKDOWN_TASK_ORDER = ("text2image", "text2audio", "text2video", "image2video", "audio2video", "image2image", "inpaint", "edit")
 _MARKDOWN_TASK_HEADINGS = {
     "text2image": "Text to image",
+    "text2audio": "Text to audio",
     "text2video": "Text to video",
     "image2video": "Image to video",
     "audio2video": "Audio to video",

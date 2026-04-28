@@ -1,0 +1,1 @@
+"""CosyVoice model family."""

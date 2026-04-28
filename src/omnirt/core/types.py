@@ -10,9 +10,18 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Type, TypeVar, 
 import yaml
 
 
-TaskName = Literal["text2image", "image2image", "inpaint", "edit", "text2video", "image2video", "audio2video"]
+TaskName = Literal[
+    "text2image",
+    "image2image",
+    "inpaint",
+    "edit",
+    "text2video",
+    "image2video",
+    "audio2video",
+    "text2audio",
+]
 BackendName = Literal["cuda", "ascend", "cpu-stub", "auto"]
-ArtifactKind = Literal["image", "video"]
+ArtifactKind = Literal["image", "video", "audio"]
 AdapterKind = Literal["lora"]
 
 T = TypeVar("T")
@@ -331,6 +340,26 @@ class TextToVideoRequest(GenerateRequest):
         if fps is not None:
             inputs["fps"] = fps
         super().__init__(task="text2video", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
+
+
+class TextToAudioRequest(GenerateRequest):
+    task: Literal["text2audio"] = "text2audio"
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        audio: str,
+        reference_text: Optional[str] = None,
+        backend: BackendName = "auto",
+        config: Optional[Dict[str, Any]] = None,
+        adapters: Optional[List[AdapterRef]] = None,
+    ) -> None:
+        inputs = {"prompt": prompt, "audio": audio}
+        if reference_text:
+            inputs["reference_text"] = reference_text
+        super().__init__(task="text2audio", model=model, backend=backend, inputs=inputs, config=dict(config or {}), adapters=adapters)
 
 
 class ImageToImageRequest(GenerateRequest):

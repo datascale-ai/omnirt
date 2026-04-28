@@ -8,6 +8,7 @@
 
 - `text2image`
 - `image2image`
+- `text2audio`
 - `text2video`
 - `image2video`
 - `audio2video`
@@ -32,6 +33,9 @@
 - `soulx-flashhead-1.3b`
   Ascend: `内部 Ascend 验证主机`
   说明: 外部 SoulX-FlashHead checkout 已完成 910B NPU 适配和质量档验证；OmniRT 当前接入的是 script-backed 冷启动包装，默认 `2-step + 2D VAE split + latent_carry off`。OmniRT 真机冷启动 benchmark：2 卡 `82.96s`，4 卡 `84.08s`，输出均为 `512x512 / 10s / 250 frames`
+- `cosyvoice3-triton-trtllm`
+  CUDA: `内部 CUDA 验证主机`
+  说明: 146 机器官方 `runtime/triton_trtllm` 服务已完成真实 benchmark；稳定配置为 `GPU1`、`token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`，容器内 Triton gRPC 端口 `18001`。2026-04-28 复测：OmniRT wrapper 真实生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark `RTF=0.1303`、平均首包 `699.13ms`。客户端 `seed` 已透传，但服务端 BLS 仍需消费该参数才能完全固定采样。
 
 ## 已接入但仍待真机 smoke
 

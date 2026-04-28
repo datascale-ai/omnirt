@@ -12,6 +12,7 @@ from omnirt.core.types import (
     ImageToImageRequest,
     ImageToVideoRequest,
     InpaintRequest,
+    TextToAudioRequest,
     TextToImageRequest,
     TextToVideoRequest,
 )
@@ -53,6 +54,27 @@ def text2video(
         negative_prompt=negative_prompt,
         num_frames=num_frames,
         fps=fps,
+        backend=backend,
+        config=dict(config),
+        adapters=adapters,
+    )
+
+
+def text2audio(
+    *,
+    model: str,
+    prompt: str,
+    audio: str,
+    reference_text: Optional[str] = None,
+    backend: BackendName = "auto",
+    adapters: Optional[List[AdapterRef]] = None,
+    **config: Any,
+) -> TextToAudioRequest:
+    return TextToAudioRequest(
+        model=model,
+        prompt=prompt,
+        audio=audio,
+        reference_text=reference_text,
         backend=backend,
         config=dict(config),
         adapters=adapters,
