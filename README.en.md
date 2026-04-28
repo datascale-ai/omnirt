@@ -131,23 +131,7 @@ Recommended starting points for `image2image`: `sdxl-base-1.0`, `sdxl-refiner-1.
 
 ## 🧱 Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  CLI / Python API / FastAPI Server                           │
-├──────────────────────────────────────────────────────────────┤
-│  requests (typed helpers)  →  GenerateRequest                │
-│                               ↓                              │
-│                        dispatch / scheduler / queue          │
-│                               ↓                              │
-│                          engine  +  middleware               │
-│                               ↓                              │
-│  backends:  cuda   |   ascend   |   cpu-stub          │
-│                               ↓                              │
-│                models:  sdxl · flux · wan · svd · …          │
-│                               ↓                              │
-│                    GenerateResult + RunReport (PNG / MP4)    │
-└──────────────────────────────────────────────────────────────┘
-```
+![OmniRT architecture](./docs/assets/architecture/omnirt-readme-architecture.en.png)
 
 Layering, backend abstraction, and model adaptation notes live in [docs/developer_guide/architecture.en.md](./docs/developer_guide/architecture.en.md).
 
