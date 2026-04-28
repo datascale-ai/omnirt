@@ -13,6 +13,7 @@ from omnirt.core.types import (
     ImageToImageRequest,
     ImageToVideoRequest,
     InpaintRequest,
+    TextToAudioRequest,
     TextToImageRequest,
     TextToVideoRequest,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "GenerateResult",
     "TextToImageRequest",
     "TextToVideoRequest",
+    "TextToAudioRequest",
     "ImageToImageRequest",
     "InpaintRequest",
     "EditRequest",

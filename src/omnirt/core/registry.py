@@ -46,6 +46,7 @@ _PRIMARY_TASK_PRIORITY: Tuple[str, ...] = (
     "text2video",
     "image2video",
     "audio2video",
+    "text2audio",
 )
 _EXECUTION_MODE_RUNTIME_CONFIG: Dict[str, Tuple[str, ...]] = {
     "legacy_call": (

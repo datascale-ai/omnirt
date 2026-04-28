@@ -115,6 +115,7 @@ plugins:
                 - Generation:
                     - Overview: user_guide/generation/index.md
                     - Text to Image: user_guide/generation/text2image.md
+                    - Text to Audio: user_guide/generation/text2audio.md
                     - Image to Image: user_guide/generation/image2image.md
                     - Text to Video: user_guide/generation/text2video.md
                     - Image to Video: user_guide/generation/image2video.md
@@ -150,6 +151,7 @@ plugins:
                 - Legacy Optimization Guide: developer_guide/legacy_optimization_guide.md
                 - Benchmark Baseline: developer_guide/benchmark_baseline.md
                 - FlashHead Benchmark: developer_guide/flashhead_benchmark.md
+                - CosyVoice Benchmark: developer_guide/cosyvoice_benchmark.md
                 - Model Onboarding: developer_guide/model_onboarding.md
                 - Backend Onboarding: developer_guide/backend_onboarding.md
             - API Reference:
@@ -181,6 +183,7 @@ nav:
       - 生成任务:
           - 概览: user_guide/generation/index.md
           - 文本到图像: user_guide/generation/text2image.md
+          - 文本到音频: user_guide/generation/text2audio.md
           - 图像到图像: user_guide/generation/image2image.md
           - 文本到视频: user_guide/generation/text2video.md
           - 图像到视频: user_guide/generation/image2video.md
@@ -216,6 +219,7 @@ nav:
       - Legacy 优化指南: developer_guide/legacy_optimization_guide.md
       - Benchmark 基线: developer_guide/benchmark_baseline.md
       - FlashHead Benchmark: developer_guide/flashhead_benchmark.md
+      - CosyVoice Benchmark: developer_guide/cosyvoice_benchmark.md
       - 模型接入: developer_guide/model_onboarding.md
       - 后端接入: developer_guide/backend_onboarding.md
   - API 参考:
