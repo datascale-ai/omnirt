@@ -131,23 +131,7 @@ omnirt models
 
 ## 🧱 架构速览
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  CLI / Python API / FastAPI Server                           │
-├──────────────────────────────────────────────────────────────┤
-│  requests (typed helpers)  →  GenerateRequest                │
-│                               ↓                              │
-│                        dispatch / scheduler / queue          │
-│                               ↓                              │
-│                          engine  +  middleware               │
-│                               ↓                              │
-│  backends:  cuda   |   ascend   |   cpu-stub          │
-│                               ↓                              │
-│                models:  sdxl · flux · wan · svd · …          │
-│                               ↓                              │
-│                    GenerateResult + RunReport (PNG / MP4)    │
-└──────────────────────────────────────────────────────────────┘
-```
+![OmniRT 架构图](./docs/assets/architecture/omnirt-readme-architecture.zh.png)
 
 关于架构分层、后端抽象和模型适配的更多细节，见 [docs/developer_guide/architecture.md](./docs/developer_guide/architecture.md)。
 
