@@ -224,6 +224,20 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--devices", help="Default comma-separated device list for incoming requests.")
     serve_parser.add_argument("--batch-window-ms", type=int, default=0, help="Queue batching window in milliseconds.")
     serve_parser.add_argument("--max-batch-size", type=int, default=1, help="Maximum requests merged into one batch.")
+    serve_parser.add_argument(
+        "--protocol",
+        choices=["flashtalk-ws"],
+        help="Run a protocol service instead of the OmniRT HTTP API. Currently supports FlashTalk WebSocket.",
+    )
+    serve_parser.add_argument("--repo-path", help="External SoulX-FlashTalk checkout path for --protocol flashtalk-ws.")
+    serve_parser.add_argument("--ckpt-dir", help="Checkpoint directory for SoulX-FlashTalk.")
+    serve_parser.add_argument("--wav2vec-dir", help="wav2vec checkpoint directory for FlashTalk.")
+    serve_parser.add_argument("--cpu-offload", action="store_true", help="Enable CPU offload for the FlashTalk runtime.")
+    serve_parser.add_argument("--t5-quant", choices=["int8", "fp8"], help="T5 quantization mode.")
+    serve_parser.add_argument("--t5-quant-dir", help="Directory containing T5 quantized weights.")
+    serve_parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan quantization mode.")
+    serve_parser.add_argument("--wan-quant-include", help="Comma-separated Wan module allowlist.")
+    serve_parser.add_argument("--wan-quant-exclude", help="Comma-separated Wan module denylist.")
 
     bench_parser = subparsers.add_parser("bench", help="Run a local benchmark scenario.")
     add_request_arguments(bench_parser)
@@ -344,6 +358,60 @@ def flashtalk_worker_config_from_args(args: argparse.Namespace) -> dict[str, obj
     if getattr(args, "resident_autostart", False):
         config["resident_autostart"] = True
     return config
+
+
+def build_flashtalk_ws_argv(args: argparse.Namespace) -> list[str]:
+    argv = [
+        "flashtalk_server.py",
+        "--host",
+        str(args.host),
+        "--port",
+        str(args.port),
+        "--ckpt_dir",
+        str(args.ckpt_dir),
+        "--wav2vec_dir",
+        str(args.wav2vec_dir),
+    ]
+    if getattr(args, "cpu_offload", False):
+        argv.append("--cpu_offload")
+    for attr, flag in (
+        ("t5_quant", "--t5_quant"),
+        ("t5_quant_dir", "--t5_quant_dir"),
+        ("wan_quant", "--wan_quant"),
+        ("wan_quant_include", "--wan_quant_include"),
+        ("wan_quant_exclude", "--wan_quant_exclude"),
+    ):
+        value = getattr(args, attr, None)
+        if value is not None:
+            argv.extend([flag, str(value)])
+    return argv
+
+
+def run_flashtalk_ws_server(args: argparse.Namespace) -> int:
+    from omnirt.models.flashtalk.pipeline import FlashTalkPipeline
+    from omnirt.models.flashtalk.resident_worker import _repo_on_path, _temporary_cwd
+
+    runtime_config = FlashTalkPipeline.resolve_runtime_config(flashtalk_worker_config_from_args(args))
+    resolved = argparse.Namespace(**vars(args))
+    resolved.ckpt_dir = str(runtime_config.ckpt_dir)
+    resolved.wav2vec_dir = str(runtime_config.wav2vec_dir)
+    resolved.cpu_offload = runtime_config.cpu_offload
+    resolved.t5_quant = runtime_config.t5_quant
+    resolved.t5_quant_dir = str(runtime_config.t5_quant_dir) if runtime_config.t5_quant_dir is not None else None
+    resolved.wan_quant = runtime_config.wan_quant
+    resolved.wan_quant_include = runtime_config.wan_quant_include
+    resolved.wan_quant_exclude = runtime_config.wan_quant_exclude
+
+    previous_argv = sys.argv
+    sys.argv = build_flashtalk_ws_argv(resolved)
+    try:
+        with _repo_on_path(runtime_config.repo_path), _temporary_cwd(runtime_config.repo_path):
+            import importlib
+
+            server_module = importlib.import_module("flashtalk_server")
+            return int(server_module.main() or 0)
+    finally:
+        sys.argv = previous_argv
 
 
 def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> GenerateRequest:
@@ -720,6 +788,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "serve":
+        if args.protocol == "flashtalk-ws":
+            return run_flashtalk_ws_server(args)
+
         try:
             import uvicorn
         except ImportError as exc:

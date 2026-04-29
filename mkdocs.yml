@@ -125,6 +125,7 @@ plugins:
                     - CLI: user_guide/serving/cli.md
                     - Python API: user_guide/serving/python_api.md
                     - HTTP Server: user_guide/serving/http_server.md
+                    - FlashTalk WebSocket: user_guide/serving/flashtalk_ws.md
                 - Deployment:
                     - Overview: user_guide/deployment/index.md
                     - CUDA: user_guide/deployment/cuda.md
@@ -193,6 +194,7 @@ nav:
           - CLI: user_guide/serving/cli.md
           - Python API: user_guide/serving/python_api.md
           - HTTP 服务: user_guide/serving/http_server.md
+          - FlashTalk WebSocket: user_guide/serving/flashtalk_ws.md
       - 部署指南:
           - 概览: user_guide/deployment/index.md
           - CUDA: user_guide/deployment/cuda.md

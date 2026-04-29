@@ -97,6 +97,28 @@ omnirt serve \
 omnirt serve --device-map balanced --devices cuda:0,cuda:1
 ```
 
+## `omnirt serve --protocol flashtalk-ws`
+
+启动 FlashTalk 兼容 WebSocket 服务，供 OpenTalking 等实时数字人客户端接入：
+
+```bash
+omnirt serve \
+  --protocol flashtalk-ws \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --repo-path /path/to/SoulX-FlashTalk \
+  --ckpt-dir models/SoulX-FlashTalk-14B \
+  --wav2vec-dir models/chinese-wav2vec2-base
+```
+
+如果模型环境没有完整安装 OmniRT 依赖，优先使用脚本的轻量入口：
+
+```bash
+bash scripts/start_flashtalk_ws.sh
+```
+
+完整配置见 [FlashTalk 兼容 WebSocket](flashtalk_ws.md)。
+
 ## `omnirt worker`
 
 ```bash

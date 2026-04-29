@@ -97,6 +97,28 @@ To push a default placement policy into all service requests:
 omnirt serve --device-map balanced --devices cuda:0,cuda:1
 ```
 
+## `omnirt serve --protocol flashtalk-ws`
+
+Start the FlashTalk-compatible WebSocket service for OpenTalking-style realtime avatar clients:
+
+```bash
+omnirt serve \
+  --protocol flashtalk-ws \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --repo-path /path/to/SoulX-FlashTalk \
+  --ckpt-dir models/SoulX-FlashTalk-14B \
+  --wav2vec-dir models/chinese-wav2vec2-base
+```
+
+If the model environment does not have full OmniRT dependencies installed, prefer the helper script lightweight entrypoint:
+
+```bash
+bash scripts/start_flashtalk_ws.sh
+```
+
+See [FlashTalk-compatible WebSocket](flashtalk_ws.md) for the full configuration.
+
 ## `omnirt worker`
 
 ```bash

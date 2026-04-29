@@ -73,6 +73,16 @@
 !!! info "SoulX 数字人模型是 script-backed 模型"
     当前 `soulx-flashtalk-14b`、`soulx-flashhead-1.3b` 与 `soulx-liveact-14b` 都需要外部 SoulX 仓库 checkout、模型权重目录、wav2vec 目录和对应 Python 环境。内网/离线环境请参考 [国内部署](../deployment/china_mirrors.md) 的 "script-backed 模型镜像" 小节。
 
+## 实时 WebSocket 接入
+
+上面的 `generate` / HTTP 示例适合离线生成 MP4。如果要把 OmniRT 作为实时数字人模型服务接到 [OpenTalking](https://github.com/zyairehhh/opentalking) 等前端，可以启动 FlashTalk 兼容 WebSocket：
+
+```bash
+bash scripts/start_flashtalk_ws.sh
+```
+
+完整配置见 [FlashTalk 兼容 WebSocket](../serving/flashtalk_ws.md)。OpenTalking 侧保持 `OPENTALKING_FLASHTALK_MODE=remote`，并把 `OPENTALKING_FLASHTALK_WS_URL` 指向 OmniRT 服务即可。
+
 ## FlashHead Ascend 推荐配置
 
 `soulx-flashhead-1.3b` 参考 910B 适配记录，默认采用质量优先配置：
