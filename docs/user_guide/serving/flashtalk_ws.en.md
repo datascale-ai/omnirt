@@ -6,6 +6,55 @@ The service is intentionally configured by environment variables so machine-spec
 
 ## 910B Quick Start
 
+### 1. Prepare the External Runtime
+
+The FlashTalk WebSocket entrypoint reuses an external SoulX-FlashTalk checkout and its own Python environment. The OmniRT checkout only provides the launcher and compatibility wrapper; it does not copy model weights or the upstream repository. Before starting, prepare these paths:
+
+| Variable | Points to | Example |
+|---|---|---|
+| `OMNIRT_FLASHTALK_REPO_PATH` | SoulX-FlashTalk checkout containing `flashtalk_server.py` | `/path/to/SoulX-FlashTalk` |
+| `OMNIRT_FLASHTALK_CKPT_DIR` | FlashTalk 14B checkpoint directory; relative paths resolve under `repo_path` | `models/SoulX-FlashTalk-14B` |
+| `OMNIRT_FLASHTALK_WAV2VEC_DIR` | wav2vec checkpoint directory; relative paths resolve under `repo_path` | `models/chinese-wav2vec2-base` |
+| `OMNIRT_FLASHTALK_VENV_ACTIVATE` | FlashTalk virtualenv activate script | `/path/to/flashtalk-venv/bin/activate` |
+| `OMNIRT_FLASHTALK_PYTHON` | Python from the same environment | `/path/to/flashtalk-venv/bin/python` |
+| `OMNIRT_FLASHTALK_TORCHRUN` | torchrun from the same environment | `/path/to/flashtalk-venv/bin/torchrun` |
+| `OMNIRT_FLASHTALK_ENV_SCRIPT` | Ascend/CANN environment script | `/path/to/Ascend/ascend-toolkit/set_env.sh` |
+
+Check the paths first:
+
+```bash
+cd /path/to/omnirt
+
+test -f /path/to/SoulX-FlashTalk/flashtalk_server.py
+test -d /path/to/SoulX-FlashTalk/models/SoulX-FlashTalk-14B
+test -d /path/to/SoulX-FlashTalk/models/chinese-wav2vec2-base
+test -f /path/to/Ascend/ascend-toolkit/set_env.sh
+test -x /path/to/flashtalk-venv/bin/python
+test -x /path/to/flashtalk-venv/bin/torchrun
+```
+
+Then confirm the FlashTalk environment can import the required runtime dependencies:
+
+```bash
+set +u
+source /path/to/Ascend/ascend-toolkit/set_env.sh
+source /path/to/flashtalk-venv/bin/activate
+set -u
+
+python - <<'PY'
+import yaml
+import websockets
+import torch
+import torch_npu
+
+print('torch:', torch.__version__)
+print('torch_npu available:', torch_npu.npu.is_available())
+print('npu count:', torch.npu.device_count())
+PY
+```
+
+### 2. Check Port and NPU Availability
+
 First make sure no old service is already listening on port 8765 and that the eight 910B cards have enough free HBM:
 
 ```bash
@@ -52,7 +101,7 @@ export MASTER_PORT=29517
 bash scripts/start_flashtalk_ws.sh
 ```
 
-A successful startup prints `Pipeline loaded successfully` for every rank and `WebSocket server starting on 0.0.0.0:8765` from rank 0.
+The script checks the external checkout, checkpoint directory, wav2vec directory, CANN script, and Python/torchrun before loading the model. A successful startup prints `Pipeline loaded successfully` for every rank and `WebSocket server starting on 0.0.0.0:8765` from rank 0.
 
 ## Background Startup
 
@@ -170,12 +219,18 @@ OPENTALKING_FLASHTALK_WS_URL=ws://omnirt-host:8765
 
 No OpenTalking code changes are required for this compatibility path.
 
+If OmniRT and OpenTalking run on the same machine, `OPENTALKING_FLASHTALK_WS_URL` can be `ws://127.0.0.1:8765`. If they run on different machines, start OmniRT with `OMNIRT_FLASHTALK_HOST=0.0.0.0` and make sure the firewall or security group allows the port.
+
 ## Troubleshooting
 
 `ImportError: libhccl.so: cannot open shared object file` means the Ascend/CANN environment was not loaded. Set `OMNIRT_FLASHTALK_ENV_SCRIPT=/path/to/Ascend/ascend-toolkit/set_env.sh`.
 
 `NPU out of memory` usually means another service is already using HBM, or the service was started with `OMNIRT_FLASHTALK_NPROC_PER_NODE=1`. Check `npu-smi info`, `pgrep -af 'flashtalk_server.py|torchrun'`, and `ss -ltnp | grep ':8765'`.
 
+`OMNIRT_FLASHTALK_NPROC_PER_NODE must be a positive integer` means the process count is not a positive integer. On 910B, the usual value is `8`; use `1` only for lightweight connectivity debugging.
+
 `Address already in use` means a service is already listening on 8765. Run the connection check above first; stop the old service only when you intentionally want to restart it.
+
+`FlashTalk server not found` or `FlashTalk checkpoint directory not found` means one of the configured paths is wrong. Make sure `OMNIRT_FLASHTALK_REPO_PATH` points to the external SoulX-FlashTalk checkout, and remember that relative `ckpt_dir` / `wav2vec_dir` values are resolved under that checkout.
 
 `Wav2Vec2Model LOAD REPORT` with `UNEXPECTED` keys can appear with the current FlashTalk wav2vec loading path. If every rank later prints `Pipeline loaded successfully` and the connection check passes, continue with OpenTalking integration.

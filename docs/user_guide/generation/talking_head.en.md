@@ -75,13 +75,13 @@ Given a face portrait plus an audio clip, produce an MP4 where lips, head motion
 
 ## Realtime WebSocket Integration
 
-The `generate` / HTTP examples above are for offline MP4 generation. To use OmniRT as the realtime avatar model service behind [OpenTalking](https://github.com/zyairehhh/opentalking) or similar frontends, start the FlashTalk-compatible WebSocket service:
+The `generate` / HTTP examples above are for offline MP4 generation. To use OmniRT as the realtime avatar model service behind [OpenTalking](https://github.com/zyairehhh/opentalking) or similar frontends, prepare the external SoulX-FlashTalk checkout, model weights, wav2vec weights, FlashTalk Python environment, and Ascend/CANN environment script, then start the FlashTalk-compatible WebSocket service:
 
 ```bash
 bash scripts/start_flashtalk_ws.sh
 ```
 
-See [FlashTalk-compatible WebSocket](../serving/flashtalk_ws.md) for the full configuration. On the OpenTalking side, keep `OPENTALKING_FLASHTALK_MODE=remote` and point `OPENTALKING_FLASHTALK_WS_URL` at the OmniRT service.
+See [FlashTalk-compatible WebSocket](../serving/flashtalk_ws.md) for the full configuration and preflight checks. On the OpenTalking side, keep `OPENTALKING_FLASHTALK_MODE=remote` and point `OPENTALKING_FLASHTALK_WS_URL` at the OmniRT service.
 
 ## FlashHead Ascend Recommendation
 

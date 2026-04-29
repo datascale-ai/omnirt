@@ -12,8 +12,8 @@ This document records the first real-hardware benchmark for `soulx-flashhead-1.3
   `soulx-flashhead-1.3b`
   `SoulX-FlashHead-1_3B`
   `wav2vec2-base-960h`
-- External checkout: `/home/wangcong/SoulX-FlashHead`
-- OmniRT test checkout: `/home/wangcong/omnirt_flashhead_bench`
+- External checkout: `/path/to/SoulX-FlashHead`
+- OmniRT test checkout: `/path/to/omnirt`
 
 ## Baseline Config
 
@@ -46,17 +46,17 @@ set +u
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 set -u
 ASCEND_RT_VISIBLE_DEVICES=2,3 \
-PYTHONPATH=/home/wangcong/omnirt_flashhead_bench/src \
-/home/wangcong/liveact-venv/bin/python -m omnirt generate \
+PYTHONPATH=/path/to/omnirt/src \
+/path/to/flashhead-venv/bin/python -m omnirt generate \
   --task audio2video \
   --model soulx-flashhead-1.3b \
   --backend ascend \
-  --image /home/wangcong/SoulX-FlashHead/examples/girl.png \
-  --audio /home/wangcong/SoulX-FlashHead/bench_results/bench_10s.wav \
-  --repo-path /home/wangcong/SoulX-FlashHead \
+  --image /path/to/SoulX-FlashHead/examples/girl.png \
+  --audio /path/to/SoulX-FlashHead/bench_results/bench_10s.wav \
+  --repo-path /path/to/SoulX-FlashHead \
   --ckpt-dir models/SoulX-FlashHead-1_3B \
   --wav2vec-dir models/wav2vec2-base-960h \
-  --python-executable /home/wangcong/liveact-venv/bin/python \
+  --python-executable /path/to/flashhead-venv/bin/python \
   --ascend-env-script /usr/local/Ascend/ascend-toolkit/set_env.sh \
   --launcher torchrun \
   --nproc-per-node 2 \
@@ -87,12 +87,12 @@ Interpretation:
 
 | Config | RunReport `run_id` | Remote output directory | Checks |
 |---|---|---|---|
-| 2 NPU | `8361015e-f1d6-4ad7-8c3c-6f3680354fa1` | `/home/wangcong/omnirt_flashhead_bench/outputs/flashhead_bench_20260428_180909` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; no `blackdetect` / `freezedetect` warnings |
-| 4 NPU | `79ebe868-609a-4f5f-a571-6366d984aeb2` | `/home/wangcong/omnirt_flashhead_bench/outputs/flashhead_bench_20260428_181056` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; no `blackdetect` / `freezedetect` warnings |
+| 2 NPU | `8361015e-f1d6-4ad7-8c3c-6f3680354fa1` | `outputs/flashhead_bench_20260428_180909` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; no `blackdetect` / `freezedetect` warnings |
+| 4 NPU | `79ebe868-609a-4f5f-a571-6366d984aeb2` | `outputs/flashhead_bench_20260428_181056` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; no `blackdetect` / `freezedetect` warnings |
 
 ## Notes
 
-- Running the OmniRT CLI in the remote venv requires `protobuf` and `grpcio`; this run installed them into `/home/wangcong/liveact-venv` from the Tsinghua PyPI mirror.
+- Running the OmniRT CLI in the remote venv requires `protobuf` and `grpcio`; this run installed them into `/path/to/flashhead-venv` from the Tsinghua PyPI mirror.
 - This page tracks the OmniRT `subprocess` cold-start path, not service-mode hot latency.
 - `latent_carry=false` is the default quality profile. `latent_carry=true` can reduce part of VAE encode overhead, but prior adaptation notes observed style drift, so it is not the default display profile.
 

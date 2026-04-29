@@ -12,8 +12,8 @@
   `soulx-flashhead-1.3b`
   `SoulX-FlashHead-1_3B`
   `wav2vec2-base-960h`
-- 外部仓库：`/home/wangcong/SoulX-FlashHead`
-- OmniRT 测试目录：`/home/wangcong/omnirt_flashhead_bench`
+- 外部仓库：`/path/to/SoulX-FlashHead`
+- OmniRT 测试目录：`/path/to/omnirt`
 
 ## 基准配置
 
@@ -46,17 +46,17 @@ set +u
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 set -u
 ASCEND_RT_VISIBLE_DEVICES=2,3 \
-PYTHONPATH=/home/wangcong/omnirt_flashhead_bench/src \
-/home/wangcong/liveact-venv/bin/python -m omnirt generate \
+PYTHONPATH=/path/to/omnirt/src \
+/path/to/flashhead-venv/bin/python -m omnirt generate \
   --task audio2video \
   --model soulx-flashhead-1.3b \
   --backend ascend \
-  --image /home/wangcong/SoulX-FlashHead/examples/girl.png \
-  --audio /home/wangcong/SoulX-FlashHead/bench_results/bench_10s.wav \
-  --repo-path /home/wangcong/SoulX-FlashHead \
+  --image /path/to/SoulX-FlashHead/examples/girl.png \
+  --audio /path/to/SoulX-FlashHead/bench_results/bench_10s.wav \
+  --repo-path /path/to/SoulX-FlashHead \
   --ckpt-dir models/SoulX-FlashHead-1_3B \
   --wav2vec-dir models/wav2vec2-base-960h \
-  --python-executable /home/wangcong/liveact-venv/bin/python \
+  --python-executable /path/to/flashhead-venv/bin/python \
   --ascend-env-script /usr/local/Ascend/ascend-toolkit/set_env.sh \
   --launcher torchrun \
   --nproc-per-node 2 \
@@ -87,12 +87,12 @@ PYTHONPATH=/home/wangcong/omnirt_flashhead_bench/src \
 
 | 配置 | RunReport `run_id` | 远端输出目录 | 校验 |
 |---|---|---|---|
-| 2 卡 | `8361015e-f1d6-4ad7-8c3c-6f3680354fa1` | `/home/wangcong/omnirt_flashhead_bench/outputs/flashhead_bench_20260428_180909` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; `blackdetect` / `freezedetect` 未输出告警 |
-| 4 卡 | `79ebe868-609a-4f5f-a571-6366d984aeb2` | `/home/wangcong/omnirt_flashhead_bench/outputs/flashhead_bench_20260428_181056` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; `blackdetect` / `freezedetect` 未输出告警 |
+| 2 卡 | `8361015e-f1d6-4ad7-8c3c-6f3680354fa1` | `outputs/flashhead_bench_20260428_180909` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; `blackdetect` / `freezedetect` 未输出告警 |
+| 4 卡 | `79ebe868-609a-4f5f-a571-6366d984aeb2` | `outputs/flashhead_bench_20260428_181056` | `ffprobe`: `512x512 / 25 FPS / 10.0s / 250 frames`; `blackdetect` / `freezedetect` 未输出告警 |
 
 ## 已知注意点
 
-- 远端运行 OmniRT CLI 需要 `protobuf` 和 `grpcio`；本次在 `/home/wangcong/liveact-venv` 中通过清华源补装。
+- 远端运行 OmniRT CLI 需要 `protobuf` 和 `grpcio`；本次在 `/path/to/flashhead-venv` 中通过清华源补装。
 - 当前文档记录的是 OmniRT `subprocess` 冷启动链路，不代表服务化热态时延。
 - `latent_carry=false` 是默认质量档；`latent_carry=true` 虽可减少部分 VAE encode 开销，但参考适配记录里存在风格漂移，不作为默认展示配置。
 

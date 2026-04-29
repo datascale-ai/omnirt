@@ -75,13 +75,13 @@
 
 ## 实时 WebSocket 接入
 
-上面的 `generate` / HTTP 示例适合离线生成 MP4。如果要把 OmniRT 作为实时数字人模型服务接到 [OpenTalking](https://github.com/zyairehhh/opentalking) 等前端，可以启动 FlashTalk 兼容 WebSocket：
+上面的 `generate` / HTTP 示例适合离线生成 MP4。如果要把 OmniRT 作为实时数字人模型服务接到 [OpenTalking](https://github.com/zyairehhh/opentalking) 等前端，需要先准备外部 SoulX-FlashTalk checkout、模型权重、wav2vec 权重、FlashTalk Python 环境和 Ascend/CANN 环境脚本，再启动 FlashTalk 兼容 WebSocket：
 
 ```bash
 bash scripts/start_flashtalk_ws.sh
 ```
 
-完整配置见 [FlashTalk 兼容 WebSocket](../serving/flashtalk_ws.md)。OpenTalking 侧保持 `OPENTALKING_FLASHTALK_MODE=remote`，并把 `OPENTALKING_FLASHTALK_WS_URL` 指向 OmniRT 服务即可。
+完整配置和启动前检查见 [FlashTalk 兼容 WebSocket](../serving/flashtalk_ws.md)。OpenTalking 侧保持 `OPENTALKING_FLASHTALK_MODE=remote`，并把 `OPENTALKING_FLASHTALK_WS_URL` 指向 OmniRT 服务即可。
 
 ## FlashHead Ascend 推荐配置
 

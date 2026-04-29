@@ -57,6 +57,47 @@ require_env() {
   fi
 }
 
+require_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -f "$path" ]]; then
+    echo "error: $label not found: $path" >&2
+    exit 2
+  fi
+}
+
+require_dir() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -d "$path" ]]; then
+    echo "error: $label not found: $path" >&2
+    exit 2
+  fi
+}
+
+require_executable() {
+  local path="$1"
+  local label="$2"
+  if [[ "$path" == */* ]]; then
+    if [[ ! -x "$path" ]]; then
+      echo "error: $label is not executable: $path" >&2
+      exit 2
+    fi
+  elif ! command -v "$path" >/dev/null 2>&1; then
+    echo "error: $label command not found in PATH: $path" >&2
+    exit 2
+  fi
+}
+
+resolve_repo_relative() {
+  local value="$1"
+  if [[ "$value" = /* ]]; then
+    printf '%s\n' "$value"
+  else
+    printf '%s\n' "$REPO_PATH/$value"
+  fi
+}
+
 require_env OMNIRT_FLASHTALK_REPO_PATH
 
 HOST="${OMNIRT_FLASHTALK_HOST:-0.0.0.0}"
@@ -69,6 +110,25 @@ ENTRYPOINT="${OMNIRT_FLASHTALK_ENTRYPOINT:-lightweight}"
 PYTHON_BIN="${OMNIRT_FLASHTALK_PYTHON:-python}"
 TORCHRUN_BIN="${OMNIRT_FLASHTALK_TORCHRUN:-torchrun}"
 CMD_DIR="${OMNIRT_FLASHTALK_CMD_DIR:-$ROOT/outputs/flashtalk-cmd}"
+
+if [[ ! "$NPROC_PER_NODE" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: OMNIRT_FLASHTALK_NPROC_PER_NODE must be a positive integer, got: $NPROC_PER_NODE" >&2
+  exit 2
+fi
+require_dir "$REPO_PATH" "FlashTalk repository"
+require_file "$REPO_PATH/flashtalk_server.py" "FlashTalk server"
+require_dir "$(resolve_repo_relative "$CKPT_DIR")" "FlashTalk checkpoint directory"
+require_dir "$(resolve_repo_relative "$WAV2VEC_DIR")" "FlashTalk wav2vec directory"
+if [[ -n "${OMNIRT_FLASHTALK_ENV_SCRIPT:-}" ]]; then
+  require_file "$OMNIRT_FLASHTALK_ENV_SCRIPT" "Ascend/CANN environment script"
+fi
+if [[ -n "${OMNIRT_FLASHTALK_VENV_ACTIVATE:-}" ]]; then
+  require_file "$OMNIRT_FLASHTALK_VENV_ACTIVATE" "FlashTalk virtualenv activate script"
+fi
+require_executable "$PYTHON_BIN" "Python"
+if [[ "$NPROC_PER_NODE" =~ ^[0-9]+$ && "$NPROC_PER_NODE" -gt 1 ]]; then
+  require_executable "$TORCHRUN_BIN" "torchrun"
+fi
 
 if [[ -n "${OMNIRT_FLASHTALK_ENV_SCRIPT:-}" ]]; then
   # Some vendor runtimes, especially Ascend/CANN, require LD_LIBRARY_PATH and related variables.
