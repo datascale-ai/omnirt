@@ -157,6 +157,7 @@ Real end-to-end generation still depends on the target hardware stack, runtime l
 - `cosyvoice3-triton-trtllm` is wired into `text2audio` and generates WAV audio through the official Triton / TensorRT-LLM route
 - `image2image` is publicly supported; `sdxl-refiner-1.0` already has CUDA and Ascend smoke entry points, pending verified local model directories
 - Editing models such as `flux-fill`, `flux-kontext`, `qwen-image-edit`, and `qwen-image-edit-plus` have smoke-test entry points pending verified local model directories
+- `soulx-flashtalk-14b` can serve OpenTalking-style realtime avatar clients through the [FlashTalk-compatible WebSocket](./docs/user_guide/serving/flashtalk_ws.en.md) path; for 910B hosts, follow the FlashTalk WebSocket startup walkthrough in that guide
 - The broader roadmap lives in [docs/user_guide/models/roadmap.en.md](./docs/user_guide/models/roadmap.en.md)
 
 ## 🚢 Deployment Topologies

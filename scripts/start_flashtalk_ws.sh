@@ -30,9 +30,14 @@ Optional quantization environment:
   OMNIRT_FLASHTALK_WAN_QUANT_INCLUDE
   OMNIRT_FLASHTALK_WAN_QUANT_EXCLUDE
 
-Example:
-  OMNIRT_FLASHTALK_REPO_PATH=/srv/SoulX-FlashTalk \\
-  OMNIRT_FLASHTALK_TORCHRUN=/opt/flashtalk/bin/torchrun \\
+910B example using an external FlashTalk checkout and virtual environment:
+  cd /path/to/omnirt
+  OMNIRT_FLASHTALK_REPO_PATH=/path/to/SoulX-FlashTalk \\
+  OMNIRT_FLASHTALK_ENV_SCRIPT=/path/to/Ascend/ascend-toolkit/set_env.sh \\
+  OMNIRT_FLASHTALK_VENV_ACTIVATE=/path/to/flashtalk-venv/bin/activate \\
+  OMNIRT_FLASHTALK_PYTHON=/path/to/flashtalk-venv/bin/python \\
+  OMNIRT_FLASHTALK_TORCHRUN=/path/to/flashtalk-venv/bin/torchrun \\
+  OMNIRT_FLASHTALK_NPROC_PER_NODE=8 \\
   bash scripts/start_flashtalk_ws.sh
 USAGE
 }

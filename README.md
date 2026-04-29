@@ -157,6 +157,7 @@ omnirt models
 - `cosyvoice3-triton-trtllm` 已接入 `text2audio`，通过官方 Triton / TensorRT-LLM 路线生成 WAV 音频
 - `image2image` 已正式公开；`sdxl-refiner-1.0` 已具备 smoke 用例，真机验证仍在进行中
 - `flux-fill`、`flux-kontext`、`qwen-image-edit`、`qwen-image-edit-plus` 等编辑模型已经接入 smoke 入口，待补齐已验证的本地模型目录
+- `soulx-flashtalk-14b` 可通过 [FlashTalk 兼容 WebSocket](./docs/user_guide/serving/flashtalk_ws.md) 接入 OpenTalking 等实时数字人链路；910B 环境建议参考文档中的 FlashTalk WebSocket 启动流程
 - 更完整的路线图见 [docs/user_guide/models/roadmap.md](./docs/user_guide/models/roadmap.md)
 
 ## 🚢 部署形态
