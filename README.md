@@ -1,7 +1,7 @@
 # OmniRT
 
 <p align="center">
-  <strong>面向 CUDA 与 Ascend 后端的统一图像 / 视频 / 数字人生成运行时</strong>
+  <strong>面向数字人链路的多模态生成推理框架</strong>
 </p>
 
 <p align="center">
@@ -21,14 +21,16 @@
 
 ---
 
-OmniRT 是一个开源的多模态生成运行时，把 **文本→图像 / 图像→图像 / 文本→音频 / 文本→视频 / 图像→视频 / 音频→数字人** 等任务统一到同一套请求契约、同一组 CLI / Python API / HTTP 服务，以及可替换的硬件后端之上。切换不同模型家族时，你**不需要**重新适应一整套新的运行时接口。
+OmniRT 是一个面向数字人链路的开源多模态生成推理框架，围绕实时数字人对话、音频驱动视频生成、语音生成、角色资产生成、视频素材生产和后处理能力，提供统一请求契约、实时推理协议、常驻 worker、跨 CUDA / Ascend 后端部署，以及与 OpenTalking 的端到端集成。它不是通用 any-to-any 多模态 serving，而是数字人系统里的模型推理底座。
 
 ## ✨ 核心亮点
 
-- **统一请求契约** — `GenerateRequest`、`GenerateResult`、`RunReport` 三个对象覆盖全部任务面
+- **数字人链路优先** — 核心覆盖 talking avatar、TTS、角色资产、idle 视频素材与后处理路线图
+- **统一请求契约** — `GenerateRequest`、`GenerateResult`、`RunReport` 三个对象覆盖 batch 生成任务面
+- **实时数字人协议** — FlashTalk-compatible WebSocket 兼容 OpenTalking，OmniRT Native Realtime Avatar WebSocket 面向新集成
 - **跨后端运行时** — 同一份请求可在 `cuda` / `ascend` / `cpu-stub` 上完成校验与执行
 - **三种入口** — Python API、CLI (`omnirt generate / validate / models`)、FastAPI 服务
-- **50+ 已注册模型** — 覆盖 Stable Diffusion / FLUX / Qwen-Image / CosyVoice / Wan / SVD / Hunyuan / SoulX 等图像、语音、视频与数字人路径
+- **50+ 已注册模型** — 作为数字人链路的资产生成、语音生成、视频素材和核心渲染能力池
 - **产物标准化** — 图像统一导出为 PNG，音频统一导出为 WAV，视频统一导出为 MP4，每次运行都会生成一份 `RunReport`
 - **离线与国内环境友好** — 同时支持本地目录、Hugging Face、ModelScope、Modelers 快照
 - **LoRA 灵活加载** — 本地 safetensors 与 `hf://` 单文件引用并存
@@ -125,7 +127,7 @@ omnirt generate request.yaml --backend cuda --out ./out
 
 CLI 参考见 [docs/cli_reference/index.md](./docs/cli_reference/index.md)。
 
-## 🧩 已支持模型
+## 🧩 数字人链路模型矩阵
 
 权威清单由 registry 实时生成，建议以 CLI 输出为准：
 
@@ -135,19 +137,13 @@ omnirt models
 
 对应的文档镜像见 [docs/user_guide/models/supported_models.md](./docs/user_guide/models/supported_models.md)，当前接入快照见 [support_status.md](./docs/user_guide/models/support_status.md)。
 
-| 任务 / 类别 | 当前 registry id |
+| 链路分层 | 代表模型 |
 |---|---|
-| `text2image` | `bria-3.2`, `flux-dev`, `flux-schnell`, `flux2.dev`, `glm-image`, `hidream-i1`, `hunyuan-image-2.1`, `kolors`, `lumina-t2x`, `omnigen`, `ovis-image`, `pixart-sigma`, `qwen-image`, `sana-1.6b`, `sd15`, `sd21`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `sdxl-base-1.0`, `sdxl-turbo` |
-| `text2audio` | `cosyvoice3-triton-trtllm` |
-| `image2image` | `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-refiner-1.0` |
-| `inpaint` | `flux-fill`, `sd15`, `sd21`, `sdxl-base-1.0` |
-| `edit` | `chronoedit`, `flux-canny`, `flux-depth`, `flux-kontext`, `qwen-image-edit`, `qwen-image-edit-plus`, `qwen-image-layered` |
-| `text2video` | `animate-diff-sdxl`, `cogvideox-2b`, `cogvideox-5b`, `helios-t2v`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `kandinsky5-t2v`, `ltx-video`, `mochi`, `sana-video`, `skyreels-v2`, `wan2.1-t2v-14b`, `wan2.2-t2v-14b` |
-| `image2video` | `helios-i2v`, `hunyuan-video-1.5-i2v`, `kandinsky5-i2v`, `ltx2-i2v`, `svd`, `svd-xt`, `wan2.1-i2v-14b`, `wan2.2-i2v-14b` |
-| `audio2video` | `soulx-flashhead-1.3b`, `soulx-flashtalk-14b`, `soulx-liveact-14b` |
-
-同一模型 ID 可能支持多个任务，上表按 registry 中的模型-任务注册关系展开。
-别名：`flux2-dev` 指向 `flux2.dev`。
+| 核心数字人渲染 | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b` |
+| 语音生成 | `cosyvoice3-triton-trtllm` |
+| 角色资产生成 | `sdxl-base-1.0`, `sd15`, `sd21`, `flux-*`, `flux2.dev`, `qwen-image`, `qwen-image-edit*`, `chronoedit` 等 |
+| 视频 / idle 素材 | `svd`, `svd-xt`, `wan*`, `hunyuan-video*`, `ltx-video`, `skyreels-v2` 等 |
+| 语音理解与后处理 | roadmap：Whisper / Paraformer / SenseVoice、GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting 等 |
 
 `image2image` 的推荐起点是 `sdxl-base-1.0`、`sdxl-refiner-1.0`、`sd15`、`sd21`。
 

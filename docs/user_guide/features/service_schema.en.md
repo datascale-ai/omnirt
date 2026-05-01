@@ -114,6 +114,15 @@ These compatibility routes are currently available:
 
 `POST /v1/audio/speech` is currently reserved and returns `501`.
 
+## Realtime avatar WebSockets
+
+OmniRT exposes two realtime avatar entry points:
+
+- `WS /v1/avatar/flashtalk`: FlashTalk-compatible layer for existing OpenTalking clients. `/` is also an alias for deployments such as `ws://127.0.0.1:8765`.
+- `WS /v1/avatar/realtime`: OmniRT Native Realtime Avatar protocol for new integrations, with `session_id`, `trace_id`, structured errors, and chunk metrics.
+
+Both paths reuse the `AUDI` / `VIDX` binary framing. See [FlashTalk WebSocket](../serving/flashtalk_ws.md) and [Realtime Avatar WebSocket](../serving/realtime_avatar_ws.md).
+
 ## Related
 
 - [HTTP Server](../serving/http_server.md)

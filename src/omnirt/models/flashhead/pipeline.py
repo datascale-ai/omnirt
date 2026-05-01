@@ -106,6 +106,8 @@ class FlashHeadLaunchConfig:
         adapter_kinds=(),
         artifact_kind="video",
         maturity="beta",
+        chain_role="avatar-render",
+        realtime=False,
         summary="SoulX-FlashHead low-latency talking-head generation via image plus audio.",
         example=(
             "OMNIRT_FLASHHEAD_REPO_PATH=/path/to/SoulX-FlashHead "

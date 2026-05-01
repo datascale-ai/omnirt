@@ -121,6 +121,8 @@ class FlashTalkLaunchConfig:
         adapter_kinds=(),
         artifact_kind="video",
         maturity="beta",
+        chain_role="avatar-render",
+        realtime=True,
         summary="SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend.",
         example=(
             "OMNIRT_FLASHTALK_REPO_PATH=/path/to/SoulX-FlashTalk "

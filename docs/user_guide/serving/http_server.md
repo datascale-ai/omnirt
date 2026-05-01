@@ -53,6 +53,9 @@ omnirt serve \
 | `POST` | `/v1/images/edits` | OpenAI 兼容图像编辑 |
 | `POST` | `/v1/videos/generations` | OpenAI 兼容视频生成 |
 | `WS` | `/v1/realtime` | OpenAI Realtime 最小子集 |
+| `WS` | `/` | FlashTalk-compatible 根路径别名，适配 `ws://127.0.0.1:8765` |
+| `WS` | `/v1/avatar/flashtalk` | FlashTalk-compatible 数字人实时入口 |
+| `WS` | `/v1/avatar/realtime` | OmniRT 原生 Realtime Avatar 入口 |
 
 `POST /v1/jobs` 当前保留，不作为提交入口。
 

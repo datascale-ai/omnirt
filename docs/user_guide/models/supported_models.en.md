@@ -6,100 +6,82 @@
 This page is generated from the live registry by `scripts/generate_models_doc.py`.
 Update the registry, not this file.
 
-## Text to image
+Models are organized by the digital-human production chain rather than by a generic multimodal taxonomy.
 
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `bria-3.2` | beta | Bria 3.2 commercial-ready text-to-image pipeline. |
-| `flux-dev` | stable | Flux 1 dev text-to-image pipeline. |
-| `flux-schnell` | stable | Flux 1 schnell low-step text-to-image pipeline. |
-| `flux2.dev` | beta | Flux 2 dev text-to-image pipeline. |
-| `glm-image` | beta | GLM-Image instruction-following text-to-image pipeline. |
-| `hidream-i1` | beta | HiDream-I1 modern text-to-image pipeline. |
-| `hunyuan-image-2.1` | beta | Hunyuan Image 2.1 text-to-image pipeline. |
-| `kolors` | beta | Kolors multilingual text-to-image pipeline. |
-| `lumina-t2x` | beta | Lumina-T2X text-to-image pipeline via the LuminaPipeline runtime. |
-| `omnigen` | beta | OmniGen text-to-image generation path. |
-| `ovis-image` | beta | Ovis-Image text-heavy generation pipeline. |
-| `pixart-sigma` | beta | PixArt-Sigma high-resolution text-to-image pipeline. |
-| `qwen-image` | beta | Qwen-Image multilingual text-to-image pipeline. |
-| `sana-1.6b` | beta | Sana 1.6B efficient text-to-image pipeline. |
-| `sd15` | beta | Stable Diffusion 1.5 baseline text-to-image pipeline. |
-| `sd21` | beta | Stable Diffusion 2.1 text-to-image pipeline. |
-| `sd3-medium` | beta | Stable Diffusion 3 Medium text-to-image pipeline. |
-| `sd3.5-large` | beta | Stable Diffusion 3.5 Large text-to-image pipeline. |
-| `sd3.5-large-turbo` | beta | Stable Diffusion 3.5 Large Turbo text-to-image pipeline. |
-| `sdxl-base-1.0` | stable | SDXL base text-to-image pipeline with LoRA support. |
-| `sdxl-turbo` | beta | SDXL Turbo low-latency text-to-image pipeline. |
+## Core avatar rendering
 
-## Text to audio
+| Registry id | Task | Maturity | Realtime | Summary |
+|---|---|---|---|---|
+| `soulx-flashhead-1.3b` | `audio2video` | beta | no | SoulX-FlashHead low-latency talking-head generation via image plus audio. |
+| `soulx-flashtalk-14b` | `audio2video` | beta | yes | SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend. |
+| `soulx-liveact-14b` | `audio2video` | beta | no | SoulX-LiveAct long-form audio-driven avatar video generation on Ascend. |
 
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `cosyvoice3-triton-trtllm` | beta | CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route. |
+## Voice generation
 
-## Text to video
+| Registry id | Task | Maturity | Realtime | Summary |
+|---|---|---|---|---|
+| `cosyvoice3-triton-trtllm` | `text2audio` | beta | no | CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route. |
 
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `animate-diff-sdxl` | beta | AnimateDiff SDXL text-to-video pipeline. |
-| `cogvideox-2b` | beta | CogVideoX 2B text-to-video pipeline. |
-| `cogvideox-5b` | beta | CogVideoX 5B text-to-video pipeline. |
-| `helios-t2v` | beta | Helios text-to-video pipeline. |
-| `hunyuan-video` | beta | HunyuanVideo text-to-video pipeline. |
-| `hunyuan-video-1.5-t2v` | beta | HunyuanVideo 1.5 text-to-video pipeline. |
-| `kandinsky5-t2v` | beta | Kandinsky 5 Pro text-to-video pipeline. |
-| `ltx-video` | beta | LTX-Video text-to-video pipeline. |
-| `mochi` | beta | Mochi text-to-video pipeline. |
-| `sana-video` | beta | Sana-Video efficient text-to-video pipeline. |
-| `skyreels-v2` | beta | SkyReels-V2 text-to-video pipeline. |
-| `wan2.1-t2v-14b` | beta | Wan 2.1 text-to-video pipeline. |
-| `wan2.2-t2v-14b` | beta | Wan 2.2 text-to-video pipeline. |
+## Avatar asset generation
 
-## Image to video
+| Registry id | Task | Maturity | Realtime | Summary |
+|---|---|---|---|---|
+| `chronoedit` | `edit` | beta | no | ChronoEdit physically-consistent image editing pipeline. |
+| `flux-canny` | `edit` | beta | no | Flux canny-guided structured image generation pipeline. |
+| `flux-depth` | `edit` | beta | no | Flux depth-guided structured image generation pipeline. |
+| `flux-kontext` | `edit` | beta | no | Flux Kontext image editing pipeline. |
+| `qwen-image-edit` | `edit` | beta | no | Qwen-Image single-image editing pipeline. |
+| `qwen-image-edit-plus` | `edit` | beta | no | Qwen-Image multi-reference editing pipeline. |
+| `qwen-image-layered` | `edit` | beta | no | Qwen-Image layered decomposition pipeline. |
+| `sdxl-refiner-1.0` | `image2image` | beta | no | SDXL refiner image-to-image pipeline for second-stage refinement passes. |
+| `flux-fill` | `inpaint` | beta | no | Flux Fill inpainting and outpainting pipeline. |
+| `bria-3.2` | `text2image` | beta | no | Bria 3.2 commercial-ready text-to-image pipeline. |
+| `flux-dev` | `text2image` | stable | no | Flux 1 dev text-to-image pipeline. |
+| `flux-schnell` | `text2image` | stable | no | Flux 1 schnell low-step text-to-image pipeline. |
+| `flux2.dev` | `text2image` | beta | no | Flux 2 dev text-to-image pipeline. |
+| `glm-image` | `text2image` | beta | no | GLM-Image instruction-following text-to-image pipeline. |
+| `hidream-i1` | `text2image` | beta | no | HiDream-I1 modern text-to-image pipeline. |
+| `hunyuan-image-2.1` | `text2image` | beta | no | Hunyuan Image 2.1 text-to-image pipeline. |
+| `kolors` | `text2image` | beta | no | Kolors multilingual text-to-image pipeline. |
+| `lumina-t2x` | `text2image` | beta | no | Lumina-T2X text-to-image pipeline via the LuminaPipeline runtime. |
+| `omnigen` | `text2image` | beta | no | OmniGen text-to-image generation path. |
+| `ovis-image` | `text2image` | beta | no | Ovis-Image text-heavy generation pipeline. |
+| `pixart-sigma` | `text2image` | beta | no | PixArt-Sigma high-resolution text-to-image pipeline. |
+| `qwen-image` | `text2image` | beta | no | Qwen-Image multilingual text-to-image pipeline. |
+| `sana-1.6b` | `text2image` | beta | no | Sana 1.6B efficient text-to-image pipeline. |
+| `sd15` | `text2image` | beta | no | Stable Diffusion 1.5 baseline text-to-image pipeline. |
+| `sd21` | `text2image` | beta | no | Stable Diffusion 2.1 text-to-image pipeline. |
+| `sd3-medium` | `text2image` | beta | no | Stable Diffusion 3 Medium text-to-image pipeline. |
+| `sd3.5-large` | `text2image` | beta | no | Stable Diffusion 3.5 Large text-to-image pipeline. |
+| `sd3.5-large-turbo` | `text2image` | beta | no | Stable Diffusion 3.5 Large Turbo text-to-image pipeline. |
+| `sdxl-base-1.0` | `text2image` | stable | no | SDXL base text-to-image pipeline with LoRA support. |
+| `sdxl-turbo` | `text2image` | beta | no | SDXL Turbo low-latency text-to-image pipeline. |
 
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `helios-i2v` | beta | Helios image-to-video pipeline. |
-| `hunyuan-video-1.5-i2v` | beta | HunyuanVideo 1.5 image-to-video pipeline. |
-| `kandinsky5-i2v` | beta | Kandinsky 5 Pro image-to-video pipeline. |
-| `ltx2-i2v` | beta | LTX image-to-video pipeline. |
-| `svd` | stable | Stable Video Diffusion base image-to-video pipeline. |
-| `svd-xt` | stable | Stable Video Diffusion XT image-to-video pipeline. |
-| `wan2.1-i2v-14b` | beta | Wan 2.1 image-to-video pipeline. |
-| `wan2.2-i2v-14b` | beta | Wan 2.2 image-to-video pipeline. |
+## Video and idle assets
 
-## Audio to video
-
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `soulx-flashhead-1.3b` | beta | SoulX-FlashHead low-latency talking-head generation via image plus audio. |
-| `soulx-flashtalk-14b` | beta | SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend. |
-| `soulx-liveact-14b` | beta | SoulX-LiveAct long-form audio-driven avatar video generation on Ascend. |
-
-## Image to image
-
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `sdxl-refiner-1.0` | beta | SDXL refiner image-to-image pipeline for second-stage refinement passes. |
-
-## Inpainting
-
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `flux-fill` | beta | Flux Fill inpainting and outpainting pipeline. |
-
-## Image editing
-
-| Registry id | Maturity | Summary |
-|---|---|---|
-| `chronoedit` | beta | ChronoEdit physically-consistent image editing pipeline. |
-| `flux-canny` | beta | Flux canny-guided structured image generation pipeline. |
-| `flux-depth` | beta | Flux depth-guided structured image generation pipeline. |
-| `flux-kontext` | beta | Flux Kontext image editing pipeline. |
-| `qwen-image-edit` | beta | Qwen-Image single-image editing pipeline. |
-| `qwen-image-edit-plus` | beta | Qwen-Image multi-reference editing pipeline. |
-| `qwen-image-layered` | beta | Qwen-Image layered decomposition pipeline. |
+| Registry id | Task | Maturity | Realtime | Summary |
+|---|---|---|---|---|
+| `helios-i2v` | `image2video` | beta | no | Helios image-to-video pipeline. |
+| `hunyuan-video-1.5-i2v` | `image2video` | beta | no | HunyuanVideo 1.5 image-to-video pipeline. |
+| `kandinsky5-i2v` | `image2video` | beta | no | Kandinsky 5 Pro image-to-video pipeline. |
+| `ltx2-i2v` | `image2video` | beta | no | LTX image-to-video pipeline. |
+| `svd` | `image2video` | stable | no | Stable Video Diffusion base image-to-video pipeline. |
+| `svd-xt` | `image2video` | stable | no | Stable Video Diffusion XT image-to-video pipeline. |
+| `wan2.1-i2v-14b` | `image2video` | beta | no | Wan 2.1 image-to-video pipeline. |
+| `wan2.2-i2v-14b` | `image2video` | beta | no | Wan 2.2 image-to-video pipeline. |
+| `animate-diff-sdxl` | `text2video` | beta | no | AnimateDiff SDXL text-to-video pipeline. |
+| `cogvideox-2b` | `text2video` | beta | no | CogVideoX 2B text-to-video pipeline. |
+| `cogvideox-5b` | `text2video` | beta | no | CogVideoX 5B text-to-video pipeline. |
+| `helios-t2v` | `text2video` | beta | no | Helios text-to-video pipeline. |
+| `hunyuan-video` | `text2video` | beta | no | HunyuanVideo text-to-video pipeline. |
+| `hunyuan-video-1.5-t2v` | `text2video` | beta | no | HunyuanVideo 1.5 text-to-video pipeline. |
+| `kandinsky5-t2v` | `text2video` | beta | no | Kandinsky 5 Pro text-to-video pipeline. |
+| `ltx-video` | `text2video` | beta | no | LTX-Video text-to-video pipeline. |
+| `mochi` | `text2video` | beta | no | Mochi text-to-video pipeline. |
+| `sana-video` | `text2video` | beta | no | Sana-Video efficient text-to-video pipeline. |
+| `skyreels-v2` | `text2video` | beta | no | SkyReels-V2 text-to-video pipeline. |
+| `wan2.1-t2v-14b` | `text2video` | beta | no | Wan 2.1 text-to-video pipeline. |
+| `wan2.2-t2v-14b` | `text2video` | beta | no | Wan 2.2 text-to-video pipeline. |
 
 ## Aliases
 

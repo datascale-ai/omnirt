@@ -165,6 +165,8 @@ class LiveActLaunchConfig:
         adapter_kinds=(),
         artifact_kind="video",
         maturity="beta",
+        chain_role="avatar-render",
+        realtime=False,
         summary="SoulX-LiveAct long-form audio-driven avatar video generation on Ascend.",
         example=(
             "OMNIRT_LIVEACT_REPO_PATH=/path/to/SoulX-LiveAct "

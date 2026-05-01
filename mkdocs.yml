@@ -95,7 +95,7 @@ plugins:
           name: 简体中文
           link: /
           site_name: OmniRT
-          site_description: 面向 CUDA 与 Ascend 后端的开源图像、视频与音频数字人生成运行时。
+          site_description: 面向数字人链路的多模态生成推理框架，支持 CUDA 与 Ascend 后端。
           theme:
             language: zh
         - locale: en
@@ -103,7 +103,7 @@ plugins:
           name: English
           link: /en/
           site_name: OmniRT
-          site_description: Open image, video, and audio-driven avatar generation runtime with CUDA and Ascend backends.
+          site_description: Multimodal generation inference framework for the digital-human chain with CUDA and Ascend backends.
           theme:
             language: en
           nav:
@@ -126,6 +126,7 @@ plugins:
                     - Python API: user_guide/serving/python_api.md
                     - HTTP Server: user_guide/serving/http_server.md
                     - FlashTalk WebSocket: user_guide/serving/flashtalk_ws.md
+                    - Realtime Avatar WebSocket: user_guide/serving/realtime_avatar_ws.md
                 - Deployment:
                     - Overview: user_guide/deployment/index.md
                     - CUDA: user_guide/deployment/cuda.md
@@ -195,6 +196,7 @@ nav:
           - Python API: user_guide/serving/python_api.md
           - HTTP 服务: user_guide/serving/http_server.md
           - FlashTalk WebSocket: user_guide/serving/flashtalk_ws.md
+          - 实时数字人 WebSocket: user_guide/serving/realtime_avatar_ws.md
       - 部署指南:
           - 概览: user_guide/deployment/index.md
           - CUDA: user_guide/deployment/cuda.md

@@ -8,6 +8,8 @@ from omnirt.engine import Controller, GrpcWorkerClient, OmniEngine, WorkerEndpoi
 from omnirt.engine.redis_store import RedisJobStore
 from omnirt.server.auth import ApiKeyMiddleware, load_api_keys
 from omnirt.server.model_aliases import load_model_aliases
+from omnirt.server.realtime_avatar import RealtimeAvatarService
+from omnirt.server.routes.avatar import router as avatar_router
 from omnirt.server.routes.generate import router as generate_router
 from omnirt.server.routes.health import router as health_router
 from omnirt.server.routes.jobs import router as jobs_router
@@ -67,9 +69,11 @@ def create_app(
     app.state.default_backend = default_backend
     app.state.default_request_config = dict(default_request_config or {})
     app.state.model_aliases = load_model_aliases(model_aliases_path)
+    app.state.realtime_avatar_service = RealtimeAvatarService()
     app.add_middleware(ApiKeyMiddleware, api_keys=load_api_keys(api_key_file))
     app.include_router(health_router)
     app.include_router(generate_router)
     app.include_router(jobs_router)
+    app.include_router(avatar_router)
     app.include_router(openai_router)
     return app

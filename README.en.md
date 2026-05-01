@@ -1,7 +1,7 @@
 # OmniRT
 
 <p align="center">
-  <strong>Unified image / video / talking-avatar runtime for CUDA and Ascend</strong>
+  <strong>Multimodal generation inference framework for the digital-human chain</strong>
 </p>
 
 <p align="center">
@@ -21,14 +21,16 @@
 
 ---
 
-OmniRT is an open runtime that unifies **text→image / image→image / text→audio / text→video / image→video / audio→avatar** generation behind a single request contract, CLI / Python API / HTTP surface, and pluggable hardware backend. Switching model families does **not** require relearning the runtime.
+OmniRT is an open multimodal generation inference framework for the digital-human chain. It focuses on realtime avatar conversation, audio-driven avatar video, voice generation, avatar asset generation, video/idle asset generation, and post-processing, with a unified request contract, realtime inference protocols, resident workers, CUDA / Ascend deployment, and end-to-end OpenTalking integration. It is not a generic any-to-any multimodal serving stack; it is the model inference foundation for digital-human systems.
 
 ## ✨ Highlights
 
-- **Unified contract** — `GenerateRequest`, `GenerateResult`, `RunReport` cover every task surface
+- **Digital-human-chain first** — core coverage for talking avatars, TTS, avatar assets, idle video assets, and post-processing roadmap
+- **Unified contract** — `GenerateRequest`, `GenerateResult`, `RunReport` cover batch generation task surfaces
+- **Realtime avatar protocols** — FlashTalk-compatible WebSocket for OpenTalking compatibility, plus OmniRT Native Realtime Avatar WebSocket for new integrations
 - **Cross-backend** — the same request validates and runs on `cuda` / `ascend` / `cpu-stub`
 - **Three entry points** — Python API, CLI (`omnirt generate / validate / models`), FastAPI server
-- **50+ registered models** — image, speech, video, and talking-avatar paths across Stable Diffusion / FLUX / Qwen-Image / CosyVoice / Wan / SVD / Hunyuan / SoulX families
+- **50+ registered models** — organized as digital-human avatar rendering, voice generation, avatar assets, and video asset capabilities
 - **Standard artifacts** — PNG for images, WAV for audio, MP4 for videos, each run ships a `RunReport`
 - **Offline-friendly** — local directories, Hugging Face, ModelScope, Modelers snapshots all supported
 - **LoRA flexibility** — local safetensors and `hf://` single-file refs side by side
@@ -42,7 +44,7 @@ OmniRT is an open runtime that unifies **text→image / image→image / text→a
 |---|---|---|
 | `text2image` | prompt-driven image generation | PNG |
 | `image2image` | image-guided image generation | PNG |
-| `text2audio` | prompt-driven speech generation | WAV |
+| `text2audio` | prompt-driven voice generation | WAV |
 | `text2video` | prompt-driven video generation | MP4 |
 | `image2video` | first-frame-guided video generation | MP4 |
 | `audio2video` | audio-driven talking avatar generation | MP4 |
@@ -125,7 +127,7 @@ omnirt generate request.yaml --backend cuda --out ./out
 
 CLI reference: [docs/cli_reference/index.en.md](./docs/cli_reference/index.en.md).
 
-## 🧩 Supported Models
+## 🧩 Digital-Human Model Matrix
 
 The authoritative list is generated from the live registry. The fastest way to see it:
 
@@ -135,19 +137,13 @@ omnirt models
 
 A mirrored doc snapshot is at [docs/user_guide/models/supported_models.en.md](./docs/user_guide/models/supported_models.en.md); the integration snapshot lives in [support_status.en.md](./docs/user_guide/models/support_status.en.md).
 
-| Task / category | Current registry ids |
+| Chain layer | Examples |
 |---|---|
-| `text2image` | `bria-3.2`, `flux-dev`, `flux-schnell`, `flux2.dev`, `glm-image`, `hidream-i1`, `hunyuan-image-2.1`, `kolors`, `lumina-t2x`, `omnigen`, `ovis-image`, `pixart-sigma`, `qwen-image`, `sana-1.6b`, `sd15`, `sd21`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `sdxl-base-1.0`, `sdxl-turbo` |
-| `text2audio` | `cosyvoice3-triton-trtllm` |
-| `image2image` | `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-refiner-1.0` |
-| `inpaint` | `flux-fill`, `sd15`, `sd21`, `sdxl-base-1.0` |
-| `edit` | `chronoedit`, `flux-canny`, `flux-depth`, `flux-kontext`, `qwen-image-edit`, `qwen-image-edit-plus`, `qwen-image-layered` |
-| `text2video` | `animate-diff-sdxl`, `cogvideox-2b`, `cogvideox-5b`, `helios-t2v`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `kandinsky5-t2v`, `ltx-video`, `mochi`, `sana-video`, `skyreels-v2`, `wan2.1-t2v-14b`, `wan2.2-t2v-14b` |
-| `image2video` | `helios-i2v`, `hunyuan-video-1.5-i2v`, `kandinsky5-i2v`, `ltx2-i2v`, `svd`, `svd-xt`, `wan2.1-i2v-14b`, `wan2.2-i2v-14b` |
-| `audio2video` | `soulx-flashhead-1.3b`, `soulx-flashtalk-14b`, `soulx-liveact-14b` |
-
-The same model id can support multiple tasks; this table expands the model-task registrations in the registry.
-Alias: `flux2-dev` points to `flux2.dev`.
+| Core avatar rendering | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b` |
+| Voice generation | `cosyvoice3-triton-trtllm` |
+| Avatar asset generation | `sdxl-base-1.0`, `sd15`, `sd21`, `flux-*`, `flux2.dev`, `qwen-image`, `qwen-image-edit*`, `chronoedit`, and more |
+| Video / idle assets | `svd`, `svd-xt`, `wan*`, `hunyuan-video*`, `ltx-video`, `skyreels-v2`, and more |
+| Voice understanding and post-processing | roadmap: Whisper / Paraformer / SenseVoice, GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting |
 
 Recommended starting points for `image2image`: `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sd15`, `sd21`.
 

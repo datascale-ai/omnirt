@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "omnirt"
 version = "0.1.0a0"
-description = "Open image & video generation runtime with CUDA and Ascend backends."
+description = "Digital-human-chain multimodal generation inference framework with CUDA and Ascend backends."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
