@@ -22,6 +22,9 @@ class ModelCapabilities:
     example: str = ""
     alias_of: Optional[str] = None
     supports_batching: bool = True
+    domain: str = "digital-human"
+    chain_role: str = ""
+    realtime: bool = False
 
 
 @dataclass

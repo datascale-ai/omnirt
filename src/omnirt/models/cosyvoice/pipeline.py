@@ -59,6 +59,7 @@ class CosyVoiceTritonConfig:
         artifact_kind="audio",
         maturity="beta",
         supports_batching=False,
+        chain_role="voice-generation",
         summary="CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route.",
         example=(
             "omnirt generate --task text2audio --model cosyvoice3-triton-trtllm "

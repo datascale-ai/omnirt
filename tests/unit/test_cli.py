@@ -19,6 +19,16 @@ def test_build_parser_accepts_generate_command() -> None:
     assert args.config == "request.yaml"
 
 
+def test_build_parser_accepts_serve_avatar_ws_command() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["serve-avatar-ws", "--host", "0.0.0.0", "--port", "8765", "--compat", "flashtalk"])
+
+    assert args.command == "serve-avatar-ws"
+    assert args.host == "0.0.0.0"
+    assert args.port == 8765
+    assert args.compat == "flashtalk"
+
+
 def test_request_from_args_builds_text2image_request() -> None:
     parser = build_parser()
     args = parser.parse_args(
@@ -811,7 +821,7 @@ def test_main_models_text_output_includes_status(monkeypatch, capsys) -> None:
     assert "sd15\ttext2image\tpublic/beta\tStable Diffusion 1.5" in stdout
 
 
-def test_main_models_markdown_format_groups_by_task_and_lists_aliases(monkeypatch, capsys) -> None:
+def test_main_models_markdown_format_groups_by_digital_human_chain_and_lists_aliases(monkeypatch, capsys) -> None:
     sdxl = ModelSpec(
         id="sdxl-base-1.0",
         task="text2image",
@@ -850,15 +860,15 @@ def test_main_models_markdown_format_groups_by_task_and_lists_aliases(monkeypatc
 
     assert exit_code == 0
     assert "# OmniRT supported models" in stdout
-    assert "## Text to image" in stdout
-    assert "## Image to video" in stdout
-    assert "| `sdxl-base-1.0` | stable | SDXL base |" in stdout
-    assert "| `flux2.dev` | beta | Flux2 dev |" in stdout
+    assert "## Avatar asset generation" in stdout
+    assert "## Video and idle assets" in stdout
+    assert "| `sdxl-base-1.0` | `text2image` | stable | no | SDXL base |" in stdout
+    assert "| `flux2.dev` | `text2image` | beta | no | Flux2 dev |" in stdout
     assert "## Aliases" in stdout
     assert "| `flux2-dev` | `flux2.dev` |" in stdout
     # Alias rows must not appear in the task table.
-    text_to_image_section = stdout.split("## Image to video", 1)[0]
-    assert "| `flux2-dev` |" not in text_to_image_section
+    model_sections = stdout.split("## Aliases", 1)[0]
+    assert "| `flux2-dev` |" not in model_sections
 
 
 def test_main_model_detail_json_includes_supported_task_statuses(monkeypatch, capsys) -> None:
