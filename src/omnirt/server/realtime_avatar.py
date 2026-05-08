@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import io
+import os
 import struct
 import time
 import uuid
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from PIL import Image
 
@@ -74,8 +75,11 @@ class RealtimeAvatarSession:
     model: str
     backend: str
     prompt: str
+    image_bytes: bytes = b""
     audio: AvatarAudioSpec = field(default_factory=AvatarAudioSpec)
     video: AvatarVideoSpec = field(default_factory=AvatarVideoSpec)
+    enable_enhanced_postprocessing: bool = False
+    mouth_metadata: dict[str, Any] = field(default_factory=dict)
     chunk_index: int = 0
     cancelled: bool = False
     created_at: float = field(default_factory=time.monotonic)
@@ -86,6 +90,8 @@ class RealtimeAvatarSession:
             "trace_id": self.trace_id,
             "audio": self.audio.to_dict(),
             "video": self.video.to_dict(),
+            "enable_enhanced_postprocessing": self.enable_enhanced_postprocessing,
+            "mouth_metadata": self.mouth_metadata,
         }
 
 
@@ -132,6 +138,16 @@ def split_audio_payload(payload: bytes, expected_pcm_bytes: int) -> bytes:
             f"Expected {expected_pcm_bytes} bytes of pcm_s16le audio, got {len(pcm)}.",
         )
     return pcm
+
+
+def _as_bool(value: object, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 class FakeRealtimeAvatarRuntime:
@@ -189,14 +205,24 @@ class RealtimeAvatarService:
             channels=int(config.get("channels", 1)),
             chunk_samples=int(config.get("chunk_samples", video.slice_len * sample_rate // video.fps)),
         )
+        enhanced_default = _as_bool(os.getenv("OMNIRT_WAV2LIP_ENABLE_ENHANCED_POSTPROCESSING"), default=False)
+        mouth_metadata = config.get("mouth_metadata") or {}
+        if not isinstance(mouth_metadata, dict):
+            raise RealtimeAvatarError("bad_mouth_metadata", "mouth_metadata must be an object.")
         session = RealtimeAvatarSession(
             session_id=f"avt_{uuid.uuid4().hex}",
             trace_id=f"trace_{uuid.uuid4().hex}",
             model=model,
             backend=backend,
             prompt=prompt,
+            image_bytes=image_bytes,
             audio=audio,
             video=video,
+            enable_enhanced_postprocessing=_as_bool(
+                config.get("enable_enhanced_postprocessing"),
+                default=enhanced_default,
+            ),
+            mouth_metadata=mouth_metadata,
         )
         self._sessions[session.session_id] = session
         return session
@@ -222,6 +248,9 @@ class RealtimeAvatarService:
         session.cancelled = True
 
     def close_session(self, session_id: str) -> None:
+        close_session = getattr(self.runtime, "close_session", None)
+        if callable(close_session):
+            close_session(session_id)
         self._sessions.pop(session_id, None)
 
     def _get_session(self, session_id: str) -> RealtimeAvatarSession:

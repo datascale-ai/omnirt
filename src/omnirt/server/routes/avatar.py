@@ -27,11 +27,7 @@ def _decode_b64_image(value: Any) -> bytes:
         raise RealtimeAvatarError("bad_image_base64", "Reference image must be valid base64.") from exc
 
 
-@router.websocket("/")
-@router.websocket("/v1/avatar/flashtalk")
-async def flashtalk_compatible_avatar(websocket: WebSocket):
-    """FlashTalk-compatible WS used by current OpenTalking clients."""
-
+async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> None:
     await websocket.accept()
     service = websocket.app.state.realtime_avatar_service
     session_id: str | None = None
@@ -52,15 +48,28 @@ async def flashtalk_compatible_avatar(websocket: WebSocket):
                         service.close_session(session_id)
                         session_id = None
                     try:
+                        config = {
+                            "seed": int(payload.get("seed", 9999)),
+                            **dict(websocket.app.state.default_request_config),
+                        }
+                        if model == "wav2lip":
+                            for key in ("width", "height", "fps", "frame_num", "motion_frames_num", "slice_len"):
+                                if payload.get(key) is not None:
+                                    config[key] = payload.get(key)
+                            config.update(
+                                {
+                                    "enable_enhanced_postprocessing": payload.get(
+                                        "enable_enhanced_postprocessing"
+                                    ),
+                                    "mouth_metadata": payload.get("mouth_metadata") or {},
+                                }
+                            )
                         session = service.create_session(
-                            model="soulx-flashtalk-14b",
+                            model=model,
                             backend=websocket.app.state.default_backend,
                             image_bytes=_decode_b64_image(payload.get("ref_image")),
                             prompt=str(payload.get("prompt") or ""),
-                            config={
-                                "seed": int(payload.get("seed", 9999)),
-                                **dict(websocket.app.state.default_request_config),
-                            },
+                            config=config,
                         )
                     except RealtimeAvatarError as exc:
                         await websocket.send_json({"type": "error", "message": str(exc), "code": exc.code})
@@ -69,6 +78,8 @@ async def flashtalk_compatible_avatar(websocket: WebSocket):
                     await websocket.send_json(
                         {
                             "type": "init_ok",
+                            "model": session.model,
+                            "enable_enhanced_postprocessing": session.enable_enhanced_postprocessing,
                             "frame_num": session.video.frame_count,
                             "motion_frames_num": session.video.motion_frames_num,
                             "slice_len": session.video.slice_len,
@@ -99,6 +110,21 @@ async def flashtalk_compatible_avatar(websocket: WebSocket):
     finally:
         if session_id is not None:
             service.close_session(session_id)
+
+
+@router.websocket("/")
+@router.websocket("/v1/avatar/flashtalk")
+async def flashtalk_compatible_avatar(websocket: WebSocket):
+    """FlashTalk-compatible WS used by current OpenTalking clients."""
+
+    await _flashtalk_compatible_loop(websocket, model="soulx-flashtalk-14b")
+
+
+@router.websocket("/v1/avatar/wav2lip")
+async def wav2lip_compatible_avatar(websocket: WebSocket):
+    """Wav2Lip-compatible WS used by OpenTalking avatar synthesis."""
+
+    await _flashtalk_compatible_loop(websocket, model="wav2lip")
 
 
 @router.websocket("/v1/avatar/realtime")
