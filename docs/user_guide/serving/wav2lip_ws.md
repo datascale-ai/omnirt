@@ -2,7 +2,7 @@
 
 OmniRT 在 `model_backends/wav2lip/wav2lip_ws_server.py` 中提供与 **FlashTalk 相同** 的 WebSocket 协议（JSON `init` / `init_ok`，二进制 `AUDI` 音频块、`VIDX` JPEG 视频块），因此 **OpenTalking** 在 **`OPENTALKING_FLASHTALK_MODE=remote`** 下只需把 **`OPENTALKING_FLASHTALK_WS_URL`** 指向本服务，无需改客户端协议。
 
-实现细节、目录结构与冒烟测试见：[`model_backends/wav2lip/README.md`](../../../model_backends/wav2lip/README.md)。
+实现细节、目录结构与冒烟测试见：[`model_backends/wav2lip/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/wav2lip/README.md)。
 
 ---
 
@@ -189,5 +189,5 @@ bash scripts/start_wav2lip_ws.sh --help
 
 ## 相关链接
 
-- 后端入口与协议细节：[`model_backends/wav2lip/README.md`](../../../model_backends/wav2lip/README.md)
+- 后端入口与协议细节：[`model_backends/wav2lip/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/wav2lip/README.md)
 - FlashTalk（SoulX）WebSocket 文档（对照协议）：[`flashtalk_ws.md`](flashtalk_ws.md)

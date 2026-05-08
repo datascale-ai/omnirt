@@ -1,8 +1,8 @@
 # Wav2Lip WebSocket (FlashTalk protocol compatible)
 
-OmniRT exposes [`model_backends/wav2lip/wav2lip_ws_server.py`](../../../model_backends/wav2lip/wav2lip_ws_server.py) as a **FlashTalk-compatible** WebSocket server (JSON `init` / `init_ok`, binary `AUDI` audio chunks and `VIDX` JPEG video chunks). With **OpenTalking** set to **`OPENTALKING_FLASHTALK_MODE=remote`**, point **`OPENTALKING_FLASHTALK_WS_URL`** at this service—no client protocol changes are required.
+OmniRT exposes [`model_backends/wav2lip/wav2lip_ws_server.py`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/wav2lip/wav2lip_ws_server.py) as a **FlashTalk-compatible** WebSocket server (JSON `init` / `init_ok`, binary `AUDI` audio chunks and `VIDX` JPEG video chunks). With **OpenTalking** set to **`OPENTALKING_FLASHTALK_MODE=remote`**, point **`OPENTALKING_FLASHTALK_WS_URL`** at this service—no client protocol changes are required.
 
-Implementation details, layout, and smoke tests: [`model_backends/wav2lip/README.md`](../../../model_backends/wav2lip/README.md).
+Implementation details, layout, and smoke tests: [`model_backends/wav2lip/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/wav2lip/README.md).
 
 ---
 
@@ -186,5 +186,5 @@ Without `torch_npu` or when NPU is not selected, **`OMNIRT_WAV2LIP_DEVICE=auto`*
 
 ## See also
 
-- Backend entry and protocol notes: [`model_backends/wav2lip/README.md`](../../../model_backends/wav2lip/README.md)
+- Backend entry and protocol notes: [`model_backends/wav2lip/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/wav2lip/README.md)
 - SoulX FlashTalk WebSocket (same wire format): [`flashtalk_ws.en.md`](flashtalk_ws.en.md)

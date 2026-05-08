@@ -1,10 +1,10 @@
 # MuseTalk WebSocket (FlashTalk protocol compatible)
 
-OmniRT exposes [`model_backends/musetalk/musetalk_ws_server.py`](../../../model_backends/musetalk/musetalk_ws_server.py) with the **same WebSocket protocol** as FlashTalk / Wav2Lip WS (JSON `init` / `init_ok`, binary `AUDI` chunks, `VIDX` JPEG frames). Set **OpenTalking** to **`OPENTALKING_FLASHTALK_MODE=remote`** and point **`OPENTALKING_FLASHTALK_WS_URL`** here—no client protocol changes.
+OmniRT exposes [`model_backends/musetalk/musetalk_ws_server.py`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/musetalk_ws_server.py) with the **same WebSocket protocol** as FlashTalk / Wav2Lip WS (JSON `init` / `init_ok`, binary `AUDI` chunks, `VIDX` JPEG frames). Set **OpenTalking** to **`OPENTALKING_FLASHTALK_MODE=remote`** and point **`OPENTALKING_FLASHTALK_WS_URL`** here—no client protocol changes.
 
 Inference uses OpenTalking’s **MuseTalk v1.5** adapter (UNet / VAE / Whisper features, etc.). The server must resolve OpenTalking **`src`** on **`PYTHONPATH`** (the launcher defaults to `<omnirt>/../opentalking/src`; override with env vars).
 
-Directory layout, weights, and troubleshooting: [`model_backends/musetalk/README.md`](../../../model_backends/musetalk/README.md).
+Directory layout, weights, and troubleshooting: [`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md).
 
 ---
 
@@ -65,7 +65,7 @@ Graph compilation may still require **`attrs`**, **`psutil`**, **`PyYAML`**, etc
 ### 4. Weights and OpenTalking source
 
 - **Root directory:** default `<omnirt>/models`, controlled by **`OMNIRT_MUSETALK_MODELS_DIR`** (the server also sets **`OPENTALKING_MODELS_DIR`**).
-- Layout must satisfy OpenTalking **`resolve_musetalk_v15`** (`musetalk/`, `sd-vae-ft-mse/`, `whisper/tiny.pt`, …)—see [`model_backends/musetalk/README.md`](../../../model_backends/musetalk/README.md).
+- Layout must satisfy OpenTalking **`resolve_musetalk_v15`** (`musetalk/`, `sd-vae-ft-mse/`, `whisper/tiny.pt`, …)—see [`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md).
 - **`whisper/tiny.pt`** must be the official **OpenAI `openai-whisper`** checkpoint (~72 MB). Do not rename a Hugging Face `pytorch_model.bin` and expect it to work.
 
 ### 5. Inference variables (selection)
@@ -132,6 +132,6 @@ Set **`OMNIRT_MUSETALK_DEVICE=cuda`**, or keep **`auto`** on machines without NP
 
 ## See also
 
-- Backend details: [`model_backends/musetalk/README.md`](../../../model_backends/musetalk/README.md)
+- Backend details: [`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md)
 - Same protocol, lighter backend (Wav2Lip): [`wav2lip_ws.en.md`](wav2lip_ws.en.md)
 - SoulX FlashTalk WS reference: [`flashtalk_ws.en.md`](flashtalk_ws.en.md)

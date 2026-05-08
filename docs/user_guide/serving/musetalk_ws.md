@@ -4,7 +4,7 @@ OmniRT 在 `model_backends/musetalk/musetalk_ws_server.py` 中提供与 **FlashT
 
 推理使用 **OpenTalking** 内置的 MuseTalk v1.5 适配器（UNet / VAE / Whisper 特征等）；服务端需能通过 **`PYTHONPATH`** 找到 OpenTalking 的 `src`（启动脚本默认 `<omnirt>/../opentalking/src`，可用环境变量覆盖）。
 
-更完整的目录说明、权重布局与排错见：[`../../model_backends/musetalk/README.md`](../../model_backends/musetalk/README.md)。
+更完整的目录说明、权重布局与排错见：[`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md)。
 
 ---
 
@@ -65,7 +65,7 @@ pip install -r model_backends/musetalk/requirements-musetalk-ascend.txt
 ### 4. 模型权重与 OpenTalking 源码
 
 - **权重根目录**：默认 `<omnirt>/models`，对应环境变量 **`OMNIRT_MUSETALK_MODELS_DIR`**（服务端会同步设置 **`OPENTALKING_MODELS_DIR`**）。
-- **布局**须满足 OpenTalking `resolve_musetalk_v15`（`musetalk/`、`sd-vae-ft-mse/`、`whisper/tiny.pt` 等），详见 [`model_backends/musetalk/README.md`](../../model_backends/musetalk/README.md)。
+- **布局**须满足 OpenTalking `resolve_musetalk_v15`（`musetalk/`、`sd-vae-ft-mse/`、`whisper/tiny.pt` 等），详见 [`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md)。
 - **`whisper/tiny.pt`** 须为 **OpenAI `openai-whisper` 官方** 检查点（约 72MB），勿将 HuggingFace `pytorch_model.bin` 改名顶替。
 
 ### 5. 推理与常用环境变量（节选）
@@ -132,6 +132,6 @@ pip install -r model_backends/musetalk/requirements-musetalk-gpu.txt \
 
 ## 相关链接
 
-- 后端入口与权重细节：[`model_backends/musetalk/README.md`](../../model_backends/musetalk/README.md)
+- 后端入口与权重细节：[`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md)
 - 同协议轻量后端（Wav2Lip）：[`wav2lip_ws.md`](wav2lip_ws.md)
 - SoulX FlashTalk WebSocket（对照协议）：[`flashtalk_ws.md`](flashtalk_ws.md)
