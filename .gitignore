@@ -25,6 +25,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 outputs/
+models/
 MANIFEST
 
 # PyInstaller
@@ -217,3 +218,4 @@ PLAN.md
 # OmniRT runtime artifacts: venvs, cloned model repos, state, checkpoints.
 # Project-maintained patches live under model_backends/ and remain trackable.
 .omnirt/
+kernel_meta/

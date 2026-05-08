@@ -1,0 +1,14 @@
+# Minimal pip deps for model_backends/wav2lip/wav2lip_ws_server.py
+# Rudrabha/Wav2Lip/audio.py in this repo's clone is patched for librosa>=0.10
+# (librosa.filters.mel keyword-only); use that clone or apply the same one-line fix.
+# Also install Rudrabha/Wav2Lip/requirements.txt inside your runtime env.
+torch>=2.0
+numpy>=1.22
+opencv-python-headless>=4.8
+websockets>=12.0
+scipy>=1.10
+librosa>=0.10
+tqdm>=4.65
+# CPU-only quickstart: use this file.
+# Ascend NPU: use requirements-wav2lip-ascend.txt (+ CANN-matched torch/torch-npu wheels); see README.
+# Ascend 910: install CANN + the matching torch_npu wheel for your PyTorch (Huawei packages; not generic pip torch).
