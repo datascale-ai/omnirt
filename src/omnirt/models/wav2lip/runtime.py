@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 import tempfile
+import time
 from typing import Any
 
 import cv2
@@ -37,13 +39,21 @@ class Wav2LipRuntimeError(RuntimeError):
 
 
 @dataclass
-class _SessionState:
+class _PreparedFrame:
     base_frame: np.ndarray
     face_input: np.ndarray
     coords: tuple[int, int, int, int]
     geometry: MouthGeometry | None
+
+
+@dataclass
+class _SessionState:
+    prepared_frames: list[_PreparedFrame]
     emitted_frames: int = 0
     pcm_history: np.ndarray | None = None
+
+    def frame_at(self, index: int) -> _PreparedFrame:
+        return self.prepared_frames[index % len(self.prepared_frames)]
 
 
 class Wav2LipRealtimeRuntime:
@@ -88,6 +98,7 @@ class Wav2LipRealtimeRuntime:
         self._torch_bundle: dict[str, Any] | None = None
         self._face_detector: FaceAlignment | None = None
         self._sessions: dict[str, _SessionState] = {}
+        self._frame_sequence_cache: dict[str, list[_PreparedFrame]] = {}
 
     def render_chunk(self, session: RealtimeAvatarSession, pcm_s16le: bytes) -> bytes:
         state = self._session_state(session)
@@ -98,7 +109,11 @@ class Wav2LipRealtimeRuntime:
 
         current_pcm = np.frombuffer(pcm_s16le, dtype=np.int16).copy()
         history = state.pcm_history
-        total_pcm = current_pcm if history is None else np.concatenate((history, current_pcm)).astype(np.int16, copy=False)
+        total_pcm = (
+            current_pcm
+            if history is None
+            else np.concatenate((history, current_pcm)).astype(np.int16, copy=False)
+        )
         state.pcm_history = total_pcm
         mel_chunks = self._mel_chunks(
             total_pcm,
@@ -107,9 +122,14 @@ class Wav2LipRealtimeRuntime:
             start_frame=state.emitted_frames,
         )
         if not mel_chunks:
-            return encode_jpeg_sequence([self._encode_jpeg_bgr(state.base_frame)])
+            return encode_jpeg_sequence(
+                [self._encode_jpeg_bgr(state.frame_at(state.emitted_frames).base_frame)]
+            )
 
-        face_batch = np.repeat(state.face_input[None, ...], len(mel_chunks), axis=0)
+        prepared_for_chunk = [
+            state.frame_at(state.emitted_frames + idx) for idx in range(len(mel_chunks))
+        ]
+        face_batch = np.stack([frame.face_input for frame in prepared_for_chunk], axis=0)
         mel_batch = np.stack(mel_chunks, axis=0)
         img_tensor = torch.FloatTensor(np.transpose(face_batch, (0, 3, 1, 2))).to(self.device)
         mel_tensor = torch.FloatTensor(
@@ -121,34 +141,230 @@ class Wav2LipRealtimeRuntime:
                 end = min(len(mel_chunks), start + self.batch_size)
                 pred = model(mel_tensor[start:end], img_tensor[start:end])
                 pred_np = pred.detach().cpu().numpy().transpose(0, 2, 3, 1) * 255.0
-                for patch in pred_np:
-                    frames.append(self._compose_frame(state, patch, input_size, session.enable_enhanced_postprocessing))
+                for local_offset, patch in enumerate(pred_np):
+                    frames.append(
+                        self._compose_frame(
+                            prepared_for_chunk[start + local_offset],
+                            patch,
+                            input_size,
+                            session.enable_enhanced_postprocessing,
+                        )
+                    )
         state.emitted_frames += len(frames)
-        return encode_jpeg_sequence(frames or [self._encode_jpeg_bgr(state.base_frame)])
+        return encode_jpeg_sequence(
+            frames or [self._encode_jpeg_bgr(state.frame_at(state.emitted_frames).base_frame)]
+        )
 
     def close_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+
+    def preload_reference(self, session: RealtimeAvatarSession) -> dict[str, object]:
+        if session.reference_mode != "frames":
+            raise Wav2LipRuntimeError("Wav2Lip preload requires frame reference mode.")
+        frame_dir = Path(session.ref_frame_dir or "").expanduser().resolve()
+        frame_paths = sorted(
+            path
+            for path in frame_dir.iterdir()
+            if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+        )
+        max_frames = max(1, int(os.environ.get("OMNIRT_WAV2LIP_MAX_REFERENCE_FRAMES", "125")))
+        frame_paths = frame_paths[:max_frames]
+        cache_key = self._frame_sequence_cache_key(session, frame_paths)
+        cache_hit = cache_key in self._frame_sequence_cache
+        started = time.monotonic()
+        prepared = self._prepare_frame_sequence(session)
+        return {
+            "type": "preload_result",
+            "frames": len(prepared),
+            "elapsed_ms": round((time.monotonic() - started) * 1000.0, 3),
+            "cache_hit": cache_hit,
+        }
 
     def _session_state(self, session: RealtimeAvatarSession) -> _SessionState:
         existing = self._sessions.get(session.session_id)
         if existing is not None:
             return existing
+        if session.reference_mode == "frames":
+            prepared_frames = self._prepare_frame_sequence(session)
+        else:
+            prepared_frames = [self._prepare_image_reference(session)]
+        state = _SessionState(prepared_frames=prepared_frames)
+        self._sessions[session.session_id] = state
+        log.info(
+            "wav2lip session ready: id=%s reference_mode=%s frames=%d enhanced=%s",
+            session.session_id,
+            session.reference_mode,
+            len(prepared_frames),
+            session.enable_enhanced_postprocessing,
+        )
+        return state
+
+    def _prepare_image_reference(self, session: RealtimeAvatarSession) -> _PreparedFrame:
         if not session.image_bytes:
             raise Wav2LipRuntimeError("Wav2Lip session has no reference image bytes.")
         image_buf = np.frombuffer(session.image_bytes, dtype=np.uint8)
         frame = cv2.imdecode(image_buf, cv2.IMREAD_COLOR)
         if frame is None:
             raise Wav2LipRuntimeError("Failed to decode Wav2Lip reference image.")
+        return self._prepare_reference_frame(session, frame, frame_index=0)
+
+    def _prepare_frame_sequence(self, session: RealtimeAvatarSession) -> list[_PreparedFrame]:
+        if not session.ref_frame_dir:
+            raise Wav2LipRuntimeError("Wav2Lip frame reference mode requires ref_frame_dir.")
+        frame_dir = Path(session.ref_frame_dir).expanduser().resolve()
+        if not frame_dir.is_dir():
+            raise Wav2LipRuntimeError(f"Wav2Lip ref_frame_dir not found: {frame_dir}")
+        frame_paths = sorted(
+            path
+            for path in frame_dir.iterdir()
+            if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+        )
+        max_frames = max(1, int(os.environ.get("OMNIRT_WAV2LIP_MAX_REFERENCE_FRAMES", "125")))
+        frame_paths = frame_paths[:max_frames]
+        if not frame_paths:
+            raise Wav2LipRuntimeError(f"No reference frames found under: {frame_dir}")
+        cache_key = self._frame_sequence_cache_key(session, frame_paths)
+        cached = self._frame_sequence_cache.get(cache_key)
+        if cached is not None:
+            log.info(
+                "wav2lip reference frame cache hit: id=%s frames=%d key=%s",
+                session.session_id,
+                len(cached),
+                cache_key[:16],
+            )
+            return cached
+        started = time.monotonic()
+        metadata_by_frame = self._load_frame_metadata(session.ref_frame_metadata_path)
+        prepared: list[_PreparedFrame] = []
+        for index, path in enumerate(frame_paths):
+            frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if frame is None:
+                log.warning("Skipping unreadable Wav2Lip reference frame: %s", path)
+                continue
+            frame_metadata = metadata_by_frame.get(path.name) or session.mouth_metadata
+            if session.preprocessed and not frame_metadata:
+                raise Wav2LipRuntimeError(
+                    f"preprocessed Wav2Lip frame has no metadata: {path.name}"
+                )
+            if session.preprocessed:
+                self._validate_preprocessed_frame_hash(path, frame_metadata)
+            prepared.append(
+                self._prepare_reference_frame(
+                    session,
+                    frame,
+                    frame_index=index,
+                    mouth_metadata=frame_metadata,
+                )
+            )
+        if not prepared:
+            raise Wav2LipRuntimeError(f"No readable reference frames found under: {frame_dir}")
+        self._frame_sequence_cache[cache_key] = prepared
+        log.info(
+            "wav2lip reference frame cache built: id=%s frames=%d key=%s elapsed_ms=%.1f",
+            session.session_id,
+            len(prepared),
+            cache_key[:16],
+            (time.monotonic() - started) * 1000.0,
+        )
+        return prepared
+
+    @staticmethod
+    def _validate_preprocessed_frame_hash(path: Path, metadata: dict[str, Any]) -> None:
+        expected = str(metadata.get("source_frame_hash") or "").strip().lower()
+        if not expected:
+            raise Wav2LipRuntimeError(f"preprocessed Wav2Lip frame metadata missing source_frame_hash: {path.name}")
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual != expected:
+            raise Wav2LipRuntimeError(f"preprocessed Wav2Lip frame hash mismatch: {path.name}")
+
+    def _frame_sequence_cache_key(
+        self,
+        session: RealtimeAvatarSession,
+        frame_paths: list[Path],
+    ) -> str:
+        metadata_stat = ""
+        if session.ref_frame_metadata_path:
+            path = Path(session.ref_frame_metadata_path).expanduser().resolve()
+            try:
+                stat = path.stat()
+                metadata_stat = f"{path}:{stat.st_mtime_ns}:{stat.st_size}"
+            except OSError:
+                metadata_stat = str(path)
+        frame_sig = []
+        for path in frame_paths:
+            try:
+                stat = path.stat()
+                frame_sig.append(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}")
+            except OSError:
+                frame_sig.append(path.name)
+        mouth_metadata_sig = (
+            ""
+            if session.ref_frame_metadata_path
+            else json.dumps(session.mouth_metadata or {}, sort_keys=True, ensure_ascii=True)
+        )
+        return "::".join(
+            [
+                str(Path(session.ref_frame_dir or "").expanduser().resolve()),
+                str(session.video.width),
+                str(session.video.height),
+                str(session.video.fps),
+                str(bool(session.enable_enhanced_postprocessing)),
+                str(bool(session.preprocessed)),
+                str(self.checkpoint),
+                str(self.pads),
+                metadata_stat,
+                mouth_metadata_sig,
+                "|".join(frame_sig),
+            ]
+        )
+
+    @staticmethod
+    def _load_frame_metadata(path: str | None) -> dict[str, dict[str, Any]]:
+        if not path:
+            return {}
+        metadata_path = Path(path).expanduser().resolve()
+        try:
+            raw = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except Exception:
+            log.warning("Failed to read Wav2Lip frame metadata: %s", metadata_path, exc_info=True)
+            return {}
+        frames = raw.get("frames") if isinstance(raw, dict) else None
+        if not isinstance(frames, dict):
+            return {}
+        return {
+            str(name): value
+            for name, value in frames.items()
+            if isinstance(value, dict)
+        }
+
+    def _prepare_reference_frame(
+        self,
+        session: RealtimeAvatarSession,
+        frame: np.ndarray,
+        *,
+        frame_index: int,
+        mouth_metadata: dict[str, Any] | None = None,
+    ) -> _PreparedFrame:
         frame = resize_reference_frame(
             frame,
             width=int(session.video.width),
             height=int(session.video.height),
         )
-
         input_size = int(self._model_bundle()["input_size"])
         use_enhanced = bool(session.enable_enhanced_postprocessing)
-        detector_crop = self._detect_face_box(frame)
-        metadata_crop = metadata_face_box_to_crop(session.mouth_metadata, frame.shape[:2]) if use_enhanced else None
+        metadata = mouth_metadata if mouth_metadata is not None else session.mouth_metadata
+        preprocessed_crop = self._metadata_model_crop(metadata, frame.shape[:2]) if session.preprocessed else None
+        if preprocessed_crop is not None:
+            detector_crop = preprocessed_crop
+            crop_source = "preprocessed"
+        else:
+            detector_crop = self._detect_face_box(frame)
+            crop_source = "detector"
+        metadata_crop = metadata_face_box_to_crop(metadata, frame.shape[:2]) if use_enhanced else None
         y1, y2, x1, x2 = select_wav2lip_model_crop(
             detector_crop=detector_crop,
             metadata_crop=metadata_crop,
@@ -160,7 +376,7 @@ class Wav2LipRealtimeRuntime:
         face_input = np.concatenate((masked, face), axis=2).astype(np.float32) / 255.0
         geometry = (
             self._geometry_from_metadata(
-                session.mouth_metadata,
+                metadata,
                 (y1, y2, x1, x2),
                 (input_size, input_size),
                 frame.shape[:2],
@@ -173,22 +389,50 @@ class Wav2LipRealtimeRuntime:
             geometry = self._fallback_mouth_geometry(face)
             geometry_source = "fallback"
         log.info(
-            "wav2lip session init: id=%s enhanced=%s geometry=%s crop_source=%s crop=%s input_size=%s",
+            "wav2lip reference frame prepared: id=%s frame=%d enhanced=%s geometry=%s crop_source=%s crop=%s input_size=%s",
             session.session_id,
+            frame_index,
             session.enable_enhanced_postprocessing,
             geometry_source if geometry is not None else "none",
-            "metadata" if (y1, y2, x1, x2) == metadata_crop else "detector",
+            "metadata" if (y1, y2, x1, x2) == metadata_crop else crop_source,
             (y1, y2, x1, x2),
             input_size,
         )
-        state = _SessionState(
+        return _PreparedFrame(
             base_frame=frame,
             face_input=face_input,
             coords=(y1, y2, x1, x2),
             geometry=geometry,
         )
-        self._sessions[session.session_id] = state
-        return state
+
+    @staticmethod
+    def _metadata_model_crop(
+        metadata: dict[str, Any] | None,
+        frame_shape: tuple[int, int],
+    ) -> tuple[int, int, int, int] | None:
+        if not isinstance(metadata, dict):
+            return None
+        if metadata.get("model_crop_source") != "wav2lip_detector":
+            return None
+        raw = metadata.get("model_crop")
+        if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+            return None
+        try:
+            left, top, right, bottom = (float(item) for item in raw)
+        except (TypeError, ValueError):
+            return None
+        if not (0.0 <= left < right <= 1.0 and 0.0 <= top < bottom <= 1.0):
+            return None
+        frame_h, frame_w = frame_shape
+        x1 = int(round(left * frame_w))
+        y1 = int(round(top * frame_h))
+        x2 = int(round(right * frame_w))
+        y2 = int(round(bottom * frame_h))
+        x1 = int(np.clip(x1, 0, max(0, frame_w - 1)))
+        y1 = int(np.clip(y1, 0, max(0, frame_h - 1)))
+        x2 = int(np.clip(x2, x1 + 1, frame_w))
+        y2 = int(np.clip(y2, y1 + 1, frame_h))
+        return y1, y2, x1, x2
 
     def _model_bundle(self) -> dict[str, Any]:
         if self._torch_bundle is None:
@@ -243,7 +487,7 @@ class Wav2LipRealtimeRuntime:
 
     def _compose_frame(
         self,
-        state: _SessionState,
+        state: _PreparedFrame,
         patch: np.ndarray,
         input_size: int,
         enhanced: bool,
@@ -445,6 +689,11 @@ class AvatarRuntimeRouter:
         if session.model == "wav2lip" and self.wav2lip is not None:
             return self.wav2lip.render_chunk(session, pcm_s16le)
         return self.fallback.render_chunk(session, pcm_s16le)
+
+    def preload_reference(self, session: RealtimeAvatarSession) -> dict[str, object]:
+        if session.model != "wav2lip" or self.wav2lip is None:
+            raise Wav2LipRuntimeError(f"Preload is not supported for model: {session.model}")
+        return self.wav2lip.preload_reference(session)
 
     def close_session(self, session_id: str) -> None:
         if self.wav2lip is not None:

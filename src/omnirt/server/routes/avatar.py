@@ -6,7 +6,7 @@ import base64
 import json
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 
 from omnirt.server.realtime_avatar import RealtimeAvatarError
 
@@ -25,6 +25,47 @@ def _decode_b64_image(value: Any) -> bytes:
         return base64.b64decode(str(value), validate=True)
     except Exception as exc:
         raise RealtimeAvatarError("bad_image_base64", "Reference image must be valid base64.") from exc
+
+
+def _wav2lip_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    config: dict[str, Any] = {}
+    for key in (
+        "width",
+        "height",
+        "fps",
+        "frame_num",
+        "motion_frames_num",
+        "slice_len",
+        "reference_mode",
+        "ref_frame_dir",
+        "ref_frame_metadata_path",
+        "enable_enhanced_postprocessing",
+        "mouth_metadata",
+        "preprocessed",
+    ):
+        if payload.get(key) is not None:
+            config[key] = payload.get(key)
+    return config
+
+
+@router.post("/v1/avatar/wav2lip/preload")
+async def preload_wav2lip_reference(request: Request) -> dict[str, object]:
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        return {"type": "error", "code": "bad_json", "message": "Expected a JSON object."}
+    service = request.app.state.realtime_avatar_service
+    try:
+        return service.preload_reference(
+            model="wav2lip",
+            backend=request.app.state.default_backend,
+            config={
+                **dict(getattr(request.app.state, "default_request_config", {}) or {}),
+                **_wav2lip_config_from_payload(payload),
+                "reference_mode": "frames",
+            },
+        )
+    except RealtimeAvatarError as exc:
+        return _error_payload(exc)
 
 
 async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> None:
@@ -54,6 +95,9 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                         }
                         if model == "wav2lip":
                             for key in ("width", "height", "fps", "frame_num", "motion_frames_num", "slice_len"):
+                                if payload.get(key) is not None:
+                                    config[key] = payload.get(key)
+                            for key in ("reference_mode", "ref_frame_dir", "ref_frame_metadata_path", "preprocessed"):
                                 if payload.get(key) is not None:
                                     config[key] = payload.get(key)
                             config.update(
@@ -86,6 +130,8 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             "fps": session.video.fps,
                             "height": session.video.height,
                             "width": session.video.width,
+                            "reference_mode": session.reference_mode,
+                            "preprocessed": session.preprocessed,
                         }
                     )
                 elif msg_type == "close":
@@ -156,6 +202,14 @@ async def native_realtime_avatar(websocket: WebSocket):
                             **dict(websocket.app.state.default_request_config),
                             **dict(payload.get("config") or {}),
                         }
+                        if inputs.get("reference_mode") is not None:
+                            config["reference_mode"] = inputs.get("reference_mode")
+                        if inputs.get("ref_frame_dir") is not None:
+                            config["ref_frame_dir"] = inputs.get("ref_frame_dir")
+                        if inputs.get("ref_frame_metadata_path") is not None:
+                            config["ref_frame_metadata_path"] = inputs.get("ref_frame_metadata_path")
+                        if inputs.get("preprocessed") is not None:
+                            config["preprocessed"] = inputs.get("preprocessed")
                         session = service.create_session(
                             model=str(payload.get("model") or "soulx-flashtalk-14b"),
                             backend=str(payload.get("backend") or websocket.app.state.default_backend),
@@ -167,7 +221,7 @@ async def native_realtime_avatar(websocket: WebSocket):
                         await websocket.send_json(_error_payload(exc))
                         continue
                     session_id = session.session_id
-                    await websocket.send_json({"type": "session.created", **session.metadata()})
+                    await websocket.send_json({"type": "session.created", **session.metadata(include_paths=False)})
                 elif msg_type == "session.cancel":
                     if session_id is not None:
                         service.cancel_session(session_id)
