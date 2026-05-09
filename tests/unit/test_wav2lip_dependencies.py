@@ -24,3 +24,10 @@ def test_testclient_dependency_is_declared_for_dev() -> None:
     dev = set(pyproject["project"]["optional-dependencies"]["dev"])
 
     assert any(item.startswith("httpx") for item in dev)
+
+
+def test_wav2lip_postprocess_test_dependency_is_declared_for_dev() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    dev = set(pyproject["project"]["optional-dependencies"]["dev"])
+
+    assert any(item.startswith("opencv-python-headless") for item in dev)

@@ -28,6 +28,7 @@ dev = [
   "build>=1.2",
   "grpcio-tools>=1.60",
   "httpx>=0.26",
+  "opencv-python-headless>=4.8",
   "pytest>=8.0",
   "torch>=2.1",
 ]
