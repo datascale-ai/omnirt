@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import io
 import os
+from pathlib import Path
 import struct
 import time
 import uuid
@@ -18,6 +19,7 @@ MAGIC_VIDEO = b"VIDX"
 
 AudioFormat = Literal["pcm_s16le"]
 VideoEncoding = Literal["jpeg-seq"]
+ReferenceMode = Literal["image", "frames"]
 
 
 class RealtimeAvatarError(ValueError):
@@ -76,23 +78,33 @@ class RealtimeAvatarSession:
     backend: str
     prompt: str
     image_bytes: bytes = b""
+    reference_mode: ReferenceMode = "image"
+    ref_frame_dir: str | None = None
+    ref_frame_metadata_path: str | None = None
     audio: AvatarAudioSpec = field(default_factory=AvatarAudioSpec)
     video: AvatarVideoSpec = field(default_factory=AvatarVideoSpec)
     enable_enhanced_postprocessing: bool = False
+    preprocessed: bool = False
     mouth_metadata: dict[str, Any] = field(default_factory=dict)
     chunk_index: int = 0
     cancelled: bool = False
     created_at: float = field(default_factory=time.monotonic)
 
-    def metadata(self) -> dict[str, object]:
-        return {
+    def metadata(self, *, include_paths: bool = False) -> dict[str, object]:
+        metadata: dict[str, object] = {
             "session_id": self.session_id,
             "trace_id": self.trace_id,
             "audio": self.audio.to_dict(),
             "video": self.video.to_dict(),
+            "reference_mode": self.reference_mode,
             "enable_enhanced_postprocessing": self.enable_enhanced_postprocessing,
+            "preprocessed": self.preprocessed,
             "mouth_metadata": self.mouth_metadata,
         }
+        if include_paths:
+            metadata["ref_frame_dir"] = self.ref_frame_dir
+            metadata["ref_frame_metadata_path"] = self.ref_frame_metadata_path
+        return metadata
 
 
 def encode_jpeg_sequence(jpeg_frames: List[bytes]) -> bytes:
@@ -175,9 +187,19 @@ class RealtimeAvatarService:
     without changing either WebSocket route.
     """
 
-    def __init__(self, *, runtime: Optional[FakeRealtimeAvatarRuntime] = None) -> None:
+    def __init__(
+        self,
+        *,
+        runtime: Optional[FakeRealtimeAvatarRuntime] = None,
+        allowed_frame_roots: Optional[list[str | Path]] = None,
+    ) -> None:
         self.runtime = runtime or FakeRealtimeAvatarRuntime()
         self._sessions: Dict[str, RealtimeAvatarSession] = {}
+        self._allowed_frame_roots = tuple(
+            Path(root).expanduser().resolve()
+            for root in (allowed_frame_roots or [])
+            if str(root).strip()
+        )
 
     def create_session(
         self,
@@ -191,6 +213,39 @@ class RealtimeAvatarService:
         if not image_bytes:
             raise RealtimeAvatarError("missing_image", "A reference image is required.")
         config = dict(config or {})
+        reference_mode = str(config.get("reference_mode") or "image").strip().lower()
+        if reference_mode not in {"image", "frames"}:
+            raise RealtimeAvatarError(
+                "bad_reference_mode",
+                "reference_mode must be 'image' or 'frames'.",
+            )
+        ref_frame_dir = config.get("ref_frame_dir")
+        ref_frame_dir_str = str(ref_frame_dir).strip() if ref_frame_dir is not None else None
+        if reference_mode == "frames":
+            if not ref_frame_dir_str:
+                raise RealtimeAvatarError(
+                    "missing_frame_dir",
+                    "ref_frame_dir is required for frame references.",
+                )
+            ref_frame_dir_path = self._validate_allowed_frame_path(
+                ref_frame_dir_str,
+                code="bad_frame_dir",
+                label="ref_frame_dir",
+                must_be_dir=True,
+            )
+            ref_frame_dir_str = str(ref_frame_dir_path)
+        ref_frame_metadata_path = config.get("ref_frame_metadata_path")
+        ref_frame_metadata_path_str = (
+            str(ref_frame_metadata_path).strip() if ref_frame_metadata_path is not None else None
+        )
+        if ref_frame_metadata_path_str:
+            ref_frame_metadata_path = self._validate_allowed_frame_path(
+                ref_frame_metadata_path_str,
+                code="bad_frame_metadata",
+                label="ref_frame_metadata_path",
+                must_be_dir=False,
+            )
+            ref_frame_metadata_path_str = str(ref_frame_metadata_path)
         sample_rate = int(config.get("sample_rate", 16000))
         video = AvatarVideoSpec(
             fps=int(config.get("fps", 25)),
@@ -209,6 +264,12 @@ class RealtimeAvatarService:
         mouth_metadata = config.get("mouth_metadata") or {}
         if not isinstance(mouth_metadata, dict):
             raise RealtimeAvatarError("bad_mouth_metadata", "mouth_metadata must be an object.")
+        preprocessed = _as_bool(config.get("preprocessed"), default=False)
+        if preprocessed and reference_mode == "frames" and not ref_frame_metadata_path_str:
+            raise RealtimeAvatarError(
+                "preprocessed_asset_invalid",
+                "preprocessed frame references require ref_frame_metadata_path.",
+            )
         session = RealtimeAvatarSession(
             session_id=f"avt_{uuid.uuid4().hex}",
             trace_id=f"trace_{uuid.uuid4().hex}",
@@ -216,16 +277,39 @@ class RealtimeAvatarService:
             backend=backend,
             prompt=prompt,
             image_bytes=image_bytes,
+            reference_mode=reference_mode,  # type: ignore[arg-type]
+            ref_frame_dir=ref_frame_dir_str,
+            ref_frame_metadata_path=ref_frame_metadata_path_str,
             audio=audio,
             video=video,
             enable_enhanced_postprocessing=_as_bool(
                 config.get("enable_enhanced_postprocessing"),
                 default=enhanced_default,
             ),
+            preprocessed=preprocessed,
             mouth_metadata=mouth_metadata,
         )
         self._sessions[session.session_id] = session
         return session
+
+    def _validate_allowed_frame_path(
+        self,
+        raw_path: str,
+        *,
+        code: str,
+        label: str,
+        must_be_dir: bool,
+    ) -> Path:
+        path = Path(raw_path).expanduser().resolve()
+        if not self._allowed_frame_roots:
+            raise RealtimeAvatarError(code, f"{label} requires configured allowed frame roots.")
+        if not any(path == root or root in path.parents for root in self._allowed_frame_roots):
+            raise RealtimeAvatarError(code, f"{label} is outside allowed frame roots.")
+        if must_be_dir and not path.is_dir():
+            raise RealtimeAvatarError(code, f"{label} not found.")
+        if not must_be_dir and not path.is_file():
+            raise RealtimeAvatarError(code, f"{label} not found.")
+        return path
 
     def push_audio_chunk(self, session_id: str, payload: bytes) -> tuple[bytes, dict[str, object]]:
         session = self._get_session(session_id)
@@ -242,6 +326,29 @@ class RealtimeAvatarService:
             "infer_ms": elapsed_ms,
             "encode_ms": 0,
         }
+
+    def preload_reference(
+        self,
+        *,
+        model: str,
+        backend: str = "auto",
+        config: Optional[dict[str, object]] = None,
+    ) -> dict[str, object]:
+        session = self.create_session(
+            model=model,
+            backend=backend,
+            image_bytes=b"preload",
+            prompt="",
+            config=config,
+        )
+        try:
+            preload = getattr(self.runtime, "preload_reference", None)
+            if not callable(preload):
+                raise RealtimeAvatarError("preload_unsupported", "The selected runtime does not support preload.")
+            result = preload(session)
+            return dict(result)
+        finally:
+            self.close_session(session.session_id)
 
     def cancel_session(self, session_id: str) -> None:
         session = self._get_session(session_id)

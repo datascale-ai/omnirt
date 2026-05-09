@@ -11,6 +11,11 @@ from omnirt.server.realtime_avatar import FakeRealtimeAvatarRuntime, RealtimeAva
 from omnirt.server.routes.avatar import router as avatar_router
 
 
+def _allowed_frame_roots_from_env() -> list[str]:
+    raw = os.environ.get("OMNIRT_ALLOWED_FRAME_ROOTS", "")
+    return [item.strip() for item in raw.split(os.pathsep) if item.strip()]
+
+
 def create_avatar_app(*, default_backend: str = "auto") -> FastAPI:
     app = FastAPI(title="OmniRT Avatar", version="1.0.0")
     runtime = FakeRealtimeAvatarRuntime()
@@ -21,6 +26,9 @@ def create_avatar_app(*, default_backend: str = "auto") -> FastAPI:
         )
     app.state.default_backend = default_backend
     app.state.default_request_config = {}
-    app.state.realtime_avatar_service = RealtimeAvatarService(runtime=runtime)
+    app.state.realtime_avatar_service = RealtimeAvatarService(
+        runtime=runtime,
+        allowed_frame_roots=_allowed_frame_roots_from_env(),
+    )
     app.include_router(avatar_router)
     return app

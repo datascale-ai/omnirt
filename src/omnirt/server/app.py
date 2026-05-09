@@ -19,16 +19,23 @@ from omnirt.server.routes.openai import router as openai_router
 from omnirt.telemetry import OtlpExporter, PrometheusMetrics, TraceRecorder
 
 
+def _allowed_frame_roots_from_env() -> list[str]:
+    raw = os.environ.get("OMNIRT_ALLOWED_FRAME_ROOTS", "")
+    return [item.strip() for item in raw.split(os.pathsep) if item.strip()]
+
+
 def _create_realtime_avatar_service() -> RealtimeAvatarService:
+    allowed_frame_roots = _allowed_frame_roots_from_env()
     if os.environ.get("OMNIRT_WAV2LIP_RUNTIME", "").strip().lower() not in {"1", "true", "opentalking"}:
-        return RealtimeAvatarService()
+        return RealtimeAvatarService(allowed_frame_roots=allowed_frame_roots)
     from omnirt.models.wav2lip.runtime import AvatarRuntimeRouter, Wav2LipRealtimeRuntime
 
     return RealtimeAvatarService(
         runtime=AvatarRuntimeRouter(
             fallback=FakeRealtimeAvatarRuntime(),
             wav2lip=Wav2LipRealtimeRuntime(),
-        )
+        ),
+        allowed_frame_roots=allowed_frame_roots,
     )
 
 
