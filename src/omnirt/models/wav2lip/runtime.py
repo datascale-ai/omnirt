@@ -1,0 +1,451 @@
+"""Realtime Wav2Lip runtime owned by OmniRT."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import logging
+import os
+from pathlib import Path
+import tempfile
+from typing import Any
+
+import cv2
+import numpy as np
+
+from omnirt.models.wav2lip.face_detection import FaceAlignment, LandmarksType
+from omnirt.models.wav2lip.feature_extractor import MEL_STEP_SIZE, pcm_to_wav2lip_mel
+from omnirt.models.wav2lip.loader import load_wav2lip_torch, resolve_wav2lip_s3fd
+from omnirt.models.wav2lip.postprocess import (
+    BlendConfig,
+    MouthGeometry,
+    blend_mouth_patch_basic,
+    blend_mouth_patch,
+    metadata_face_box_to_crop,
+    metadata_radius_to_input_crop,
+    resize_reference_frame,
+    select_wav2lip_model_crop,
+)
+from omnirt.server.realtime_avatar import RealtimeAvatarSession, encode_jpeg_sequence
+
+
+log = logging.getLogger(__name__)
+
+
+class Wav2LipRuntimeError(RuntimeError):
+    """Raised when Wav2Lip cannot initialize or render."""
+
+
+@dataclass
+class _SessionState:
+    base_frame: np.ndarray
+    face_input: np.ndarray
+    coords: tuple[int, int, int, int]
+    geometry: MouthGeometry | None
+    emitted_frames: int = 0
+    pcm_history: np.ndarray | None = None
+
+
+class Wav2LipRealtimeRuntime:
+    """Streaming Wav2Lip runtime.
+
+    The model loader, network definitions, feature extractor, face detector, and
+    enhanced postprocessor live under ``omnirt.models.wav2lip``. OpenTalking only
+    supplies the selected image and optional mouth metadata over the websocket.
+    """
+
+    def __init__(
+        self,
+        *,
+        models_dir: str | Path | None = None,
+        device: str | None = None,
+        work_root: str | Path | None = None,
+    ) -> None:
+        self.models_dir = Path(models_dir or os.environ.get("OMNIRT_WAV2LIP_MODELS_DIR", "./models")).resolve()
+        self.device = device or os.environ.get("OMNIRT_WAV2LIP_DEVICE", "cuda")
+        self.work_root = Path(work_root or os.environ.get("OMNIRT_WAV2LIP_WORK_DIR", tempfile.gettempdir())).resolve()
+        self.checkpoint = Path(
+            os.environ.get("OMNIRT_WAV2LIP_CHECKPOINT", os.environ.get("OPENTALKING_WAV2LIP_CHECKPOINT", ""))
+            or (self.models_dir / "wav2lip384.pth")
+        ).expanduser().resolve()
+        self.batch_size = max(1, int(os.environ.get("OMNIRT_WAV2LIP_BATCH_SIZE", "8")))
+        self.pads = self._parse_pads(os.environ.get("OMNIRT_WAV2LIP_PADS", "0,10,0,0"))
+        self.blend_config = BlendConfig(
+            lower_lip_dynamic_expand=self._parse_float(
+                os.environ.get("OMNIRT_WAV2LIP_LOWER_LIP_DYNAMIC_EXPAND"),
+                0.25,
+            ),
+            enable_jaw_motion_blend=self._parse_bool(
+                os.environ.get("OMNIRT_WAV2LIP_ENABLE_JAW_MOTION_BLEND"),
+                default=False,
+            ),
+            jaw_blend_alpha=self._parse_float(os.environ.get("OMNIRT_WAV2LIP_JAW_BLEND_ALPHA"), 0.22),
+            jaw_mask_expand_x=self._parse_float(os.environ.get("OMNIRT_WAV2LIP_JAW_MASK_EXPAND_X"), 0.25),
+            jaw_mask_expand_y=self._parse_float(os.environ.get("OMNIRT_WAV2LIP_JAW_MASK_EXPAND_Y"), 0.55),
+            jaw_mask_offset_y=self._parse_float(os.environ.get("OMNIRT_WAV2LIP_JAW_MASK_OFFSET_Y"), 1.05),
+            jaw_mask_feather=self._parse_float(os.environ.get("OMNIRT_WAV2LIP_JAW_MASK_FEATHER"), 1.25),
+        )
+        self._torch_bundle: dict[str, Any] | None = None
+        self._face_detector: FaceAlignment | None = None
+        self._sessions: dict[str, _SessionState] = {}
+
+    def render_chunk(self, session: RealtimeAvatarSession, pcm_s16le: bytes) -> bytes:
+        state = self._session_state(session)
+        bundle = self._model_bundle()
+        torch = bundle["torch"]
+        model = bundle["model"]
+        input_size = int(bundle["input_size"])
+
+        current_pcm = np.frombuffer(pcm_s16le, dtype=np.int16).copy()
+        history = state.pcm_history
+        total_pcm = current_pcm if history is None else np.concatenate((history, current_pcm)).astype(np.int16, copy=False)
+        state.pcm_history = total_pcm
+        mel_chunks = self._mel_chunks(
+            total_pcm,
+            sample_rate=session.audio.sample_rate,
+            fps=session.video.fps,
+            start_frame=state.emitted_frames,
+        )
+        if not mel_chunks:
+            return encode_jpeg_sequence([self._encode_jpeg_bgr(state.base_frame)])
+
+        face_batch = np.repeat(state.face_input[None, ...], len(mel_chunks), axis=0)
+        mel_batch = np.stack(mel_chunks, axis=0)
+        img_tensor = torch.FloatTensor(np.transpose(face_batch, (0, 3, 1, 2))).to(self.device)
+        mel_tensor = torch.FloatTensor(
+            np.transpose(np.reshape(mel_batch, (len(mel_chunks), 80, MEL_STEP_SIZE, 1)), (0, 3, 1, 2))
+        ).to(self.device)
+        frames: list[bytes] = []
+        with torch.no_grad():
+            for start in range(0, len(mel_chunks), self.batch_size):
+                end = min(len(mel_chunks), start + self.batch_size)
+                pred = model(mel_tensor[start:end], img_tensor[start:end])
+                pred_np = pred.detach().cpu().numpy().transpose(0, 2, 3, 1) * 255.0
+                for patch in pred_np:
+                    frames.append(self._compose_frame(state, patch, input_size, session.enable_enhanced_postprocessing))
+        state.emitted_frames += len(frames)
+        return encode_jpeg_sequence(frames or [self._encode_jpeg_bgr(state.base_frame)])
+
+    def close_session(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+
+    def _session_state(self, session: RealtimeAvatarSession) -> _SessionState:
+        existing = self._sessions.get(session.session_id)
+        if existing is not None:
+            return existing
+        if not session.image_bytes:
+            raise Wav2LipRuntimeError("Wav2Lip session has no reference image bytes.")
+        image_buf = np.frombuffer(session.image_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(image_buf, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise Wav2LipRuntimeError("Failed to decode Wav2Lip reference image.")
+        frame = resize_reference_frame(
+            frame,
+            width=int(session.video.width),
+            height=int(session.video.height),
+        )
+
+        input_size = int(self._model_bundle()["input_size"])
+        use_enhanced = bool(session.enable_enhanced_postprocessing)
+        detector_crop = self._detect_face_box(frame)
+        metadata_crop = metadata_face_box_to_crop(session.mouth_metadata, frame.shape[:2]) if use_enhanced else None
+        y1, y2, x1, x2 = select_wav2lip_model_crop(
+            detector_crop=detector_crop,
+            metadata_crop=metadata_crop,
+            enable_enhanced_postprocessing=use_enhanced,
+        )
+        face = cv2.resize(frame[y1:y2, x1:x2].copy(), (input_size, input_size))
+        masked = face.copy()
+        masked[input_size // 2 :, :] = 0
+        face_input = np.concatenate((masked, face), axis=2).astype(np.float32) / 255.0
+        geometry = (
+            self._geometry_from_metadata(
+                session.mouth_metadata,
+                (y1, y2, x1, x2),
+                (input_size, input_size),
+                frame.shape[:2],
+            )
+            if use_enhanced
+            else None
+        )
+        geometry_source = "metadata"
+        if geometry is None and use_enhanced:
+            geometry = self._fallback_mouth_geometry(face)
+            geometry_source = "fallback"
+        log.info(
+            "wav2lip session init: id=%s enhanced=%s geometry=%s crop_source=%s crop=%s input_size=%s",
+            session.session_id,
+            session.enable_enhanced_postprocessing,
+            geometry_source if geometry is not None else "none",
+            "metadata" if (y1, y2, x1, x2) == metadata_crop else "detector",
+            (y1, y2, x1, x2),
+            input_size,
+        )
+        state = _SessionState(
+            base_frame=frame,
+            face_input=face_input,
+            coords=(y1, y2, x1, x2),
+            geometry=geometry,
+        )
+        self._sessions[session.session_id] = state
+        return state
+
+    def _model_bundle(self) -> dict[str, Any]:
+        if self._torch_bundle is None:
+            if not self.checkpoint.is_file():
+                raise Wav2LipRuntimeError(f"Wav2Lip checkpoint not found: {self.checkpoint}")
+            self._torch_bundle = load_wav2lip_torch(self.checkpoint, self.device)
+            self.device = str(self._torch_bundle["device"])
+        return self._torch_bundle
+
+    def _face_alignment(self) -> FaceAlignment:
+        if self._face_detector is not None:
+            return self._face_detector
+        s3fd = resolve_wav2lip_s3fd(self.models_dir)
+        if s3fd is None:
+            raise Wav2LipRuntimeError(f"Missing s3fd.pth under {self.models_dir}/wav2lip or {self.models_dir}")
+        self._face_detector = FaceAlignment(
+            LandmarksType._2D,
+            flip_input=False,
+            device=self.device,
+            path_to_detector=s3fd,
+        )
+        return self._face_detector
+
+    def _detect_face_box(self, frame: np.ndarray) -> tuple[int, int, int, int]:
+        rects = self._face_alignment().get_detections_for_batch(np.asarray([frame]))
+        if not rects or rects[0] is None:
+            raise Wav2LipRuntimeError("Face not detected for Wav2Lip reference image.")
+        rect = rects[0]
+        pady1, pady2, padx1, padx2 = self.pads
+        y1 = max(0, int(rect[1]) - pady1)
+        y2 = min(frame.shape[0], int(rect[3]) + pady2)
+        x1 = max(0, int(rect[0]) - padx1)
+        x2 = min(frame.shape[1], int(rect[2]) + padx2)
+        if x2 <= x1 or y2 <= y1:
+            raise Wav2LipRuntimeError(f"Invalid Wav2Lip face box: {(y1, y2, x1, x2)}")
+        return y1, y2, x1, x2
+
+    def _mel_chunks(self, pcm: np.ndarray, *, sample_rate: int, fps: int, start_frame: int) -> list[np.ndarray]:
+        mel = pcm_to_wav2lip_mel(pcm, sample_rate)
+        if mel.shape[1] <= 0:
+            return []
+        mel_idx_multiplier = 80.0 / max(1, fps)
+        chunks: list[np.ndarray] = []
+        frame_idx = max(0, start_frame)
+        while True:
+            start_idx = int(frame_idx * mel_idx_multiplier)
+            if start_idx + MEL_STEP_SIZE > mel.shape[1]:
+                break
+            chunks.append(np.asarray(mel[:, start_idx : start_idx + MEL_STEP_SIZE], dtype=np.float32))
+            frame_idx += 1
+        return chunks
+
+    def _compose_frame(
+        self,
+        state: _SessionState,
+        patch: np.ndarray,
+        input_size: int,
+        enhanced: bool,
+    ) -> bytes:
+        y1, y2, x1, x2 = state.coords
+        frame = state.base_frame.copy()
+        resized = cv2.resize(np.clip(patch, 0.0, 255.0).astype(np.uint8), (x2 - x1, y2 - y1))
+        original = frame[y1:y2, x1:x2].copy()
+        if enhanced and state.geometry is not None:
+            patch_geometry = self._scale_geometry(state.geometry, original.shape[:2], (input_size, input_size))
+            blended = blend_mouth_patch(resized, original, geometry=patch_geometry, config=self.blend_config)
+        else:
+            blended = blend_mouth_patch_basic(resized, original)
+        frame[y1:y2, x1:x2] = blended
+        return self._encode_jpeg_bgr(frame)
+
+    @staticmethod
+    def _geometry_from_metadata(
+        metadata: dict[str, Any],
+        coords: tuple[int, int, int, int],
+        input_shape: tuple[int, int],
+        frame_shape: tuple[int, int],
+    ) -> MouthGeometry | None:
+        animation = metadata.get("animation") if isinstance(metadata, dict) else None
+        if not isinstance(animation, dict):
+            return None
+        y1, y2, x1, x2 = coords
+        height, width = input_shape
+        crop_w = max(1, x2 - x1)
+        crop_h = max(1, y2 - y1)
+        frame_h, frame_w = frame_shape
+
+        def point(raw: Any) -> tuple[int, int] | None:
+            if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+                return None
+            full_x = float(raw[0]) * frame_w
+            full_y = float(raw[1]) * frame_h
+            crop_x = (full_x - x1) / crop_w * width
+            crop_y = (full_y - y1) / crop_h * height
+            if crop_x < -width * 0.15 or crop_x > width * 1.15 or crop_y < -height * 0.15 or crop_y > height * 1.15:
+                return None
+            return int(round(np.clip(crop_x, 0, width - 1))), int(round(np.clip(crop_y, 0, height - 1)))
+
+        center = point(animation.get("mouth_center"))
+        if center is None:
+            return None
+        rx = metadata_radius_to_input_crop(
+            normalized_radius=float(animation.get("mouth_rx", 0.06)),
+            frame_size=frame_w,
+            crop_size=crop_w,
+            input_size=width,
+        )
+        ry = metadata_radius_to_input_crop(
+            normalized_radius=float(animation.get("mouth_ry", 0.02)),
+            frame_size=frame_h,
+            crop_size=crop_h,
+            input_size=height,
+        )
+        outer = tuple(p for item in animation.get("outer_lip", []) if (p := point(item)) is not None)
+        inner = tuple(p for item in animation.get("inner_mouth", []) if (p := point(item)) is not None)
+        return MouthGeometry(center=center, rx=rx, ry=ry, outer_lip=outer, inner_mouth=inner)
+
+    @staticmethod
+    def _fallback_mouth_geometry(face_bgr: np.ndarray) -> MouthGeometry:
+        height, width = face_bgr.shape[:2]
+        roi_y1 = int(round(height * 0.46))
+        roi_y2 = int(round(height * 0.86))
+        roi_x1 = int(round(width * 0.22))
+        roi_x2 = int(round(width * 0.78))
+        roi = face_bgr[roi_y1:roi_y2, roi_x1:roi_x2]
+        if roi.size == 0:
+            return MouthGeometry.ellipse(
+                center=(width // 2, int(round(height * 0.66))),
+                rx=max(8, int(round(width * 0.16))),
+                ry=max(4, int(round(height * 0.045))),
+            )
+
+        roi_f = roi.astype(np.float32)
+        b = roi_f[:, :, 0]
+        g = roi_f[:, :, 1]
+        r = roi_f[:, :, 2]
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV).astype(np.float32)
+        saturation = hsv[:, :, 1] / 255.0
+        lip_score = np.maximum(0.0, r - 0.72 * g - 0.45 * b) * saturation
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        dark_score = np.clip(150.0 - gray, 0.0, 150.0) / 150.0
+        score = cv2.GaussianBlur(lip_score + dark_score * 18.0, (0, 0), 4.0)
+
+        yy, xx = np.indices(score.shape, dtype=np.float32)
+        center_prior = np.exp(-((xx / max(1, score.shape[1] - 1) - 0.5) ** 2) / (2 * 0.23**2))
+        center_prior *= np.exp(-((yy / max(1, score.shape[0] - 1) - 0.48) ** 2) / (2 * 0.25**2))
+        score *= center_prior
+        total = float(score.sum())
+        if total <= 1e-3:
+            cx = width // 2
+            cy = int(round(height * 0.66))
+            sx = width * 0.16
+            sy = height * 0.045
+        else:
+            cx_roi = float((xx * score).sum() / total)
+            cy_roi = float((yy * score).sum() / total)
+            var_x = float((((xx - cx_roi) ** 2) * score).sum() / total)
+            var_y = float((((yy - cy_roi) ** 2) * score).sum() / total)
+            cx = roi_x1 + int(round(cx_roi))
+            cy = roi_y1 + int(round(cy_roi))
+            sx = max(width * 0.10, min(width * 0.22, np.sqrt(max(1.0, var_x)) * 1.9))
+            sy = max(height * 0.025, min(height * 0.075, np.sqrt(max(1.0, var_y)) * 0.95))
+
+        rx = max(8, int(round(sx)))
+        ry = max(4, int(round(sy)))
+        outer = (
+            (cx - rx, cy),
+            (cx - rx // 2, cy - ry),
+            (cx, cy - int(round(ry * 1.15))),
+            (cx + rx // 2, cy - ry),
+            (cx + rx, cy),
+            (cx + rx // 2, cy + ry),
+            (cx, cy + int(round(ry * 1.35))),
+            (cx - rx // 2, cy + ry),
+        )
+        return MouthGeometry(
+            center=(int(np.clip(cx, 0, width - 1)), int(np.clip(cy, 0, height - 1))),
+            rx=rx,
+            ry=ry,
+            outer_lip=tuple(
+                (int(np.clip(x, 0, width - 1)), int(np.clip(y, 0, height - 1)))
+                for x, y in outer
+            ),
+        )
+
+    @staticmethod
+    def _scale_geometry(
+        geometry: MouthGeometry,
+        target_shape: tuple[int, int],
+        source_shape: tuple[int, int],
+    ) -> MouthGeometry:
+        th, tw = target_shape
+        sh, sw = source_shape
+        sx = tw / max(1, sw)
+        sy = th / max(1, sh)
+
+        def point(p: tuple[int, int]) -> tuple[int, int]:
+            return int(round(p[0] * sx)), int(round(p[1] * sy))
+
+        return MouthGeometry(
+            center=point(geometry.center),
+            rx=max(1, int(round(geometry.rx * sx))),
+            ry=max(1, int(round(geometry.ry * sy))),
+            outer_lip=tuple(point(p) for p in geometry.outer_lip),
+            inner_mouth=tuple(point(p) for p in geometry.inner_mouth),
+        )
+
+    @staticmethod
+    def _encode_jpeg_bgr(frame_bgr: np.ndarray) -> bytes:
+        ok, encoded = cv2.imencode(".jpg", frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if not ok:
+            raise Wav2LipRuntimeError("Failed to JPEG-encode Wav2Lip frame.")
+        return encoded.tobytes()
+
+    @staticmethod
+    def _parse_pads(raw: str) -> tuple[int, int, int, int]:
+        parts = [part.strip() for part in raw.split(",")]
+        if len(parts) != 4:
+            return (0, 10, 0, 0)
+        try:
+            return tuple(int(part) for part in parts)  # type: ignore[return-value]
+        except ValueError:
+            return (0, 10, 0, 0)
+
+    @staticmethod
+    def _parse_bool(raw: str | None, *, default: bool = False) -> bool:
+        if raw is None:
+            return default
+        value = raw.strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+        return default
+
+    @staticmethod
+    def _parse_float(raw: str | None, default: float) -> float:
+        if raw is None or not raw.strip():
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            return default
+
+
+class AvatarRuntimeRouter:
+    """Route Wav2Lip sessions to real runtime and other sessions to fallback."""
+
+    def __init__(self, *, fallback: Any, wav2lip: Wav2LipRealtimeRuntime | None = None) -> None:
+        self.fallback = fallback
+        self.wav2lip = wav2lip
+
+    def render_chunk(self, session: RealtimeAvatarSession, pcm_s16le: bytes) -> bytes:
+        if session.model == "wav2lip" and self.wav2lip is not None:
+            return self.wav2lip.render_chunk(session, pcm_s16le)
+        return self.fallback.render_chunk(session, pcm_s16le)
+
+    def close_session(self, session_id: str) -> None:
+        if self.wav2lip is not None:
+            self.wav2lip.close_session(session_id)

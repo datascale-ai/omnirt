@@ -135,3 +135,32 @@ def test_native_realtime_avatar_ws_flow() -> None:
 
         ws.send_json({"type": "session.close"})
         assert ws.receive_json()["type"] == "session.closed"
+
+
+def test_wav2lip_init_accepts_enhanced_postprocessing_and_metadata() -> None:
+    client = TestClient(create_app(default_backend="cpu-stub"))
+    metadata = {
+        "source_image_hash": "abc123",
+        "animation": {
+            "mouth_center": [0.5, 0.56],
+            "mouth_rx": 0.06,
+            "mouth_ry": 0.02,
+            "outer_lip": [[0.45, 0.55], [0.50, 0.53], [0.55, 0.55], [0.50, 0.58]],
+            "inner_mouth": [[0.47, 0.55], [0.53, 0.55], [0.50, 0.57]],
+        },
+    }
+
+    with client.websocket_connect("/v1/avatar/wav2lip") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "enable_enhanced_postprocessing": True,
+                "mouth_metadata": metadata,
+            }
+        )
+        init = ws.receive_json()
+
+    assert init["type"] == "init_ok"
+    assert init["model"] == "wav2lip"
+    assert init["enable_enhanced_postprocessing"] is True

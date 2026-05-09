@@ -8,6 +8,8 @@ OmniRT 提供 batch 生成入口和实时数字人入口。batch 入口共享同
 | **CLI** | 脚本化批处理、一次性校验 / 生成 | [CLI](cli.md) |
 | **HTTP 服务** | 微服务、多租户、OpenAI 兼容 API、Prometheus / OTLP 接入 | [HTTP 服务](http_server.md) |
 | **FlashTalk WS** | OpenTalking 现有客户端兼容，`AUDI` / `VIDX` 二进制帧 | [FlashTalk WebSocket](flashtalk_ws.md) |
+| **Wav2Lip WebSocket** | 同上协议，轻量唇形驱动（无 SoulX 大模型）；昇腾 / GPU 见文档 | [Wav2Lip WS](wav2lip_ws.md) |
+| **MuseTalk WebSocket** | 同上协议，MuseTalk v1.5；昇腾部署见文档 | [MuseTalk WS](musetalk_ws.md) |
 | **Realtime Avatar WS** | 新集成推荐的 OmniRT 原生实时数字人协议 | [Realtime Avatar WebSocket](realtime_avatar_ws.md) |
 | **Worker 服务** | gRPC 远程执行节点，供 `serve --remote-worker` 调度 | [分布式服务](../deployment/distributed_serving.md) |
 

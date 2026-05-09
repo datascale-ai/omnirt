@@ -32,16 +32,46 @@ Optional quantization environment:
   OMNIRT_FLASHTALK_WAN_QUANT_INCLUDE
   OMNIRT_FLASHTALK_WAN_QUANT_EXCLUDE
 
+Optional SoulX infer_params overrides (exported for flash_talk/inference.py; if already set in the environment, those values are kept):
+  FLASHTALK_HEIGHT                    Default: 704
+  FLASHTALK_WIDTH                     Default: 416
+  FLASHTALK_FRAME_NUM                 Default: 29
+  FLASHTALK_MOTION_FRAMES_NUM         Default: 1
+  FLASHTALK_TGT_FPS                   Default: 25
+  FLASHTALK_SAMPLE_STEPS              Default: 2
+  FLASHTALK_COLOR_CORRECTION_STRENGTH Default: 0
+
+Optional background mode:
+  --background | -b                  Detach with nohup; logs and pid file below.
+  OMNIRT_FLASHTALK_BACKGROUND=1      Same as --background (can combine with flag).
+  OMNIRT_FLASHTALK_LOG_FILE          Default: <omnirt-root>/outputs/omnirt-flashtalk-ws.log
+  OMNIRT_FLASHTALK_PID_FILE          Default: <omnirt-root>/outputs/omnirt-flashtalk-ws.pid
+
 910B example using an OmniRT-managed runtime:
   cd <omnirt-repo-root>
   python -m omnirt.cli.main runtime install flashtalk --device ascend
   bash scripts/start_flashtalk_ws.sh
+  bash scripts/start_flashtalk_ws.sh --background
 USAGE
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
+fi
+
+BACKGROUND=0
+if [[ "${OMNIRT_FLASHTALK_BACKGROUND:-0}" == "1" ]]; then
+  BACKGROUND=1
+fi
+if [[ "${1:-}" == "--background" || "${1:-}" == "-b" ]]; then
+  BACKGROUND=1
+  shift
+fi
+if [[ -n "${1:-}" ]]; then
+  echo "error: unexpected argument: $1" >&2
+  echo "hint: bash scripts/start_flashtalk_ws.sh --help" >&2
+  exit 2
 fi
 
 require_env() {
@@ -162,6 +192,15 @@ fi
 mkdir -p "$CMD_DIR"
 export FLASHTALK_CMD_DIR="$CMD_DIR"
 
+# SoulX flash_talk/inference.py: env overrides infer_params.yaml (${VAR:-default} keeps pre-exported values).
+export FLASHTALK_HEIGHT="${FLASHTALK_HEIGHT:-704}"
+export FLASHTALK_WIDTH="${FLASHTALK_WIDTH:-416}"
+export FLASHTALK_FRAME_NUM="${FLASHTALK_FRAME_NUM:-25}"
+export FLASHTALK_MOTION_FRAMES_NUM="${FLASHTALK_MOTION_FRAMES_NUM:-3}"
+export FLASHTALK_TGT_FPS="${FLASHTALK_TGT_FPS:-25}"
+export FLASHTALK_SAMPLE_STEPS="${FLASHTALK_SAMPLE_STEPS:-2}"
+export FLASHTALK_COLOR_CORRECTION_STRENGTH="${FLASHTALK_COLOR_CORRECTION_STRENGTH:-0}"
+
 common_args=(
   --host "$HOST"
   --port "$PORT"
@@ -204,6 +243,23 @@ case "$ENTRYPOINT" in
     exit 2
     ;;
 esac
+
+LOG_FILE="${OMNIRT_FLASHTALK_LOG_FILE:-$ROOT/outputs/omnirt-flashtalk-ws.log}"
+PID_FILE="${OMNIRT_FLASHTALK_PID_FILE:-$ROOT/outputs/omnirt-flashtalk-ws.pid}"
+
+if [[ "$BACKGROUND" == "1" ]]; then
+  mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")"
+  if [[ "$NPROC_PER_NODE" =~ ^[0-9]+$ && "$NPROC_PER_NODE" -gt 1 ]]; then
+    nohup "$TORCHRUN_BIN" --nproc_per_node="$NPROC_PER_NODE" "${target[@]}" >>"$LOG_FILE" 2>&1 &
+  else
+    nohup "$PYTHON_BIN" "${target[@]}" >>"$LOG_FILE" 2>&1 &
+  fi
+  echo $! >"$PID_FILE"
+  echo "FlashTalk WebSocket started in background (pid $(cat "$PID_FILE"))."
+  echo "  log: $LOG_FILE"
+  echo "  pid: $PID_FILE"
+  exit 0
+fi
 
 if [[ "$NPROC_PER_NODE" =~ ^[0-9]+$ && "$NPROC_PER_NODE" -gt 1 ]]; then
   exec "$TORCHRUN_BIN" --nproc_per_node="$NPROC_PER_NODE" "${target[@]}"

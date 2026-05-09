@@ -2,19 +2,34 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 
 from omnirt.engine import Controller, GrpcWorkerClient, OmniEngine, WorkerEndpoint
 from omnirt.engine.redis_store import RedisJobStore
 from omnirt.server.auth import ApiKeyMiddleware, load_api_keys
 from omnirt.server.model_aliases import load_model_aliases
-from omnirt.server.realtime_avatar import RealtimeAvatarService
+from omnirt.server.realtime_avatar import FakeRealtimeAvatarRuntime, RealtimeAvatarService
 from omnirt.server.routes.avatar import router as avatar_router
 from omnirt.server.routes.generate import router as generate_router
 from omnirt.server.routes.health import router as health_router
 from omnirt.server.routes.jobs import router as jobs_router
 from omnirt.server.routes.openai import router as openai_router
 from omnirt.telemetry import OtlpExporter, PrometheusMetrics, TraceRecorder
+
+
+def _create_realtime_avatar_service() -> RealtimeAvatarService:
+    if os.environ.get("OMNIRT_WAV2LIP_RUNTIME", "").strip().lower() not in {"1", "true", "opentalking"}:
+        return RealtimeAvatarService()
+    from omnirt.models.wav2lip.runtime import AvatarRuntimeRouter, Wav2LipRealtimeRuntime
+
+    return RealtimeAvatarService(
+        runtime=AvatarRuntimeRouter(
+            fallback=FakeRealtimeAvatarRuntime(),
+            wav2lip=Wav2LipRealtimeRuntime(),
+        )
+    )
 
 
 def create_app(
@@ -69,7 +84,7 @@ def create_app(
     app.state.default_backend = default_backend
     app.state.default_request_config = dict(default_request_config or {})
     app.state.model_aliases = load_model_aliases(model_aliases_path)
-    app.state.realtime_avatar_service = RealtimeAvatarService()
+    app.state.realtime_avatar_service = _create_realtime_avatar_service()
     app.add_middleware(ApiKeyMiddleware, api_keys=load_api_keys(api_key_file))
     app.include_router(health_router)
     app.include_router(generate_router)

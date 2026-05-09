@@ -1,0 +1,36 @@
+# Ascend 910 / CANN — MuseTalk WebSocket server (`musetalk_ws_server.py`)
+#
+# - Install CANN toolkit + drivers on the host (Huawei docs for your OS).
+# - Set PIP_EXTRA_INDEX_URL to your Huawei torch/torch-npu wheel index that matches CANN.
+# - Do NOT rely on PyPI CPU-only torch as the sole install when using NPU.
+#
+# Before Python: source CANN env (or use `scripts/start_musetalk_ws.sh` which tries common paths):
+#   source /usr/local/Ascend/ascend-toolkit/set_env.sh
+#
+# Pins align with `model_backends/flashtalk/requirements-ascend.txt` / `wav2lip/requirements-wav2lip-ascend.txt`
+# on the same machine so one venv can serve multiple backends.
+#
+# Install:
+#   pip install -r model_backends/musetalk/requirements-musetalk-ascend.txt
+#
+torch==2.7.1
+torchvision==0.22.1
+torch-npu==2.7.1.post2
+torchaudio==2.7.1
+
+numpy>=1.22
+scipy>=1.10
+opencv-python-headless>=4.12.0.88
+websockets>=12.0
+PyYAML>=6.0
+Pillow>=10.0
+diffusers>=0.34.0
+transformers>=4.46.0
+accelerate>=1.0.0
+openai-whisper>=20240930
+safetensors>=0.4.0
+tqdm>=4.65
+pydantic-settings>=2
+python-dotenv>=0.21
+attrs>=23.2.0
+psutil>=5.9.0

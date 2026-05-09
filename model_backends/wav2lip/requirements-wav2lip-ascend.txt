@@ -1,0 +1,37 @@
+# Ascend 910 / CANN — Wav2Lip WebSocket server (`wav2lip_ws_server.py`)
+#
+# Same principle as `model_backends/flashtalk/requirements-ascend.txt`:
+# - Install CANN toolkit + drivers on the host first (see Huawei docs for your OS).
+# - Install torch / torchvision / torch-npu from the wheel index that matches your CANN version.
+#   Example before pip:
+#     export PIP_EXTRA_INDEX_URL=https://xxxx   # Huawei Ascend wheelhouse (your cluster/doc)
+# - Do NOT use the generic CPU-only PyTorch wheel from PyPI as the only torch install.
+#
+# Pin versions below should stay aligned with `requirements-ascend.txt` (FlashTalk) on the same machine
+# so one venv can serve both backends if desired. Adjust torch-npu build if your CANN requires it.
+#
+# Runtime: torch_npu needs CANN shared libs (e.g. libhccl.so). Before Python, run:
+#   source /usr/local/Ascend/ascend-toolkit/set_env.sh
+# (same idea as SoulX-FlashTalk/start_flashtalk_realtime_29x1.sh), or use
+# start_wav2lip_ws.sh / OMNIRT_WAV2LIP_ENV_SCRIPT.
+#
+torch==2.7.1
+torchvision==0.22.1
+torch-npu==2.7.1.post2
+
+# Wav2Lip WS runtime (also needs Rudrabha/Wav2Lip on PYTHONPATH — see README).
+numpy>=1.22
+opencv-python-headless>=4.12.0.88
+websockets>=12.0
+scipy>=1.10
+librosa>=0.10
+tqdm>=4.65
+# torch_npu imports yaml via npu/_memory_viz.py (not always listed as a hard dep on the wheel).
+PyYAML>=6.0
+# CANN graph compile / TBE hooks import ``attr`` — PyPI package name is ``attrs`` (same as FlashTalk ascend).
+attrs>=23.2.0
+# GE/AOE subprocess may import ``psutil`` during kernel compile (not installed by torch_npu alone).
+psutil>=5.9.0
+
+# Rudrabha/Wav2Lip/audio.py in this repo is patched for librosa>=0.10 (mel keyword-only).
+# Do NOT `pip install -r models/repos/Wav2Lip/requirements.txt` — it pins ancient torch==1.1.0.

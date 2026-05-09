@@ -30,6 +30,8 @@ OmniRT can call a model backend through several mechanisms:
 - HTTP, gRPC, or WebSocket calls to an already running model service.
 - Local resident workers when the model runtime can be imported safely in a model-specific process.
 
+See also [`wav2lip/README.md`](wav2lip/README.md) for the FlashTalk-protocol-compatible **Wav2Lip** WebSocket service (OpenTalking `remote flashtalk`), and [`musetalk/README.md`](musetalk/README.md) for the same protocol backed by **MuseTalk v1.5** (OpenTalking adapter + weights under `models/`).
+
 Each backend README should document:
 
 - Supported hardware and Python version.

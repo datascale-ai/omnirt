@@ -177,7 +177,16 @@ The script checks the external checkout's `flash_talk/` package, OmniRT's WebSoc
 
 ## Background Startup
 
-For a long-running service, keep logs and the pid under the OmniRT checkout's `outputs/` directory:
+The simplest detach path uses the script's built-in `nohup` defaults under `outputs/`:
+
+```bash
+bash scripts/start_flashtalk_ws.sh --background
+tail -f outputs/omnirt-flashtalk-ws.log
+```
+
+Equivalent: `OMNIRT_FLASHTALK_BACKGROUND=1 bash scripts/start_flashtalk_ws.sh`. Override paths with `OMNIRT_FLASHTALK_LOG_FILE` / `OMNIRT_FLASHTALK_PID_FILE`.
+
+If you need to inject `MASTER_ADDR` / `MASTER_PORT` or other distributed variables from the outer shell, keep the manual `nohup` recipe:
 
 ```bash
 mkdir -p outputs
@@ -205,7 +214,7 @@ If the pid file is missing, use `pgrep -af 'flashtalk_ws_server.py|torchrun'` to
 
 ## Realtime Parameters
 
-The helper script preserves and forwards the upstream FlashTalk `FLASHTALK_*` environment variables. For a 910B realtime avatar path, this block is a good starting point:
+The helper script preserves and forwards the upstream FlashTalk `FLASHTALK_*` environment variables. It also exports defaults matching `infer_params.yaml` for the common keys below; if you already exported a variable before launching the script, that value wins. For a 910B realtime avatar path, this block is a good starting point:
 
 ```bash
 export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7

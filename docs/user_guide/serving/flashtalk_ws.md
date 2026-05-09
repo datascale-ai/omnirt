@@ -177,7 +177,16 @@ bash scripts/start_flashtalk_ws.sh
 
 ## 后台启动
 
-长时间运行时建议把日志和 pid 放在 OmniRT 仓库的 `outputs/` 下：
+最简单方式（脚本内 `nohup`，默认日志与 pid 在 `outputs/`）：
+
+```bash
+bash scripts/start_flashtalk_ws.sh --background
+tail -f outputs/omnirt-flashtalk-ws.log
+```
+
+等价写法：`OMNIRT_FLASHTALK_BACKGROUND=1 bash scripts/start_flashtalk_ws.sh`。自定义路径可设置 `OMNIRT_FLASHTALK_LOG_FILE`、`OMNIRT_FLASHTALK_PID_FILE`。
+
+若需要在外层自行传入 `MASTER_ADDR` / `MASTER_PORT` 等分布式变量，仍可使用手动 `nohup`：
 
 ```bash
 mkdir -p outputs
@@ -205,7 +214,7 @@ kill "$(cat outputs/omnirt-flashtalk-ws.pid)"
 
 ## 实时参数
 
-脚本会保留并透传上游 FlashTalk 读取的 `FLASHTALK_*` 环境变量。910B 实时数字人链路可以从下面这组参数起步：
+脚本会保留并透传上游 FlashTalk 读取的 `FLASHTALK_*` 环境变量；`scripts/start_flashtalk_ws.sh` 内也对常用项设置了与 `infer_params.yaml` 一致的默认 `export`（若你在启动前已 `export`，以外部为准）。910B 实时数字人链路可以从下面这组参数起步：
 
 ```bash
 export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
