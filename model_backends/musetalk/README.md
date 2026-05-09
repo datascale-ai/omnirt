@@ -23,7 +23,7 @@
 
 ### 昇腾（当前主要适配）
 
-1. 安装 CANN / 驱动，配置 `PIP_EXTRA_INDEX_URL` 指向华为 **torch / torch-npu** 与 CANN 匹配的 wheel 源。  
+1. 安装 CANN / 驱动，配置 `PIP_EXTRA_INDEX_URL` 指向华为 **torch / torch-npu** 与 CANN 匹配的 wheel 源。
 2. 创建 venv 后安装：
 
 ```bash
@@ -58,8 +58,8 @@ pip install -r model_backends/musetalk/requirements-musetalk-gpu.txt \
 | `dwpose/dw-ll_ucoco_384.pth` | DWPose |
 | `face-parse-bisenet/79999_iter.pth` | BiSeNet；同目录常配 `resnet18-5c106cde.pth`（PyTorch 官方 ResNet18） |
 
-官方 `tiny.pt` 可用已安装 `openai-whisper` 的 Python 按包内 URL 下载并校验 SHA256；或从  
-`https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt`  
+官方 `tiny.pt` 可用已安装 `openai-whisper` 的 Python 按包内 URL 下载并校验 SHA256；或从
+`https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt`
 下载，SHA256 应为文件名中的 `65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9`。
 
 Face-parse 可从 HF 镜像等获取与 MuseTalk 脚本一致的 `79999_iter.pth`；**目录名**须为 **`face-parse-bisenet`**（与 OpenTalking 一致）。
@@ -97,7 +97,7 @@ OpenTalking：`OPENTALKING_FLASHTALK_MODE=remote`，`OPENTALKING_FLASHTALK_WS_UR
 
 ## 说明与排错
 
-- **Ascend 目录 owner 警告**：toolkit 若 root 安装、普通用户运行，可能警告属主不一致，一般不影响推理。  
-- **Whisper `tiny.pt` 只有几百字节且为 XML**：下载错误或误用 HF 权重，按上文替换官方 `tiny.pt`。  
-- **嘴型与底图错位**：OpenTalking `composer` 须对 MuseTalk 使用 **infer 框**贴回（若你自行改过分支，请保持与 upstream 一致）。  
+- **Ascend 目录 owner 警告**：toolkit 若 root 安装、普通用户运行，可能警告属主不一致，一般不影响推理。
+- **Whisper `tiny.pt` 只有几百字节且为 XML**：下载错误或误用 HF 权重，按上文替换官方 `tiny.pt`。
+- **嘴型与底图错位**：OpenTalking `composer` 须对 MuseTalk 使用 **infer 框**贴回（若你自行改过分支，请保持与 upstream 一致）。
 - **参考图「只有一块脸在动」**：MuseTalk 本身只在人脸区域生成再贴回；远景小脸会更像贴片，可换近景正脸或调整 `OMNIRT_MUSETALK_MAX_LONG_EDGE`。

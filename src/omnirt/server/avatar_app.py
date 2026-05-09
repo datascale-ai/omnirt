@@ -24,4 +24,3 @@ def create_avatar_app(*, default_backend: str = "auto") -> FastAPI:
     app.state.realtime_avatar_service = RealtimeAvatarService(runtime=runtime)
     app.include_router(avatar_router)
     return app
-

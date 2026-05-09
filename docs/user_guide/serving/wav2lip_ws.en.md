@@ -79,7 +79,7 @@ Server-side Wav2Lip inference uses **`torch_npu`** on the NPU. Face detection (S
    - `OMNIRT_WAV2LIP_ENV_SCRIPT` if set
    - `/usr/local/Ascend/ascend-toolkit/set_env.sh`
    - `${ASCEND_TOOLKIT_HOME}/set_env.sh`
-   - `.../ascend-toolkit/latest/set_env.sh`  
+   - `.../ascend-toolkit/latest/set_env.sh`
    After sourcing, device visibility defaults mirror common FlashTalk scripts (**cards 0–7**). For **single-card** runs, export before launch, e.g. `export ASCEND_RT_VISIBLE_DEVICES=0`.
 3. **Venv and deps:** Configure Huawei wheel indices matching your CANN version, then:
    ```bash
@@ -117,19 +117,19 @@ Without `torch_npu` or when NPU is not selected, **`OMNIRT_WAV2LIP_DEVICE=auto`*
 
 ### End-to-end checklist
 
-1. **Driver and CUDA runtime**  
-   - Confirm GPUs with **`nvidia-smi`**.  
-   - Official Linux **CUDA** PyTorch wheels bundle user-space CUDA libraries; ensure **host driver ≥ PyTorch’s minimum** for that wheel.  
+1. **Driver and CUDA runtime**
+   - Confirm GPUs with **`nvidia-smi`**.
+   - Official Linux **CUDA** PyTorch wheels bundle user-space CUDA libraries; ensure **host driver ≥ PyTorch’s minimum** for that wheel.
    - Pin a specific CUDA line via [PyTorch Get Started](https://pytorch.org/get-started/locally/), then install remaining deps in the same venv.
 
-2. **Venv and deps**  
+2. **Venv and deps**
    In **Python 3.9+**:
    ```bash
    pip install -U pip
    pip install -r model_backends/wav2lip/requirements-wav2lip.txt
    ```
    Notes:
-   - **`torch>=2.0`** usually resolves to a **CUDA** wheel on common Linux setups (large download).  
+   - **`torch>=2.0`** usually resolves to a **CUDA** wheel on common Linux setups (large download).
    - For **CPU-only**, install CPU wheels first, then:
      ```bash
      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -138,9 +138,9 @@ Without `torch_npu` or when NPU is not selected, **`OMNIRT_WAV2LIP_DEVICE=auto`*
      ```
      (Or satisfy non-torch deps equivalently.)
 
-3. **Devices**  
-   - Select GPU: `export CUDA_VISIBLE_DEVICES=0` (or multi-GPU as needed).  
-   - Force device: `export OMNIRT_WAV2LIP_DEVICE=cuda`, or keep **`auto`**.  
+3. **Devices**
+   - Select GPU: `export CUDA_VISIBLE_DEVICES=0` (or multi-GPU as needed).
+   - Force device: `export OMNIRT_WAV2LIP_DEVICE=cuda`, or keep **`auto`**.
    - Face detection defaults to CPU for stability; for GPU S3FD:
      ```bash
      export OMNIRT_WAV2LIP_FACE_DET_DEVICE=cuda

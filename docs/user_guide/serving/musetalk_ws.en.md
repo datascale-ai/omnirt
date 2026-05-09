@@ -39,9 +39,9 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 **`bash scripts/start_musetalk_ws.sh`** searches for:
 
-1. `OMNIRT_MUSETALK_ENV_SCRIPT` if set  
-2. `/usr/local/Ascend/ascend-toolkit/set_env.sh`  
-3. `${ASCEND_TOOLKIT_HOME}/set_env.sh`  
+1. `OMNIRT_MUSETALK_ENV_SCRIPT` if set
+2. `/usr/local/Ascend/ascend-toolkit/set_env.sh`
+3. `${ASCEND_TOOLKIT_HOME}/set_env.sh`
 4. `.../ascend-toolkit/latest/set_env.sh`
 
 Visibility defaults match FlashTalk / Wav2Lip launchers (cards **0–7**). For **single-card**, export `ASCEND_RT_VISIBLE_DEVICES=0` before launch.

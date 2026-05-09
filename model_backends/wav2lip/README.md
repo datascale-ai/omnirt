@@ -64,7 +64,7 @@ OMNIRT_WAV2LIP_BACKGROUND=1 bash scripts/start_wav2lip_ws.sh --background
 
 ## Relation to `start_flashtalk_ws.sh`
 
-[`scripts/start_flashtalk_ws.sh`](../../scripts/start_flashtalk_ws.sh) assumes a **SoulX-FlashTalk** checkout (`flash_talk/` package, checkpoints, wav2vec).  
+[`scripts/start_flashtalk_ws.sh`](../../scripts/start_flashtalk_ws.sh) assumes a **SoulX-FlashTalk** checkout (`flash_talk/` package, checkpoints, wav2vec).
 Wav2Lip-only deployments should use **`start_wav2lip_ws.sh`** instead.
 
 ## OpenTalking

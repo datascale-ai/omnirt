@@ -79,7 +79,7 @@ bash scripts/start_wav2lip_ws.sh --help
    - `OMNIRT_WAV2LIP_ENV_SCRIPT`（若显式指定）
    - `/usr/local/Ascend/ascend-toolkit/set_env.sh`
    - `${ASCEND_TOOLKIT_HOME}/set_env.sh`
-   - `.../ascend-toolkit/latest/set_env.sh`  
+   - `.../ascend-toolkit/latest/set_env.sh`
    加载后会套用与现网 FlashTalk 脚本一致的 **多卡可见性默认值**（`0–7`）。**若只用单卡**，请在启动脚本前设置，例如：`export ASCEND_RT_VISIBLE_DEVICES=0`。
 3. **虚拟环境与依赖**：使用专用 venv，按 **华为提供的 PyTorch / torch_npu 与 CANN 版本匹配** 的方式配置 `PIP_EXTRA_INDEX_URL` 等，然后：
    ```bash
@@ -117,19 +117,19 @@ bash scripts/start_wav2lip_ws.sh --help
 
 ### 端到端流程
 
-1. **驱动与 CUDA 运行时**  
-   - 使用 **`nvidia-smi`** 确认驱动与 GPU 可见。  
-   - 通过 **`pip install torch`** 安装的官方 Linux x86_64 **CUDA 版 PyTorch** 会捆绑对应的 NVIDIA CUDA **用户态**库（如 cu12 系列轮子）；需保证 **宿主驱动版本 ≥ PyTorch 声明所需的最低驱动**，不必与本机 `nvcc` 完全一致。  
+1. **驱动与 CUDA 运行时**
+   - 使用 **`nvidia-smi`** 确认驱动与 GPU 可见。
+   - 通过 **`pip install torch`** 安装的官方 Linux x86_64 **CUDA 版 PyTorch** 会捆绑对应的 NVIDIA CUDA **用户态**库（如 cu12 系列轮子）；需保证 **宿主驱动版本 ≥ PyTorch 声明所需的最低驱动**，不必与本机 `nvcc` 完全一致。
    - 若需固定某一 CUDA 构建线，可到 [PyTorch Get Started](https://pytorch.org/get-started/locally/) 按矩阵选择 `pip`/`conda` 命令，再在同一 venv 内安装其余依赖。
 
-2. **虚拟环境与依赖**  
+2. **虚拟环境与依赖**
    在 **Python 3.9+** 的 venv 中，于仓库根目录执行：
    ```bash
    pip install -U pip
    pip install -r model_backends/wav2lip/requirements-wav2lip.txt
    ```
    说明：
-   - 该文件中的 **`torch>=2.0`** 在常见 Linux 环境下会解析为 **带 CUDA 的 PyTorch**（体积较大，含 GPU 依赖）。  
+   - 该文件中的 **`torch>=2.0`** 在常见 Linux 环境下会解析为 **带 CUDA 的 PyTorch**（体积较大，含 GPU 依赖）。
    - 若只需要 **CPU 推理**（无 GPU 或节省下载体积），请改用 PyTorch 官方 **CPU 轮子源**，例如：
      ```bash
      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -138,12 +138,12 @@ bash scripts/start_wav2lip_ws.sh --help
      ```
      （或以等价方式保证 `requirements-wav2lip.txt` 里除 `torch` 外的包齐全。）
 
-3. **设备与环境变量**  
-   - **选 GPU**：  
-     `export CUDA_VISIBLE_DEVICES=0`（或多卡时选卡；未设置则默认使用当前进程可见的全部 GPU，`cuda` 一般为当前可见集合中的默认设备）。  
-   - **强制推理设备**：  
-     `export OMNIRT_WAV2LIP_DEVICE=cuda`  
-     或与脚本默认一致使用 **`auto`**（无 NPU 时会走 CUDA，再不行则 CPU）。  
+3. **设备与环境变量**
+   - **选 GPU**：
+     `export CUDA_VISIBLE_DEVICES=0`（或多卡时选卡；未设置则默认使用当前进程可见的全部 GPU，`cuda` 一般为当前可见集合中的默认设备）。
+   - **强制推理设备**：
+     `export OMNIRT_WAV2LIP_DEVICE=cuda`
+     或与脚本默认一致使用 **`auto`**（无 NPU 时会走 CUDA，再不行则 CPU）。
    - **人脸检测是否跟 GPU**：默认 **`OMNIRT_WAV2LIP_FACE_DET_DEVICE` 为空时为 CPU**（往往更稳）。若希望 S3FD 与 Wav2Lip 同卡，可设置：
      ```bash
      export OMNIRT_WAV2LIP_FACE_DET_DEVICE=cuda
