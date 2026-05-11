@@ -48,7 +48,7 @@
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `prompt` | `str` | **必填** | 文本 prompt |
-| `num_frames` | `int?` | 模型默认 | 帧数；Wan2.2 通常 `81`，CogVideoX `49`，Hunyuan `129` |
+| `num_frames` | `int?` | 模型默认 | 帧数；Wan2.2 通常 `81`，不同 experimental 视频模型会有自己的默认值 |
 | `fps` | `int?` | 模型默认 | 输出帧率 |
 | `negative_prompt` | `str?` | `None` | 负向 prompt（部分模型支持） |
 | `preset` | `fast`/`balanced`/`quality`/`low-vram` | `balanced` | 见 [预设](../features/presets.md) |
@@ -59,9 +59,9 @@
 
 ## 支持模型
 
-- **大型高质量**：`wan2.2-t2v-14b`（24 GB+）、`hunyuan-video`（48 GB+）
-- **中等**：`cogvideox-2b`、`cogvideox-5b`
-- **边缘/实验**：见 [路线图](../models/roadmap.md)
+- **相邻主线**：`wan2.2-t2v-14b`（24 GB+）
+- **素材/动效**：`animate-diff-sdxl`
+- **兼容 / experimental**：`cogvideox-*`、`hunyuan-video*` 等仍保留 registry，但不作为默认发布基线
 
 完整清单：`omnirt models --task text2video`。
 
@@ -74,11 +74,11 @@
       --prompt "..." --num-frames 81 --fps 16 --preset balanced
     ```
 
-=== "低显存短片"
+=== "素材动效"
 
     ```bash
-    omnirt generate --task text2video --model cogvideox-2b \
-      --prompt "..." --num-frames 49 --fps 8 --preset low-vram
+    omnirt generate --task text2video --model animate-diff-sdxl \
+      --prompt "..." --num-frames 16 --fps 8 --preset balanced
     ```
 
 ## 错误与排查

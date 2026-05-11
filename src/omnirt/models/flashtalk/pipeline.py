@@ -123,6 +123,7 @@ class FlashTalkLaunchConfig:
         maturity="beta",
         chain_role="avatar-render",
         realtime=True,
+        tier="core",
         summary="SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend.",
         example=(
             "OMNIRT_FLASHTALK_REPO_PATH=/path/to/SoulX-FlashTalk "

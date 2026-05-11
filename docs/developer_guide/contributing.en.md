@@ -71,7 +71,8 @@ The docs CI (`docs-lint` job) runs three things in order:
 
 1. **`scripts/generate_models_doc.py --check`** — the registry doc is up to date
 2. **`scripts/check_bilingual_parity.py`** — every Chinese page has an English sibling and lengths look reasonable
-3. **`mkdocs build --strict`** — all links, references, and nav entries are valid
+3. **`scripts/check_docs_tier_policy.py`** — quickstarts and default examples do not promote experimental models into the main path
+4. **`mkdocs build --strict`** — all links, references, and nav entries are valid
 
 Reproduce locally:
 
@@ -79,17 +80,29 @@ Reproduce locally:
 python -m pip install -e '.[dev,docs]'
 python scripts/generate_models_doc.py --check
 python scripts/check_bilingual_parity.py
+python scripts/check_docs_tier_policy.py
 mkdocs build --strict
 ```
 
 Bilingual convention: the Chinese source is `foo.md` and its English sibling is `foo.en.md`. See [Publishing Docs](../community/publishing_docs.md).
+
+## Model tier discipline
+
+OmniRT's default development direction is the digital-human vertical path. General image / video integrations are no longer treated as equal headline surfaces:
+
+- New models start as `tier="experimental"` unless the PR also brings a concrete digital-human use case, real-backend smoke coverage, and docs entry points
+- Docs, quickstarts, benchmarks, and CI smoke examples should default to `core` or `adjacent` models; experimental models belong in compatibility, roadmap, or legacy optimization contexts
+- Promotion to `core` requires end-to-end evidence: real-hardware smoke, benchmark coverage, deployment notes, an owner, and failure-path tests
+- Service examples should default to `omnirt serve --model-tier core --model-tier adjacent` so production deployments do not accidentally expose experimental registry entries
+
+Whenever a model tier changes, check `omnirt models --tier ...`, `/v1/models?tier=...`, generated model docs, and the related tests together.
 
 ## PR workflow
 
 1. **Fork → branch**: use `feat/xxx`, `fix/xxx`, or `docs/xxx` naming
 2. **Commit messages**: first line ≤ 72 chars, imperative mood; the body explains *why*
 3. **Test coverage**: new public behavior must ship with `tests/unit` or `tests/parity` cases; hardware-specific features need at least one skippable smoke
-4. **Docs**: update `docs/` whenever public API, request schema, or model support changes
+4. **Docs**: update `docs/` whenever public API, request schema, or model support changes, and confirm the default examples do not promote experimental models into the main path
 5. **Open the PR**: describe motivation and scope; paste the output of `pytest tests/unit tests/parity --maxfail=1`
 
 ## Extension points

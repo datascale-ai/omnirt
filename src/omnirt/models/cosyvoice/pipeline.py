@@ -58,6 +58,7 @@ class CosyVoiceTritonConfig:
         adapter_kinds=(),
         artifact_kind="audio",
         maturity="beta",
+        tier="core",
         supports_batching=False,
         chain_role="voice-generation",
         summary="CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route.",

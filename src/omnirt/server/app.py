@@ -62,6 +62,7 @@ def create_app(
     otlp_endpoint: str | None = None,
     worker_id: str = "coordinator",
     remote_workers: list[dict[str, object]] | None = None,
+    allowed_model_tiers: list[str] | tuple[str, ...] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="OmniRT", version="1.0.0")
     metrics = PrometheusMetrics()
@@ -99,6 +100,7 @@ def create_app(
     app.state.remote_workers = list(remote_workers or [])
     app.state.default_backend = default_backend
     app.state.default_request_config = dict(default_request_config or {})
+    app.state.allowed_model_tiers = tuple(allowed_model_tiers or ())
     app.state.model_aliases = load_model_aliases(model_aliases_path)
     app.state.avatar_model_ws_urls = _avatar_model_ws_urls_from_env()
     app.state.realtime_avatar_service = _create_realtime_avatar_service()

@@ -8,6 +8,9 @@ from typing import Any, Callable, Dict, Literal, Optional, Tuple, Type
 from omnirt.core.types import ModelNotRegisteredError
 
 
+ModelTier = Literal["core", "adjacent", "experimental"]
+
+
 @dataclass
 class ModelCapabilities:
     required_inputs: Tuple[str, ...] = ()
@@ -25,6 +28,7 @@ class ModelCapabilities:
     domain: str = "digital-human"
     chain_role: str = ""
     realtime: bool = False
+    tier: ModelTier = "experimental"
 
 
 @dataclass

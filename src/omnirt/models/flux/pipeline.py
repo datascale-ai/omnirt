@@ -44,6 +44,7 @@ from omnirt.models.flux.components import DEFAULT_FLUX_DEV_MODEL_SOURCE, DEFAULT
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="stable",
+        tier="adjacent",
         summary="Flux 1 dev text-to-image pipeline.",
         example="omnirt generate --task text2image --model flux-dev --prompt \"a paper dragon in a lantern shop\" --backend cuda",
     ),

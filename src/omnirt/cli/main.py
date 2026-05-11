@@ -68,6 +68,10 @@ def model_status_label(spec) -> str:
     return f"{task_surface_label(spec.task)}/{spec.capabilities.maturity}"
 
 
+def model_tier_label(spec) -> str:
+    return spec.capabilities.tier
+
+
 def render_supported_tasks(variants) -> str:
     return ", ".join(f"{task} ({model_status_label(spec)})" for task, spec in variants.items())
 
@@ -225,6 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Output format for the list view. Markdown is deterministic and suitable for docs generation.",
     )
+    models_parser.add_argument(
+        "--tier",
+        choices=["all", "core", "adjacent", "experimental"],
+        default="all",
+        help="Filter the list view by digital-human maintenance tier.",
+    )
 
     runtime_parser = subparsers.add_parser("runtime", help="Manage isolated model runtime environments.")
     runtime_subparsers = runtime_parser.add_subparsers(dest="runtime_command")
@@ -295,6 +305,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan quantization mode.")
     serve_parser.add_argument("--wan-quant-include", help="Comma-separated Wan module allowlist.")
     serve_parser.add_argument("--wan-quant-exclude", help="Comma-separated Wan module denylist.")
+    serve_parser.add_argument(
+        "--model-tier",
+        action="append",
+        choices=["core", "adjacent", "experimental"],
+        default=[],
+        help="Enable only the selected model maintenance tier. Repeat to allow multiple tiers. Defaults to all tiers.",
+    )
 
     bench_parser = subparsers.add_parser("bench", help="Run a local benchmark scenario.")
     add_request_arguments(bench_parser)
@@ -725,6 +742,7 @@ def render_model_summary(spec, *, variants=None) -> str:
         f"model={spec.id}",
         f"task={spec.task}",
         f"status={model_status_label(spec)}",
+        f"tier={model_tier_label(spec)}",
         f"default_backend={spec.default_backend}",
         f"maturity={caps.maturity}",
     ]
@@ -823,12 +841,15 @@ def render_models_markdown(specs) -> str:
         heading = _CHAIN_ROLE_HEADINGS.get(role, role)
         lines.append(f"## {heading}")
         lines.append("")
-        lines.append("| Registry id | Task | Maturity | Realtime | Summary |")
-        lines.append("|---|---|---|---|---|")
+        lines.append("| Registry id | Task | Tier | Maturity | Realtime | Summary |")
+        lines.append("|---|---|---|---|---|---|")
         for spec in sorted(by_role[role], key=lambda s: (s.task, s.id)):
             summary = spec.capabilities.summary.replace("|", "\\|") if spec.capabilities.summary else ""
             realtime = "yes" if spec.capabilities.realtime else "no"
-            lines.append(f"| `{spec.id}` | `{spec.task}` | {spec.capabilities.maturity} | {realtime} | {summary} |")
+            lines.append(
+                f"| `{spec.id}` | `{spec.task}` | {model_tier_label(spec)} | "
+                f"{spec.capabilities.maturity} | {realtime} | {summary} |"
+            )
         lines.append("")
 
     if aliases:
@@ -1121,6 +1142,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             redis_url=args.redis_url,
             otlp_endpoint=args.otlp_endpoint,
             remote_workers=remote_workers,
+            allowed_model_tiers=args.model_tier,
         )
         uvicorn.run(app, host=args.host, port=args.port)
         return 0
@@ -1236,9 +1258,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                             "id": spec.id,
                             "task": spec.task,
                             "status": model_status_label(spec),
+                            "tier": model_tier_label(spec),
                             "supported_tasks": list(variants),
                             "supported_task_statuses": {
                                 task: model_status_label(variant_spec) for task, variant_spec in variants.items()
+                            },
+                            "supported_task_tiers": {
+                                task: model_tier_label(variant_spec) for task, variant_spec in variants.items()
                             },
                             "default_backend": spec.default_backend,
                             "resource_hint": spec.resource_hint,
@@ -1255,6 +1281,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         include_aliases = getattr(args, "format", "text") == "markdown"
         specs = list_available_models(include_aliases=include_aliases)
+        tier_filter = getattr(args, "tier", "all")
+        if tier_filter != "all":
+            specs = [spec for spec in specs if spec.capabilities.tier == tier_filter]
         if getattr(args, "format", "text") == "markdown":
             sys.stdout.write(render_models_markdown(specs))
             return 0
@@ -1266,6 +1295,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                             "id": spec.id,
                             "task": spec.task,
                             "status": model_status_label(spec),
+                            "tier": model_tier_label(spec),
                             "default_backend": spec.default_backend,
                             "maturity": spec.capabilities.maturity,
                             "summary": spec.capabilities.summary,
@@ -1279,7 +1309,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         else:
             for spec in specs:
-                print(f"{spec.id}\t{spec.task}\t{model_status_label(spec)}\t{spec.capabilities.summary}")
+                print(
+                    f"{spec.id}\t{spec.task}\t{model_tier_label(spec)}\t"
+                    f"{model_status_label(spec)}\t{spec.capabilities.summary}"
+                )
         return 0
 
     if args.command not in {"generate", "validate"}:

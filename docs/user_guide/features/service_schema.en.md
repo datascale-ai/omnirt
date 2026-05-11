@@ -49,6 +49,16 @@ When `async_run=true`, the server returns a job record instead of the final `Gen
 - `config`: execution settings such as `preset`, `scheduler`, `device_map`, `quantization`
 - `adapters`: optional LoRA list
 
+## Model tier policy
+
+Every registry entry has a `tier`: `core`, `adjacent`, or `experimental`. The Python API can still access the full registry by default; production HTTP services should narrow visibility and execution with `omnirt serve --model-tier core --model-tier adjacent`:
+
+- `/v1/models` returns only tiers enabled for the service
+- `/readyz` returns `allowed_model_tiers` so deployment checks can confirm policy
+- `/v1/generate`, OpenAI-compatible routes, and `/v1/realtime` reject models outside the enabled tiers
+
+`experimental` should only be exposed in development, compatibility validation, or explicitly authorized internal services. It should not be part of the default production surface.
+
 ## Sync response
 
 Synchronous `POST /v1/generate` returns a `GenerateResult`:
@@ -107,6 +117,7 @@ You can then consume it through:
 
 These compatibility routes are currently available:
 
+- `GET /v1/models`
 - `POST /v1/images/generations`
 - `POST /v1/images/edits`
 - `POST /v1/videos/generations`

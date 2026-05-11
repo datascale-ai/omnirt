@@ -30,6 +30,7 @@ omnirt serve \
 | `--batch-window-ms` | batching 等待窗口 |
 | `--max-batch-size` | batching 上限 |
 | `--device-map` / `--devices` | 作为默认请求配置透传给所有入口 |
+| `--model-tier` | 只启用指定维护层级；可重复，例如 `--model-tier core --model-tier adjacent` |
 | `--api-key-file` | API key 文件 |
 | `--model-aliases` | OpenAI 兼容模型别名表 |
 | `--redis-url` | 启用 `RedisJobStore` |
@@ -41,8 +42,9 @@ omnirt serve \
 | Method | Path | 用途 |
 |---|---|---|
 | `GET` | `/healthz` | 存活探针 |
-| `GET` | `/readyz` | 就绪探针，附带 `job_store_backend` 和 `remote_worker_count` |
+| `GET` | `/readyz` | 就绪探针，附带 `job_store_backend`、`remote_worker_count` 和 `allowed_model_tiers` |
 | `GET` | `/metrics` | Prometheus 文本指标 |
+| `GET` | `/v1/models` | OpenAI 兼容模型清单，返回 `tier` / `status`，支持 `?tier=core` |
 | `POST` | `/v1/generate` | 同步或异步生成 |
 | `GET` | `/v1/jobs/{id}` | job 状态与结果 |
 | `DELETE` | `/v1/jobs/{id}` | 取消 job |
@@ -104,6 +106,15 @@ client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-local")
 resp = client.images.generate(model="sdxl-base-1.0", prompt="a lighthouse at dusk")
 print(resp.data[0].url)
 ```
+
+模型发现可以按维护层级过滤：
+
+```bash
+curl -sS 'http://127.0.0.1:8000/v1/models?tier=core'
+curl -sS 'http://127.0.0.1:8000/v1/models?tier=adjacent'
+```
+
+如果服务启动时指定了 `--model-tier core`，`/v1/models` 只会返回 core 模型，生成接口也会拒绝其它层级的请求。生产环境可以用 `--model-tier core --model-tier adjacent` 暴露数字人主线和相邻素材能力，把 experimental 模型保留在开发/兼容入口。
 
 注意：
 

@@ -1,42 +1,47 @@
 # 模型支持路线图
 
-本文档基于当前已经实现的基线能力，定义 `omnirt` 后续推荐推进的模型支持路线图。
+本文档基于当前已经实现的基线能力，定义 `omnirt` 后续推荐推进的数字人链路路线图。
 
-路线图有意与当前开源生态保持对齐，尤其参考：
+OmniRT 后续不再以泛图像 / 泛视频模型数量作为主目标。已经接入的模型会继续保留在 registry 中，但路线图优先服务数字人垂直领域：
 
-- Diffusers 官方 pipeline 覆盖面
-- ComfyUI 原生 workflow / template 覆盖面
-- InvokeAI 在生产实用性上的模型支持重点
+- 语音生成和音色复用
+- 音频驱动数字人视频
+- 实时流式与常驻 worker
+- 角色资产与 idle 视频素材
+- 数字人后处理增强
+- CUDA / Ascend 双后端可复现部署
 
 状态说明：
 
-- 最近审阅时间：2026-04-20
+- 最近审阅时间：2026-05-11
 - 这是一份 OmniRT 内部推荐路线图，不代表上游框架承诺
 
 当前实现备注：
 
 - OmniRT currently ships `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sdxl-turbo`, `animate-diff-sdxl`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `kolors`, `svd`, `svd-xt`, `flux-dev`, `flux-depth`, `flux-schnell`, `flux-canny`, `flux-fill`, `flux-kontext`, `flux2.dev` / `flux2-dev`, `chronoedit`, `glm-image`, `hunyuan-image-2.1`, `omnigen`, `qwen-image`, `qwen-image-edit`, `qwen-image-edit-plus`, `qwen-image-layered`, `sana-1.6b`, `ovis-image`, `hidream-i1`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `cogvideox-2b`, `cogvideox-5b`, `kandinsky5-t2v`, `kandinsky5-i2v`, `wan2.1-t2v-14b`, `wan2.1-i2v-14b`, `wan2.2-t2v-14b`, `wan2.2-i2v-14b`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `hunyuan-video-1.5-i2v`, `helios-t2v`, `helios-i2v`, `sana-video`, `ltx-video`, `ltx2-i2v`, `skyreels-v2`, `soulx-flashtalk-14b`, and `soulx-flashhead-1.3b`
-- 这意味着当前代码库在 Flux 和 Wan 家族版本上已经超出了更早期的路线图
-- 下文会把较新的 Flux2 和 Wan2.2 集成视为真实基线支持，同时继续保留 `flux-dev`、`flux-schnell` 和 `wan2.1-*` 这些仍有战略价值的兼容目标
+- 这意味着当前代码库已经具备一个较宽的 model zoo 表面，但后续不会继续按“大而全”扩张
+- 下文会把 FlashTalk / FlashHead / LiveAct / CosyVoice 视为 Core，把 SDXL / Flux2 / Qwen-Image / SVD / Wan 视为数字人相邻素材能力
 - 对于多任务家族，当前 registry 会在必要时使用任务后缀，例如 `helios-t2v` / `helios-i2v` 和 `hunyuan-video-1.5-t2v` / `hunyuan-video-1.5-i2v`
 
 ## 当前快照
 
 完整的已实现清单由 registry 自动生成，见 [模型清单](supported_models.md)。本文档专注于优先级与待办。
 
-当前优先级最高、但尚未支持的目标：
+当前优先级最高的不是继续增加泛模型，而是把数字人主链路补成可部署闭环：
 
-- `helios`
-- `hunyuan-video-1.5`
+- `cosyvoice3-triton-trtllm` 的稳定流式 TTS 与可复用 speaker profile
+- `soulx-flashtalk-14b` 的常驻 worker、热态 benchmark、实时服务接入
+- `soulx-flashhead-1.3b` / `soulx-liveact-14b` 的 resident path 与部署文档
+- ASR / 语音理解入口，例如 Whisper / Paraformer / SenseVoice
+- 角色资产与 idle 视频素材生成的最小推荐组合
 
 ## 规划原则
 
-1. 优先支持拥有一等 Diffusers 支持的模型。
-2. 优先考虑同时出现在 ComfyUI、InvokeAI 等主流生产工具中的模型。
-3. 继续把 `text2image` 和 `image2video` 作为主兼容目标。
-   通过 `audio2video`，音频驱动数字人也已经成为一等任务面。
-4. 优先支持开放权重模型和 `safetensors` 这类安全格式。
-5. 避免过早投入到已经被上游淘汰的 pipeline 上。
+1. 优先支持能直接服务数字人产品链路的模型和服务能力。
+2. Core 模型必须具备真实硬件 smoke、benchmark 和部署文档；只注册不验证不能称为主线支持。
+3. Adjacent 模型只在能服务角色资产、背景、idle 视频、修图或后处理时继续投入。
+4. Experimental 模型保留 registry 与基础测试，但不再要求 CUDA / Ascend 双后端验证。
+5. 避免把 OmniRT 做成 Diffusers / ComfyUI 的轻量复刻；框架价值应体现在数字人运行时、常驻服务、观测和部署闭环。
 
 ## Registry key 约定
 
@@ -73,94 +78,75 @@ Examples:
 
 ## 支持层级
 
-- `P0`：必须完成的基线能力
-- `P1`：下一阶段主要兼容目标
-- `P2`：高价值扩展能力
-- `P3`：观察名单 / 机会型补充
+- `Core`：数字人主链路，必须完成验证与运维闭环
+- `Adjacent`：服务数字人素材生产或增强的相邻能力
+- `Experimental`：保留现有适配，不作为主线承诺
 
 ## 分阶段路线图
 
-### 阶段 A：补完基线
+### 阶段 A：数字人主链路闭环
 
 目标：
 
-- 为当前已实现的基线能力补完真实的 CUDA / Ascend 端到端验证
+- 把 TTS → 音频驱动数字人 → 输出视频 / 流式服务变成可复现路径
 
 模型：
 
-- `sdxl-base-1.0`
-- `svd`
-- `svd-xt`
-- `flux2.dev`
-- `wan2.2-t2v-14b`
-- `wan2.2-i2v-14b`
+- `cosyvoice3-triton-trtllm`
+- `soulx-flashtalk-14b`
+- `soulx-flashhead-1.3b`
+- `soulx-liveact-14b`
 
-### 阶段 B：主流图像兼容性
+交付：
+
+- 固定 benchmark 场景：首包、冷启动、热态 chunk、端到端耗时
+- resident worker 健康检查、重启、日志尾部和错误分级
+- 最小 HTTP / CLI / WebSocket 启动说明
+
+### 阶段 B：数字人素材生产
 
 目标：
 
-- 覆盖 Diffusers、ComfyUI、InvokeAI 工作流中最常见的图像模型，同时兼顾仍被广泛使用的旧版 Flux 和 Stable Diffusion 家族
+- 保留少量高价值资产生成能力，覆盖头像、背景、风格图、idle 视频素材
 
 模型：
 
-- `sd15`
-- `sd21`
 - `sdxl-refiner-1.0`
-- `sdxl-turbo`
-- `sd3-medium`
-- `sd3.5-large`
-- `sd3.5-large-turbo`
 - `flux2.dev`
-- `flux-dev`
-- `flux-schnell`
-- `flux-fill`
-- `glm-image`
-- `hunyuan-image-2.1`
-- `omnigen`
 - `qwen-image`
 - `qwen-image-edit`
-- `sana-1.6b`
-- `ovis-image`
-- `hidream-i1`
-
-### 阶段 C：视频优先扩张
-
-目标：
-
-- 让 OmniRT 真正成为具备竞争力的开源图像 / 视频运行时，而不只是一个 SDXL + SVD + Wan 包装层
-
-模型：
-
-- `cogvideox-2b`
-- `cogvideox-5b`
-- `kandinsky5-t2v`
-- `kandinsky5-i2v`
+- `svd-xt`
 - `wan2.2-t2v-14b`
 - `wan2.2-i2v-14b`
-- `wan2.1-t2v-14b`
-- `wan2.1-i2v-14b`
-- `hunyuan-video`
-- `hunyuan-video-1.5`
-- `helios`
-- `sana-video`
-- `ltx-video`
-- `ltx2-i2v`
 
-### 阶段 D：可控生成与编辑
+### 阶段 C：语音理解与后处理
 
 目标：
 
-- 补齐成熟运行时普遍应具备的高价值编辑与可控生成能力
+- 补齐数字人真实对话和视频交付所需的上下游能力
 
-模型：
+候选：
 
-- `flux-depth`
-- `flux-canny`
-- `flux-kontext`
-- `chronoedit`
-- `qwen-image-edit-plus`
-- `qwen-image-layered`
-- `animate-diff-sdxl`
+- Whisper / Paraformer / SenseVoice
+- GFPGAN / CodeFormer / Real-ESRGAN
+- RIFE / matting / background replacement
+
+### 阶段 D：泛模型收缩与兼容
+
+目标：
+
+- 对已经接入但不服务数字人主线的模型进行状态下沉
+
+策略：
+
+- README / docs 不再主推泛模型数量
+- CI 不再默认扩展泛模型 smoke
+- registry 和 generated docs 保留完整清单
+- 只有出现明确数字人场景时，才把 experimental 模型提升到 adjacent
+
+## 历史兼容列表
+
+下面的详细目标列表保留为已接入模型家族的兼容背景。新的验证优先级应以上文 Core / Adjacent / Experimental 分层为准。
 
 ## 详细目标列表
 

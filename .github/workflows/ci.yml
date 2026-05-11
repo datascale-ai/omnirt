@@ -34,10 +34,12 @@ jobs:
         run: python scripts/generate_models_doc.py --check
       - name: Check bilingual docs parity
         run: python scripts/check_bilingual_parity.py
+      - name: Check docs tier policy
+        run: python scripts/check_docs_tier_policy.py
       - name: Build documentation site
         run: mkdocs build --strict
 
-  cuda-smoke:
+  cuda-core-adjacent-smoke:
     if: ${{ vars.OMNIRT_ENABLE_CUDA_RUNNER == 'true' }}
     runs-on:
       - self-hosted
@@ -50,14 +52,34 @@ jobs:
           python-version: "3.11"
       - name: Install runtime dependencies
         run: python -m pip install -e '.[runtime,dev]'
-      - name: Run CUDA smoke tests
+      - name: Run CUDA core and adjacent smoke tests
         env:
           OMNIRT_SDXL_MODEL_SOURCE: ${{ vars.OMNIRT_SDXL_MODEL_SOURCE }}
+          OMNIRT_SDXL_REFINER_MODEL_SOURCE: ${{ vars.OMNIRT_SDXL_REFINER_MODEL_SOURCE }}
           OMNIRT_SVD_MODEL_SOURCE: ${{ vars.OMNIRT_SVD_MODEL_SOURCE }}
           OMNIRT_SVD_XT_MODEL_SOURCE: ${{ vars.OMNIRT_SVD_XT_MODEL_SOURCE }}
-        run: pytest tests/integration/test_sdxl_cuda.py tests/integration/test_svd_base_cuda.py tests/integration/test_svd_cuda.py tests/integration/test_error_paths.py
+          OMNIRT_FLUX_FILL_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_FILL_MODEL_SOURCE }}
+          OMNIRT_FLUX_KONTEXT_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_KONTEXT_MODEL_SOURCE }}
+          OMNIRT_FLUX_DEPTH_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_DEPTH_MODEL_SOURCE }}
+          OMNIRT_FLUX_CANNY_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_CANNY_MODEL_SOURCE }}
+          OMNIRT_QWEN_IMAGE_EDIT_MODEL_SOURCE: ${{ vars.OMNIRT_QWEN_IMAGE_EDIT_MODEL_SOURCE }}
+          OMNIRT_QWEN_IMAGE_EDIT_PLUS_MODEL_SOURCE: ${{ vars.OMNIRT_QWEN_IMAGE_EDIT_PLUS_MODEL_SOURCE }}
+          OMNIRT_QWEN_IMAGE_LAYERED_MODEL_SOURCE: ${{ vars.OMNIRT_QWEN_IMAGE_LAYERED_MODEL_SOURCE }}
+          OMNIRT_ANIMATEDIFF_SDXL_MODEL_SOURCE: ${{ vars.OMNIRT_ANIMATEDIFF_SDXL_MODEL_SOURCE }}
+          OMNIRT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE: ${{ vars.OMNIRT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE }}
+        run: |
+          pytest \
+            tests/integration/test_sdxl_cuda.py \
+            tests/integration/test_sdxl_refiner_cuda.py \
+            tests/integration/test_svd_base_cuda.py \
+            tests/integration/test_svd_cuda.py \
+            tests/integration/test_flux_fill_cuda.py \
+            tests/integration/test_image_edit_cuda.py \
+            tests/integration/test_error_paths.py
+          pytest tests/integration/test_structured_edit_cuda.py -k "not chronoedit"
+          pytest tests/integration/test_extended_video_cuda.py -k "animate-diff-sdxl"
 
-  ascend-smoke:
+  ascend-core-adjacent-smoke:
     if: ${{ vars.OMNIRT_ENABLE_ASCEND_RUNNER == 'true' }}
     runs-on:
       - self-hosted
@@ -70,9 +92,35 @@ jobs:
           python-version: "3.11"
       - name: Install runtime dependencies
         run: python -m pip install -e '.[runtime,dev]'
-      - name: Run Ascend smoke tests
+      - name: Run Ascend core and adjacent smoke tests
         env:
           OMNIRT_SDXL_MODEL_SOURCE: ${{ vars.OMNIRT_SDXL_MODEL_SOURCE }}
+          OMNIRT_SDXL_REFINER_MODEL_SOURCE: ${{ vars.OMNIRT_SDXL_REFINER_MODEL_SOURCE }}
           OMNIRT_SVD_MODEL_SOURCE: ${{ vars.OMNIRT_SVD_MODEL_SOURCE }}
           OMNIRT_SVD_XT_MODEL_SOURCE: ${{ vars.OMNIRT_SVD_XT_MODEL_SOURCE }}
-        run: pytest tests/integration/test_sdxl_ascend.py tests/integration/test_svd_base_ascend.py tests/integration/test_svd_ascend.py tests/integration/test_error_paths.py
+          OMNIRT_FLUX_FILL_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_FILL_MODEL_SOURCE }}
+          OMNIRT_FLUX_KONTEXT_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_KONTEXT_MODEL_SOURCE }}
+          OMNIRT_FLUX_DEPTH_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_DEPTH_MODEL_SOURCE }}
+          OMNIRT_FLUX_CANNY_MODEL_SOURCE: ${{ vars.OMNIRT_FLUX_CANNY_MODEL_SOURCE }}
+          OMNIRT_QWEN_IMAGE_EDIT_MODEL_SOURCE: ${{ vars.OMNIRT_QWEN_IMAGE_EDIT_MODEL_SOURCE }}
+          OMNIRT_QWEN_IMAGE_EDIT_PLUS_MODEL_SOURCE: ${{ vars.OMNIRT_QWEN_IMAGE_EDIT_PLUS_MODEL_SOURCE }}
+          OMNIRT_QWEN_IMAGE_LAYERED_MODEL_SOURCE: ${{ vars.OMNIRT_QWEN_IMAGE_LAYERED_MODEL_SOURCE }}
+          OMNIRT_ANIMATEDIFF_SDXL_MODEL_SOURCE: ${{ vars.OMNIRT_ANIMATEDIFF_SDXL_MODEL_SOURCE }}
+          OMNIRT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE: ${{ vars.OMNIRT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE }}
+          OMNIRT_FLASHTALK_REPO_PATH: ${{ vars.OMNIRT_FLASHTALK_REPO_PATH }}
+          OMNIRT_FLASHTALK_IMAGE_PATH: ${{ vars.OMNIRT_FLASHTALK_IMAGE_PATH }}
+          OMNIRT_FLASHTALK_AUDIO_PATH: ${{ vars.OMNIRT_FLASHTALK_AUDIO_PATH }}
+          OMNIRT_FLASHTALK_PYTHON_EXECUTABLE: ${{ vars.OMNIRT_FLASHTALK_PYTHON_EXECUTABLE }}
+          OMNIRT_FLASHTALK_ASCEND_ENV_SCRIPT: ${{ vars.OMNIRT_FLASHTALK_ASCEND_ENV_SCRIPT }}
+        run: |
+          pytest \
+            tests/integration/test_flashtalk_ascend.py \
+            tests/integration/test_sdxl_ascend.py \
+            tests/integration/test_sdxl_refiner_ascend.py \
+            tests/integration/test_svd_base_ascend.py \
+            tests/integration/test_svd_ascend.py \
+            tests/integration/test_flux_fill_ascend.py \
+            tests/integration/test_image_edit_ascend.py \
+            tests/integration/test_error_paths.py
+          pytest tests/integration/test_structured_edit_ascend.py -k "not chronoedit"
+          pytest tests/integration/test_extended_video_ascend.py -k "animate-diff-sdxl"

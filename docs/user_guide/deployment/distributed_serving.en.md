@@ -29,6 +29,8 @@ omnirt serve \
   --host 0.0.0.0 \
   --port 8000 \
   --backend auto \
+  --model-tier core \
+  --model-tier adjacent \
   --remote-worker 'sdxl-a=127.0.0.1:50061@sdxl-base-1.0,sdxl-refiner-1.0'
 ```
 
@@ -41,6 +43,7 @@ worker_id=host:port@model1,model2#tag1,tag2
 - `@model1,model2` declares which models the worker should prefer
 - `#tag1,tag2` is an optional routing tag set
 - `serve` probes worker health before startup and fails fast if the target is unreachable
+- production gateways should always set `--model-tier core --model-tier adjacent`; open `experimental` only for development or compatibility validation
 
 ## Adding Redis and OTLP
 
@@ -48,6 +51,8 @@ worker_id=host:port@model1,model2#tag1,tag2
 omnirt serve \
   --host 0.0.0.0 \
   --port 8000 \
+  --model-tier core \
+  --model-tier adjacent \
   --redis-url redis://127.0.0.1:6379/0 \
   --otlp-endpoint http://127.0.0.1:4318/v1/traces \
   --remote-worker 'sdxl-a=10.0.0.21:50061@sdxl-base-1.0'
@@ -80,14 +85,15 @@ curl -sS http://127.0.0.1:8000/metrics | head
 
 Expected signals:
 
-- `/readyz` returns `job_store_backend` and `remote_worker_count`
+- `/readyz` returns `job_store_backend`, `remote_worker_count`, and `allowed_model_tiers`
+- `/v1/models` exposes only the tiers allowed by the gateway
 - `/metrics` includes `omnirt_jobs_total`, `omnirt_stage_duration_seconds`, and `omnirt_queue_depth`
 - async jobs can be observed through `/v1/jobs/{id}`, `/v1/jobs/{id}/events`, and `/v1/jobs/{id}/stream`
 - with OTLP enabled, `/v1/jobs/{id}/trace` returns the trace view for the same job
 
 ## Recommended rollout order
 
-1. Start with single-process `omnirt serve`
+1. Start with single-process `omnirt serve --model-tier core --model-tier adjacent`
 2. Add Redis and stabilize async jobs plus event streaming
 3. Add one remote worker and verify routing plus `/readyz`
 4. Finally add Prometheus scraping and OTLP export

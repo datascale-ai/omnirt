@@ -2,7 +2,7 @@
 
 OmniRT 暴露了一组精简但清晰的 Python 接口，用于请求构造、请求校验、直接执行，以及以模型为中心的便捷封装。
 
-当前正式公开的任务 helper 包括 `text2image`、`image2image`、`text2video`、`image2video` 和 `audio2video`。`image2image` 推荐从 `sdxl-base-1.0`、`sdxl-refiner-1.0`、`sd15`、`sd21` 开始。
+当前正式公开的任务 helper 包括 `text2image`、`image2image`、`text2video`、`image2video` 和 `audio2video`。`image2image` 推荐从 `sdxl-base-1.0`、`sdxl-refiner-1.0` 开始；`sd15`、`sd21` 仅作为 experimental 兼容参考。
 
 ## 基础导入
 
@@ -71,6 +71,17 @@ print(validation.resolved_config)
 
 在真正开始长耗时执行之前，校验是查看默认值解析结果、后端选择和请求错误的最安全入口。
 
+## 模型发现
+
+`list_available_models(...)` 支持按维护层级过滤，方便服务侧只暴露数字人主线或相邻素材能力：
+
+```python
+import omnirt
+
+core_models = omnirt.list_available_models(tier="core")
+adjacent_models = omnirt.list_available_models(tier="adjacent")
+```
+
 ## 直接执行
 
 ```python
@@ -97,7 +108,7 @@ result = generate(req, backend="cuda")
 ```python
 import omnirt
 
-pipe = omnirt.pipeline("sd15", backend="cpu-stub")
+pipe = omnirt.pipeline("sdxl-base-1.0", backend="cpu-stub")
 validation = pipe.validate(prompt="a lighthouse in fog", preset="fast")
 ```
 

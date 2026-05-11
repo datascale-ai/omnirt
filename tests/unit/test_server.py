@@ -148,6 +148,91 @@ def test_openai_images_generations_route(monkeypatch) -> None:
     assert payload["data"][0]["url"] == "/tmp/server.png"
 
 
+def test_openai_models_route_exposes_tier_filter(monkeypatch) -> None:
+    @register_model(
+        id="core-avatar",
+        task="audio2video",
+        capabilities=ModelCapabilities(required_inputs=("image", "audio"), maturity="beta", summary="Core avatar", tier="core"),
+    )
+    class CoreAvatarPipeline:
+        pass
+
+    @register_model(
+        id="general-image",
+        task="text2image",
+        capabilities=ModelCapabilities(required_inputs=("prompt",), maturity="beta", summary="General image"),
+    )
+    class GeneralImagePipeline:
+        pass
+
+    monkeypatch.setattr(api_module, "ensure_registered", lambda: None)
+    app = create_app(default_backend="cpu-stub", max_concurrency=1, pipeline_cache_size=1)
+    client = TestClient(app)
+
+    response = client.get("/v1/models", params={"tier": "core"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["object"] == "list"
+    assert [item["id"] for item in payload["data"]] == ["core-avatar"]
+    assert payload["data"][0]["tier"] == "core"
+    assert payload["data"][0]["status"] == "public/beta"
+
+    invalid = client.get("/v1/models", params={"tier": "unknown"})
+    assert invalid.status_code == 400
+
+
+def test_server_model_tier_policy_limits_discovery_and_generation(monkeypatch) -> None:
+    @register_model(
+        id="core-avatar",
+        task="audio2video",
+        capabilities=ModelCapabilities(required_inputs=("image", "audio"), tier="core"),
+    )
+    class CoreAvatarPipeline:
+        pass
+
+    @register_model(
+        id="general-image",
+        task="text2image",
+        capabilities=ModelCapabilities(required_inputs=("prompt",)),
+    )
+    class GeneralImagePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, req):
+            return _dummy_result(req.task, req.model, req.backend)
+
+    monkeypatch.setattr(api_module, "ensure_registered", lambda: None)
+    app = create_app(
+        default_backend="cpu-stub",
+        max_concurrency=1,
+        pipeline_cache_size=1,
+        allowed_model_tiers=("core",),
+    )
+    client = TestClient(app)
+
+    ready = client.get("/readyz")
+    assert ready.status_code == 200
+    assert ready.json()["allowed_model_tiers"] == ["core"]
+
+    models = client.get("/v1/models")
+    assert models.status_code == 200
+    assert [item["id"] for item in models.json()["data"]] == ["core-avatar"]
+
+    blocked = client.post(
+        "/v1/generate",
+        json={
+            "task": "text2image",
+            "model": "general-image",
+            "backend": "cpu-stub",
+            "inputs": {"prompt": "hello"},
+            "config": {},
+        },
+    )
+    assert blocked.status_code == 403
+
+
 def test_openai_routes_inherit_default_request_config(monkeypatch) -> None:
     captured = {}
 

@@ -434,11 +434,16 @@ def test_build_parser_accepts_serve_redis_and_otlp_flags() -> None:
             "redis://cache:6379/0",
             "--otlp-endpoint",
             "http://collector:4318/v1/traces",
+            "--model-tier",
+            "core",
+            "--model-tier",
+            "adjacent",
         ]
     )
 
     assert args.redis_url == "redis://cache:6379/0"
     assert args.otlp_endpoint == "http://collector:4318/v1/traces"
+    assert args.model_tier == ["core", "adjacent"]
 
 
 def test_build_parser_accepts_worker_command() -> None:
@@ -769,6 +774,7 @@ def test_main_models_emits_json(monkeypatch, capsys) -> None:
     payload = json.loads(stdout)
     assert payload[0]["id"] == "sd15"
     assert payload[0]["status"] == "public/beta"
+    assert payload[0]["tier"] == "experimental"
     assert "fast" in payload[0]["presets"]
 
 
@@ -801,6 +807,7 @@ def test_render_model_summary_includes_statuses() -> None:
     summary = render_model_summary(primary, variants=variants)
 
     assert "status=public/stable" in summary
+    assert "tier=experimental" in summary
     assert "supported_tasks=text2image (public/stable), image2image (public/stable), inpaint (preview/beta)" in summary
 
 
@@ -818,7 +825,7 @@ def test_main_models_text_output_includes_status(monkeypatch, capsys) -> None:
     stdout = capsys.readouterr().out
 
     assert exit_code == 0
-    assert "sd15\ttext2image\tpublic/beta\tStable Diffusion 1.5" in stdout
+    assert "sd15\ttext2image\texperimental\tpublic/beta\tStable Diffusion 1.5" in stdout
 
 
 def test_main_models_markdown_format_groups_by_digital_human_chain_and_lists_aliases(monkeypatch, capsys) -> None:
@@ -862,8 +869,9 @@ def test_main_models_markdown_format_groups_by_digital_human_chain_and_lists_ali
     assert "# OmniRT supported models" in stdout
     assert "## Avatar asset generation" in stdout
     assert "## Video and idle assets" in stdout
-    assert "| `sdxl-base-1.0` | `text2image` | stable | no | SDXL base |" in stdout
-    assert "| `flux2.dev` | `text2image` | beta | no | Flux2 dev |" in stdout
+    assert "| Registry id | Task | Tier | Maturity | Realtime | Summary |" in stdout
+    assert "| `sdxl-base-1.0` | `text2image` | experimental | stable | no | SDXL base |" in stdout
+    assert "| `flux2.dev` | `text2image` | experimental | beta | no | Flux2 dev |" in stdout
     assert "## Aliases" in stdout
     assert "| `flux2-dev` | `flux2.dev` |" in stdout
     # Alias rows must not appear in the task table.
@@ -905,8 +913,42 @@ def test_main_model_detail_json_includes_supported_task_statuses(monkeypatch, ca
     assert exit_code == 0
     payload = json.loads(stdout)
     assert payload["status"] == "public/stable"
+    assert payload["tier"] == "experimental"
     assert payload["supported_task_statuses"] == {
         "text2image": "public/stable",
         "image2image": "public/stable",
         "inpaint": "preview/beta",
     }
+    assert payload["supported_task_tiers"] == {
+        "text2image": "experimental",
+        "image2image": "experimental",
+        "inpaint": "experimental",
+    }
+
+
+def test_main_models_tier_filter(monkeypatch, capsys) -> None:
+    core_spec = ModelSpec(
+        id="soulx-flashtalk-14b",
+        task="audio2video",
+        pipeline_cls=object,
+        default_backend="ascend",
+        capabilities=ModelCapabilities(maturity="beta", summary="FlashTalk", tier="core"),
+    )
+    experimental_spec = ModelSpec(
+        id="sd15",
+        task="text2image",
+        pipeline_cls=object,
+        default_backend="auto",
+        capabilities=ModelCapabilities(maturity="beta", summary="Stable Diffusion 1.5"),
+    )
+    monkeypatch.setattr(
+        "omnirt.cli.main.list_available_models",
+        lambda include_aliases=False: [core_spec, experimental_spec],
+    )
+
+    exit_code = main(["models", "--tier", "core"])
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "soulx-flashtalk-14b\taudio2video\tcore\tpublic/beta\tFlashTalk" in stdout
+    assert "sd15" not in stdout

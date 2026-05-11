@@ -1,6 +1,8 @@
 # OmniRT 架构说明
 
-OmniRT 当前已经从“单进程 pipeline 包装器”演进成一个带 queue、executor、观测和远程 worker 扩展位的生成运行时。
+OmniRT 当前已经从“单进程 pipeline 包装器”演进成一个带 queue、executor、观测、远程 worker 和常驻 worker 扩展位的生成运行时。
+
+当前架构优化方向聚焦在数字人链路：TTS、音频驱动数字人、角色资产、idle 视频素材和后处理能力共享同一套请求契约与服务化基础；泛图像 / 泛视频模型保留在 registry 中，但不再驱动架构主线。
 
 ## 主体分层
 

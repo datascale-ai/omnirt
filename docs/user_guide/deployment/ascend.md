@@ -30,8 +30,8 @@ OmniRT 原生支持华为昇腾 Atlas / 910 / 910B 系列。Ascend 后端与 CUD
 
     # 3. 烟测
     python -c "import torch, torch_npu; print(torch_npu.npu.is_available(), torch.npu.device_count())"
-    omnirt generate --task text2image --model sd15 \
-      --prompt "a lighthouse" --backend ascend --preset fast
+    omnirt generate --task audio2video --model soulx-flashtalk-14b \
+      --image input.png --audio input.wav --backend ascend
     ```
 
 === "离线 wheel"
@@ -69,7 +69,8 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 omnirt generate ...    # 多卡（目前公开 API
 
 | 模型 | 任务 | CANN | 备注 |
 |---|---|---|---|
-| `sd15` | `text2image` | 8.0.RC2 | 稳定 |
+| `soulx-flashtalk-14b` | `audio2video` | 8.0.RC2+ | Core；常驻 worker 路径已完成真机 benchmark |
+| `soulx-flashhead-1.3b` | `audio2video` | 8.0.RC2+ | Core；script-backed 冷启动包装 |
 | `sdxl-base-1.0` | `text2image` | 8.0.RC2 | 稳定 |
 | `svd-xt` | `image2video` | 8.0.RC2 | 部分算子回退到 eager |
 | `wan2.2-t2v-14b` | `text2video` | 8.0.RC2+ | 初步验证；建议 `preset=balanced` |
@@ -80,7 +81,7 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 omnirt generate ...    # 多卡（目前公开 API
 
 - `torch_npu` 已安装
 - diffusers runtime 依赖已安装（`pip install '.[runtime]'`）
-- 模型源通过 `OMNIRT_SDXL_MODEL_SOURCE` 与 `OMNIRT_SVD_MODEL_SOURCE` 提供
+- 模型源通过对应 `OMNIRT_*_MODEL_SOURCE` / `OMNIRT_FLASHTALK_*` 环境变量提供
 - 运行在 Ascend-capable host 上
 
 前置不满足时测试会 **skip**，不会产生噪声式失败。

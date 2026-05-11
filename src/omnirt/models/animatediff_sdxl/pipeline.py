@@ -45,6 +45,7 @@ DEFAULT_ANIMATEDIFF_SDXL_MOTION_ADAPTER_SOURCE = "guoyww/animatediff-motion-adap
         adapter_kinds=("lora",),
         artifact_kind="video",
         maturity="beta",
+        tier="adjacent",
         summary="AnimateDiff SDXL text-to-video pipeline.",
         example="omnirt generate --task text2video --model animate-diff-sdxl --prompt \"a cinematic portrait with wind in the hair\" --backend cuda",
     ),

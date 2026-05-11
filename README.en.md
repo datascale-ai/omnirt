@@ -1,7 +1,7 @@
 # OmniRT
 
 <p align="center">
-  <strong>Multimodal generation inference framework for the digital-human chain</strong>
+  <strong>Multimodal inference runtime for digital-human pipelines</strong>
 </p>
 
 <p align="center">
@@ -21,16 +21,18 @@
 
 ---
 
-OmniRT is an open multimodal generation inference framework for the digital-human chain. It focuses on realtime avatar conversation, audio-driven avatar video, voice generation, avatar asset generation, video/idle asset generation, and post-processing, with a unified request contract, realtime inference protocols, resident workers, CUDA / Ascend deployment, and end-to-end OpenTalking integration. It is not a generic any-to-any multimodal serving stack; it is the model inference foundation for digital-human systems.
+OmniRT is an open multimodal inference runtime for digital-human pipelines. It focuses on realtime avatar conversation, audio-driven avatar video, voice generation, avatar asset creation, idle video assets, and post-processing, with a unified request contract, realtime inference protocols, resident workers, CUDA / Ascend deployment, and integration foundations for OpenTalking-style frontends.
+
+OmniRT is no longer trying to be a broad model zoo. General image and video models that are already integrated remain available in the registry, but future maintenance effort is centered on the digital-human path: **TTS → audio-driven avatar → realtime serving → avatar assets / idle video → post-processing**.
 
 ## ✨ Highlights
 
-- **Digital-human-chain first** — core coverage for talking avatars, TTS, avatar assets, idle video assets, and post-processing roadmap
-- **Unified contract** — `GenerateRequest`, `GenerateResult`, `RunReport` cover batch generation task surfaces
+- **Digital-human first** — talking avatars, TTS, avatar assets, idle video, and post-processing are the core scope
+- **Unified contract** — `GenerateRequest`, `GenerateResult`, `RunReport` cover batch generation surfaces
 - **Realtime avatar protocols** — FlashTalk-compatible WebSocket for OpenTalking compatibility, plus OmniRT Native Realtime Avatar WebSocket for new integrations
 - **Cross-backend** — the same request validates and runs on `cuda` / `ascend` / `cpu-stub`
 - **Three entry points** — Python API, CLI (`omnirt generate / validate / models`), FastAPI server
-- **50+ registered models** — organized as digital-human avatar rendering, voice generation, avatar assets, and video asset capabilities
+- **Core avatar models** — FlashTalk / FlashHead / LiveAct / CosyVoice are the current validation line
 - **Standard artifacts** — PNG for images, WAV for audio, MP4 for videos, each run ships a `RunReport`
 - **Offline-friendly** — local directories, Hugging Face, ModelScope, Modelers snapshots all supported
 - **LoRA flexibility** — local safetensors and `hf://` single-file refs side by side
@@ -44,7 +46,7 @@ OmniRT is an open multimodal generation inference framework for the digital-huma
 |---|---|---|
 | `text2image` | prompt-driven image generation | PNG |
 | `image2image` | image-guided image generation | PNG |
-| `text2audio` | prompt-driven voice generation | WAV |
+| `text2audio` | prompt-driven speech generation | WAV |
 | `text2video` | prompt-driven video generation | MP4 |
 | `image2video` | first-frame-guided video generation | MP4 |
 | `audio2video` | audio-driven talking avatar generation | MP4 |
@@ -127,7 +129,7 @@ omnirt generate request.yaml --backend cuda --out ./out
 
 CLI reference: [docs/cli_reference/index.en.md](./docs/cli_reference/index.en.md).
 
-## 🧩 Digital-Human Model Matrix
+## 🧩 Digital-Human Model Scope
 
 The authoritative list is generated from the live registry. The fastest way to see it:
 
@@ -135,17 +137,15 @@ The authoritative list is generated from the live registry. The fastest way to s
 omnirt models
 ```
 
-A mirrored doc snapshot is at [docs/user_guide/models/supported_models.en.md](./docs/user_guide/models/supported_models.en.md); the integration snapshot lives in [support_status.en.md](./docs/user_guide/models/support_status.en.md).
+A complete generated snapshot is at [docs/user_guide/models/supported_models.en.md](./docs/user_guide/models/supported_models.en.md); digital-human priorities and validation status live in [support_status.en.md](./docs/user_guide/models/support_status.en.md).
 
-| Chain layer | Examples |
+| Tier | Maintenance policy | Examples |
 |---|---|
-| Core avatar rendering | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b` |
-| Voice generation | `cosyvoice3-triton-trtllm` |
-| Avatar asset generation | `sdxl-base-1.0`, `sd15`, `sd21`, `flux-*`, `flux2.dev`, `qwen-image`, `qwen-image-edit*`, `chronoedit`, and more |
-| Video / idle assets | `svd`, `svd-xt`, `wan*`, `hunyuan-video*`, `ltx-video`, `skyreels-v2`, and more |
-| Voice understanding and post-processing | roadmap: Whisper / Paraformer / SenseVoice, GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting |
+| Core | Requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm` |
+| Adjacent | Supports avatar assets, backgrounds, idle video, and digital-human content production; smoke tests are added by scenario | `sdxl-base-1.0`, `flux2.dev`, `qwen-image`, `svd-xt`, `wan2.2-*` |
+| Experimental | Keeps existing integrations, but is not a headline promise or dual-backend validation target | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2`, and other general models |
 
-Recommended starting points for `image2image`: `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sd15`, `sd21`.
+General image and video models are not being removed immediately; they are being moved out of the main narrative into adjacent or experimental tiers so the project is not steered by model count alone.
 
 ## 🧱 Architecture
 
@@ -163,11 +163,13 @@ Real end-to-end generation still depends on the target hardware stack, runtime l
 
 ## 📦 Project Status
 
-- Real-hardware smoke coverage is confirmed for `sdxl-base-1.0` and `svd-xt` on both CUDA and Ascend
-- `cosyvoice3-triton-trtllm` is wired into `text2audio` and generates WAV audio through the official Triton / TensorRT-LLM route
-- `image2image` is publicly supported; `sdxl-refiner-1.0` already has CUDA and Ascend smoke entry points, pending verified local model directories
-- Editing models such as `flux-fill`, `flux-kontext`, `qwen-image-edit`, and `qwen-image-edit-plus` have smoke-test entry points pending verified local model directories
-- `soulx-flashtalk-14b` can serve OpenTalking-style realtime avatar clients through the [FlashTalk-compatible WebSocket](./docs/user_guide/serving/flashtalk_ws.en.md) path; for 910B hosts, follow the FlashTalk WebSocket startup walkthrough in that guide
+- `soulx-flashtalk-14b` has completed real-hardware validation on the Ascend 910B2 `persistent_worker` path
+- `soulx-liveact-14b` and `soulx-flashhead-1.3b` are integrated as script-backed `audio2video` wrappers
+- `cosyvoice3-triton-trtllm` is integrated as the CUDA-validated TTS baseline for the digital-human path
+- `sdxl-base-1.0` and `svd-xt` remain adjacent baselines for avatar assets and idle video material
+- Editing models such as `flux-fill`, `flux-kontext`, `qwen-image-edit`, and `qwen-image-edit-plus` have smoke-test entry points and are maintained as adjacent asset capabilities
+- `soulx-flashtalk-14b` can serve OpenTalking-style realtime avatar clients through the [FlashTalk-compatible WebSocket](./docs/user_guide/serving/flashtalk_ws.en.md) path
+- Other general image and video models stay in the registry, but they are no longer the validation priority
 - The broader roadmap lives in [docs/user_guide/models/roadmap.en.md](./docs/user_guide/models/roadmap.en.md)
 
 ## 🚢 Deployment Topologies
@@ -187,7 +189,7 @@ OmniRT exposes a single model-source abstraction — swap it based on what your 
 
 | Environment | Recommended sources | Notes |
 |---|---|---|
-| Direct Hugging Face access | `hf://` or `huggingface.co` repo ids | Default path, full model matrix, `hf://` single-file LoRA refs |
+| Direct Hugging Face access | `hf://` or `huggingface.co` repo ids | Default path, full registry access, `hf://` single-file LoRA refs |
 | Hugging Face restricted (e.g. China) | ModelScope, HF-Mirror, Modelers | Use a mirror or `modelscope://` path; behaves the same as HF paths |
 | Fully offline / air-gapped | Local directories + offline snapshots | On a connected machine, fetch with [`prepare_model_snapshot.py`](./scripts/prepare_model_snapshot.py) / [`prepare_modelscope_snapshot.py`](./scripts/prepare_modelscope_snapshot.py) / [`prepare_modelers_snapshot.py`](./scripts/prepare_modelers_snapshot.py), then push via [`sync_model_dir.sh`](./scripts/sync_model_dir.sh) |
 

@@ -84,7 +84,7 @@ class MyBackend(BackendRuntime):
 - [ ] `capabilities()` covers every dtype your backend actually supports
 - [ ] Failing `_compile` paths show up in `backend_timeline`, visible via `omnirt generate --json`
 - [ ] `memory_stats()` return keys match the CUDA / Ascend shape (`peak_bytes`, `allocated_bytes`, etc.)
-- [ ] At least one skippable smoke test exercises `sd15` + `text2image` for a single image, and validates parity (latent stats) against CPU stub or CUDA
+- [ ] At least one skippable smoke test exercises `sdxl-base-1.0` + `text2image` for a single image, or a minimal real request for a core digital-human model, and validates parity against CPU stub or CUDA
 
 ## Reference implementations
 

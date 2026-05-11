@@ -120,6 +120,7 @@ for model_id, model_config in EDIT_MODEL_CONFIGS.items():
             adapter_kinds=("lora",),
             artifact_kind="image",
             maturity="beta",
+            tier=model_config.tier,
             summary=model_config.summary,
             example=model_config.example,
         ),

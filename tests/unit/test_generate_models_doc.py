@@ -41,6 +41,7 @@ def test_render_is_deterministic(monkeypatch) -> None:
     assert first == second
     assert first.count(gen.HEADER_MARKER) == 1  # header appears once, not twice
     assert "<!-- registry_hash:" in first
+    assert "| `sdxl-base-1.0` | `text2image` | experimental | stable | no | SDXL base |" in first
     assert "| `flux2-dev` | `flux2.dev` |" in first  # alias table row
 
 

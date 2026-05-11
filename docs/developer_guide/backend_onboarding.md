@@ -84,7 +84,7 @@ class MyBackend(BackendRuntime):
 - [ ] `capabilities()` 返回的 `dtype_options` 覆盖你实际支持的所有 dtype
 - [ ] `_compile` 的失败路径写到 `backend_timeline`，可被 `omnirt generate --json` 观察
 - [ ] `memory_stats()` 的返回 key 与 CUDA / Ascend 现有实现对齐（`peak_bytes`、`allocated_bytes` 等）
-- [ ] 至少一个 skippable smoke test 覆盖：跑 `sd15` + `text2image` 单张图，对比 latent 统计与 CPU stub / CUDA 的差异（parity）
+- [ ] 至少一个 skippable smoke test 覆盖：跑 `sdxl-base-1.0` + `text2image` 单张图，或跑一个 core 数字人模型的最小真实请求，并对比 CPU stub / CUDA 的差异（parity）
 
 ## 参考实现
 

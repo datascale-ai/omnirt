@@ -11,7 +11,7 @@ Generate a PNG from a text prompt. The cheapest and most mature task to run end-
     from omnirt.requests import text2image
 
     result = generate(text2image(
-        model="sd15",
+        model="sdxl-base-1.0",
         prompt="a lighthouse in fog, cinematic, 35mm film",
         preset="fast",
     ))
@@ -23,7 +23,7 @@ Generate a PNG from a text prompt. The cheapest and most mature task to run end-
     ```bash
     omnirt generate \
       --task text2image \
-      --model sd15 \
+      --model sdxl-base-1.0 \
       --prompt "a lighthouse in fog, cinematic, 35mm film" \
       --preset fast \
       --backend auto
@@ -55,7 +55,7 @@ Generate a PNG from a text prompt. The cheapest and most mature task to run end-
       -H 'Content-Type: application/json' \
       -d '{
         "task": "text2image",
-        "model": "sd15",
+        "model": "sdxl-base-1.0",
         "inputs": {"prompt": "a lighthouse in fog"},
         "config": {"preset": "fast"}
       }'
@@ -81,9 +81,9 @@ Generate a PNG from a text prompt. The cheapest and most mature task to run end-
 
 Typical quality / speed tradeoffs:
 
-- **Highest quality**: `flux2.dev` (≥ 24 GB VRAM), `sdxl-base-1.0` + `sdxl-refiner-1.0`
-- **Balanced**: `sdxl-base-1.0`, `sd3-medium`, `qwen-image`
-- **Low-resource**: `sd15` (12 GB OK), `sd21`
+- **High quality**: `flux2.dev` (≥ 24 GB VRAM), `sdxl-base-1.0` + `sdxl-refiner-1.0`
+- **Balanced**: `sdxl-base-1.0`, `qwen-image`
+- **Compatibility / experimental**: `sd15`, `sd21`, and `sd3-*` stay in the registry, but are not the recommended starting point for the digital-human main path
 
 Full list: `omnirt models` or [Supported Models](../models/supported_models.md).
 
@@ -92,7 +92,7 @@ Full list: `omnirt models` or [Supported Models](../models/supported_models.md).
 === "Speed-first"
 
     ```bash
-    omnirt generate --task text2image --model sd15 \
+    omnirt generate --task text2image --model sdxl-base-1.0 \
       --prompt "..." --preset fast --backend cuda
     ```
 
@@ -107,7 +107,7 @@ Full list: `omnirt models` or [Supported Models](../models/supported_models.md).
 === "Low-VRAM"
 
     ```bash
-    omnirt generate --task text2image --model sd15 \
+    omnirt generate --task text2image --model sdxl-base-1.0 \
       --prompt "..." --preset low-vram --dtype fp16
     ```
 

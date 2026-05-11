@@ -27,17 +27,21 @@ omnirt bench ... --output bench.json --json
 
 当前内置场景：
 
+- `core_audio2video_flashtalk_smoke`
+- `adjacent_text2image_sdxl_concurrent4`
 - `text2image_sdxl_concurrent4`
 
 示例：
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --warmup 2 \
   --output bench-sdxl-c4.json
 ```
+
+`text2image_sdxl_concurrent4` 作为兼容旧脚本的别名保留；新增场景命名会显式区分 Core / Adjacent，避免 experimental 模型被当成默认发布基线。
 
 ## SoulX-LiveAct Ascend 基线
 
@@ -93,7 +97,7 @@ omnirt bench \
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --batch-window-ms 0 \
   --max-batch-size 1 \
@@ -104,7 +108,7 @@ omnirt bench \
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --batch-window-ms 50 \
   --max-batch-size 4 \

@@ -11,7 +11,7 @@
     from omnirt.requests import text2image
 
     result = generate(text2image(
-        model="sd15",
+        model="sdxl-base-1.0",
         prompt="a lighthouse in fog, cinematic, 35mm film",
         preset="fast",
     ))
@@ -23,7 +23,7 @@
     ```bash
     omnirt generate \
       --task text2image \
-      --model sd15 \
+      --model sdxl-base-1.0 \
       --prompt "a lighthouse in fog, cinematic, 35mm film" \
       --preset fast \
       --backend auto
@@ -55,7 +55,7 @@
       -H 'Content-Type: application/json' \
       -d '{
         "task": "text2image",
-        "model": "sd15",
+        "model": "sdxl-base-1.0",
         "inputs": {"prompt": "a lighthouse in fog"},
         "config": {"preset": "fast"}
       }'
@@ -82,8 +82,8 @@
 按质量 / 速度的典型权衡：
 
 - **高质量**：`flux2.dev`（需 ≥ 24 GB 显存）、`sdxl-base-1.0` + `sdxl-refiner-1.0`
-- **平衡**：`sdxl-base-1.0`、`sd3-medium`、`qwen-image`
-- **低资源**：`sd15`（12 GB 即可）、`sd21`
+- **平衡**：`sdxl-base-1.0`、`qwen-image`
+- **兼容 / experimental**：`sd15`、`sd21`、`sd3-*` 仍保留 registry，但不作为数字人主线推荐起点
 
 完整清单：`omnirt models` 或 [模型清单](../models/supported_models.md)。
 
@@ -92,7 +92,7 @@
 === "速度优先"
 
     ```bash
-    omnirt generate --task text2image --model sd15 \
+    omnirt generate --task text2image --model sdxl-base-1.0 \
       --prompt "..." --preset fast --backend cuda
     ```
 
@@ -107,7 +107,7 @@
 === "低显存"
 
     ```bash
-    omnirt generate --task text2image --model sd15 \
+    omnirt generate --task text2image --model sdxl-base-1.0 \
       --prompt "..." --preset low-vram --dtype fp16
     ```
 

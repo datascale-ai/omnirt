@@ -43,7 +43,7 @@ python -m pip install -e '.[runtime,dev]'
 
 # 3. Smoke test
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-omnirt generate --task text2image --model sd15 --prompt "a lighthouse" --backend cuda --preset fast
+omnirt generate --task text2image --model sdxl-base-1.0 --prompt "a lighthouse" --backend cuda --preset fast
 ```
 
 Tips:
@@ -77,7 +77,8 @@ python -m pip install -e '.[runtime,dev]'
 
 # 3. Smoke test
 python -c "import torch, torch_npu; print(torch_npu.npu.is_available(), torch.npu.device_count())"
-omnirt generate --task text2image --model sd15 --prompt "a lighthouse" --backend ascend --preset fast
+omnirt generate --task audio2video --model soulx-flashtalk-14b \
+  --image input.png --audio input.wav --backend ascend
 ```
 
 Notes:
@@ -146,7 +147,7 @@ omnirt validate --config request.yaml --json
 ```bash
 omnirt generate \
   --task text2image \
-  --model sd15 \
+  --model sdxl-base-1.0 \
   --prompt "a lighthouse in fog" \
   --backend cuda \
   --preset fast

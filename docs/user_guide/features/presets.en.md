@@ -48,7 +48,7 @@ Flux is sensitive to high guidance; these values override the task preset to sta
 ```bash
 omnirt generate \
   --task text2image \
-  --model sd15 \
+  --model sdxl-base-1.0 \
   --prompt "a lighthouse in fog" \
   --preset fast
 ```
@@ -58,7 +58,7 @@ Python equivalent:
 ```python
 from omnirt import requests, generate
 
-req = requests.text2image(model="sd15", prompt="a lighthouse in fog", preset="fast")
+req = requests.text2image(model="sdxl-base-1.0", prompt="a lighthouse in fog", preset="fast")
 result = generate(req, backend="cuda")
 ```
 

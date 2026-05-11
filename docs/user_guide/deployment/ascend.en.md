@@ -30,8 +30,8 @@ OmniRT natively supports Huawei's Ascend Atlas / 910 / 910B series. The Ascend b
 
     # 3. Smoke test
     python -c "import torch, torch_npu; print(torch_npu.npu.is_available(), torch.npu.device_count())"
-    omnirt generate --task text2image --model sd15 \
-      --prompt "a lighthouse" --backend ascend --preset fast
+    omnirt generate --task audio2video --model soulx-flashtalk-14b \
+      --image input.png --audio input.wav --backend ascend
     ```
 
 === "Offline wheels"
@@ -69,7 +69,8 @@ The table below reflects the most recent Ascend smoke coverage. The source of tr
 
 | Model | Task | CANN | Notes |
 |---|---|---|---|
-| `sd15` | `text2image` | 8.0.RC2 | stable |
+| `soulx-flashtalk-14b` | `audio2video` | 8.0.RC2+ | Core; resident-worker path has real-hardware benchmark coverage |
+| `soulx-flashhead-1.3b` | `audio2video` | 8.0.RC2+ | Core; script-backed cold-start wrapper |
 | `sdxl-base-1.0` | `text2image` | 8.0.RC2 | stable |
 | `svd-xt` | `image2video` | 8.0.RC2 | some ops fall back to eager |
 | `wan2.2-t2v-14b` | `text2video` | 8.0.RC2+ | initial validation; `preset=balanced` recommended |
@@ -80,7 +81,7 @@ The repo includes Ascend smoke tests. They run only when:
 
 - `torch_npu` is installed
 - diffusers runtime deps are installed (`pip install '.[runtime]'`)
-- model sources are supplied via `OMNIRT_SDXL_MODEL_SOURCE` and `OMNIRT_SVD_MODEL_SOURCE`
+- model sources are supplied via the matching `OMNIRT_*_MODEL_SOURCE` / `OMNIRT_FLASHTALK_*` environment variables
 - execution happens on an Ascend-capable host
 
 If any prerequisite is missing, the tests **skip** instead of failing noisily.

@@ -76,6 +76,7 @@ omnirt validate \
 ```bash
 omnirt models
 omnirt models sdxl-base-1.0
+omnirt models --tier core
 omnirt models --format markdown
 omnirt models --json
 ```
@@ -97,6 +98,7 @@ omnirt models --json
 | `--remote-worker` | 远程 worker 规格，可重复传入 |
 | `--device-map` / `--devices` | 默认请求放置配置 |
 | `--batch-window-ms` / `--max-batch-size` | batching 配置 |
+| `--model-tier` | 只启用指定模型维护层级，可重复传入 |
 
 `--remote-worker` 格式：
 
@@ -131,6 +133,8 @@ omnirt serve \
 内置场景当前包括：
 
 - `text2image_sdxl_concurrent4`
+- `adjacent_text2image_sdxl_concurrent4`
+- `core_audio2video_flashtalk_smoke`
 
 ## `worker`
 

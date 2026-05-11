@@ -48,7 +48,7 @@ Flux 家族对 guidance 敏感，需要更低的 CFG 才能避免过饱和；这
 ```bash
 omnirt generate \
   --task text2image \
-  --model sd15 \
+  --model sdxl-base-1.0 \
   --prompt "a lighthouse in fog" \
   --preset fast
 ```
@@ -58,7 +58,7 @@ omnirt generate \
 ```python
 from omnirt import requests, generate
 
-req = requests.text2image(model="sd15", prompt="a lighthouse in fog", preset="fast")
+req = requests.text2image(model="sdxl-base-1.0", prompt="a lighthouse in fog", preset="fast")
 result = generate(req, backend="cuda")
 ```
 

@@ -121,6 +121,12 @@ bash scripts/start_flashtalk_ws.sh
 
 完整配置见 [FlashTalk 兼容 WebSocket](flashtalk_ws.md)。
 
+生产服务可以只启用数字人主线和相邻素材能力：
+
+```bash
+omnirt serve --model-tier core --model-tier adjacent
+```
+
 ## `omnirt worker`
 
 ```bash
@@ -144,7 +150,7 @@ omnirt serve \
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --warmup 2 \
   --output bench.json
@@ -163,12 +169,12 @@ omnirt bench \
   --max-batch-size 4
 ```
 
-## Legacy / 运行时优化示例
+## 运行时优化示例
 
 ```bash
 omnirt generate \
   --task text2image \
-  --model sd15 \
+  --model sdxl-base-1.0 \
   --prompt "a lighthouse" \
   --enable-layerwise-casting \
   --quantization int8 \
@@ -176,4 +182,4 @@ omnirt generate \
   --enable-tea-cache
 ```
 
-这类配置是否真正生效，建议配合 `RunReport` 和 `/metrics` 一起看。详见 [Legacy 优化指南](../../developer_guide/legacy_optimization_guide.md)。
+这类配置是否真正生效，建议配合 `RunReport` 和 `/metrics` 一起看。旧泛模型的兼容调优详见 [Legacy 优化指南](../../developer_guide/legacy_optimization_guide.md)。

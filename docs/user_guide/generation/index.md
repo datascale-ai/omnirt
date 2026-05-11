@@ -4,12 +4,12 @@
 
 | 任务面 | 典型入口 | 典型模型 | 页面 |
 |---|---|---|---|
-| `text2image` | 文字 → 单张图 | `sd15`、`sdxl-base-1.0`、`flux2.dev`、`qwen-image` | [文本到图像](text2image.md) |
+| `text2image` | 文字 → 单张图 | `sdxl-base-1.0`、`flux2.dev`、`qwen-image` | [文本到图像](text2image.md) |
 | `text2audio` | 文字 + 参考音频 → 语音 | `cosyvoice3-triton-trtllm` | [文本到音频](text2audio.md) |
-| `image2image` | 图 + prompt → 图 | `sd15`、`sdxl-base-1.0` | [图像到图像](image2image.md) |
-| `text2video` | 文字 → 视频 | `wan2.2-t2v-14b`、`cogvideox-2b`、`hunyuan-video` | [文本到视频](text2video.md) |
+| `image2image` | 图 + prompt → 图 | `sdxl-base-1.0`、`sdxl-refiner-1.0` | [图像到图像](image2image.md) |
+| `text2video` | 文字 → 视频 | `wan2.2-t2v-14b`、`animate-diff-sdxl` | [文本到视频](text2video.md) |
 | `image2video` | 首帧 + prompt → 视频 | `svd-xt`、`wan2.2-i2v-14b` | [图像到视频](image2video.md) |
-| `audio2video` | 音频 + portrait → 视频 | `soulx-flashtalk-14b` | [数字人](talking_head.md) |
+| `audio2video` | 音频 + portrait → 视频 | `soulx-flashtalk-14b`、`soulx-flashhead-1.3b`、`soulx-liveact-14b` | [数字人](talking_head.md) |
 
 !!! tip "不知道从哪个任务开始？"
-    先读 [文本到图像](text2image.md) —— OmniRT 上最成熟、最便宜跑通的任务面，也是 `omnirt validate` / `omnirt generate` 的教学默认项。
+    如果目标是数字人产品，先读 [文本到音频](text2audio.md) 和 [数字人](talking_head.md)。如果只是熟悉请求契约，再用 [文本到图像](text2image.md) 做最低成本的本地练习。

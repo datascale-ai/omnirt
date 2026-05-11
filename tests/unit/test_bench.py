@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from omnirt.bench.scenarios import get_bench_scenario, list_bench_scenarios
 from omnirt.bench.runner import BenchScenario, run_bench
 from omnirt.core.types import Artifact, GenerateRequest, GenerateResult, RunReport, StageEventRecord
 
@@ -80,3 +81,13 @@ def test_run_bench_aggregates_metrics() -> None:
     assert report.peak_vram == 35.0
     assert report.batch_size_mean == 1.0
     assert report.batched_request_ratio == 0.0
+
+
+def test_built_in_bench_scenarios_prioritize_digital_human_tiers() -> None:
+    scenarios = list_bench_scenarios()
+    assert "core_audio2video_flashtalk_smoke" in scenarios
+    assert "adjacent_text2image_sdxl_concurrent4" in scenarios
+
+    core = get_bench_scenario("core_audio2video_flashtalk_smoke")
+    assert core.request_template.model == "soulx-flashtalk-14b"
+    assert core.request_template.task == "audio2video"

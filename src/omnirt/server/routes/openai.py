@@ -11,10 +11,10 @@ from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 
-from omnirt.api import validate
+from omnirt.api import list_available_models, validate
 from omnirt.core.types import GenerateRequest, is_generate_result_like
 from omnirt.server.model_aliases import resolve_model_alias
-from omnirt.server.request_config import normalize_generate_request
+from omnirt.server.request_config import allowed_model_tiers, model_tier_allowed, normalize_generate_request
 
 router = APIRouter()
 
@@ -40,6 +40,42 @@ def _result_to_openai_images(result) -> dict:
     }
 
 
+def _model_payload(spec) -> dict:
+    return {
+        "id": spec.id,
+        "object": "model",
+        "created": 0,
+        "owned_by": "omnirt",
+        "task": spec.task,
+        "status": f"{'public' if spec.task in {'text2image', 'image2image', 'text2video', 'image2video', 'audio2video', 'text2audio'} else 'preview'}/{spec.capabilities.maturity}",
+        "tier": spec.capabilities.tier,
+        "maturity": spec.capabilities.maturity,
+        "default_backend": spec.default_backend,
+        "summary": spec.capabilities.summary,
+    }
+
+
+def _ensure_model_tier_allowed(model_spec, request: Request) -> None:
+    if not model_tier_allowed(model_spec, request.app.state):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Model {model_spec.id!r} is not enabled for this server tier policy.",
+        )
+
+
+@router.get("/v1/models")
+async def openai_models(request: Request, tier: Optional[str] = None, include_aliases: bool = False):
+    tier_filter = None if tier in {None, "", "all"} else tier
+    try:
+        specs = list_available_models(include_aliases=include_aliases, tier=tier_filter)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    allowed = set(allowed_model_tiers(request.app.state))
+    if allowed:
+        specs = [spec for spec in specs if spec.capabilities.tier in allowed]
+    return {"object": "list", "data": [_model_payload(spec) for spec in specs]}
+
+
 @router.post("/v1/images/generations")
 async def openai_images_generations(payload: dict, request: Request):
     model = resolve_model_alias(str(payload["model"]), request.app.state.model_aliases)
@@ -56,6 +92,7 @@ async def openai_images_generations(payload: dict, request: Request):
     validation = validate(req, backend=req.backend)
     if not validation.ok:
         raise HTTPException(status_code=400, detail=validation.format_errors())
+    _ensure_model_tier_allowed(validation.model_spec, request)
     result = request.app.state.engine.run_sync(req, model_spec=validation.model_spec)
     if not is_generate_result_like(result):
         raise HTTPException(status_code=500, detail="Unexpected non-generate result")
@@ -96,6 +133,7 @@ async def openai_images_edits(
     validation = validate(req, backend=req.backend)
     if not validation.ok:
         raise HTTPException(status_code=400, detail=validation.format_errors())
+    _ensure_model_tier_allowed(validation.model_spec, request)
     result = request.app.state.engine.run_sync(req, model_spec=validation.model_spec)
     if not is_generate_result_like(result):
         raise HTTPException(status_code=500, detail="Unexpected non-generate result")
@@ -126,6 +164,7 @@ async def openai_videos_generations(payload: dict, request: Request):
     validation = validate(req, backend=req.backend)
     if not validation.ok:
         raise HTTPException(status_code=400, detail=validation.format_errors())
+    _ensure_model_tier_allowed(validation.model_spec, request)
     result = request.app.state.engine.run_sync(req, model_spec=validation.model_spec)
     if not is_generate_result_like(result):
         raise HTTPException(status_code=500, detail="Unexpected non-generate result")
@@ -170,6 +209,14 @@ async def openai_realtime(websocket: WebSocket):
                 validation = validate(req, backend=req.backend)
                 if not validation.ok:
                     await websocket.send_json({"type": "error", "error": validation.format_errors()})
+                    continue
+                if not model_tier_allowed(validation.model_spec, websocket.app.state):
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "error": f"Model {validation.model_spec.id!r} is not enabled for this server tier policy.",
+                        }
+                    )
                     continue
                 job = engine.submit(req, model_spec=validation.model_spec)
                 active_job_id = job.id

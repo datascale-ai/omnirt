@@ -1,48 +1,47 @@
 # Model Support Roadmap
 
-This document defines the recommended model support roadmap for `omnirt` based on the current implemented baseline and the next support waves that should follow.
+This document defines the recommended digital-human roadmap for `omnirt` based on the current implemented baseline and the next support waves that should follow.
 
-It is intentionally aligned with the current open-source ecosystem, especially:
+OmniRT is no longer optimizing for broad image / video model count. Existing integrations remain available in the registry, but the roadmap now prioritizes the digital-human vertical:
 
-- Diffusers official pipeline coverage
-- ComfyUI native workflow-template coverage
-- InvokeAI's practical model support focus
+- voice generation and voice reuse
+- audio-driven avatar video
+- realtime serving and resident workers
+- avatar assets and idle video material
+- digital-human post-processing
+- reproducible CUDA / Ascend deployment
 
 Status note:
 
-- Last reviewed: 2026-04-20
+- Last reviewed: 2026-05-11
 - This is a recommended OmniRT roadmap, not an upstream framework commitment
 
 Current implementation note:
 
 - OmniRT currently ships `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-turbo`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `svd`, `svd-xt`, `flux-dev`, `flux-schnell`, `flux2.dev` / `flux2-dev`, `glm-image`, `hunyuan-image-2.1`, `omnigen`, `qwen-image`, `sana-1.6b`, `ovis-image`, `hidream-i1`, `cogvideox-2b`, `cogvideox-5b`, `kandinsky5-t2v`, `kandinsky5-i2v`, `wan2.1-t2v-14b`, `wan2.1-i2v-14b`, `wan2.2-t2v-14b`, `wan2.2-i2v-14b`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `hunyuan-video-1.5-i2v`, `helios-t2v`, `helios-i2v`, `sana-video`, `ltx-video`, `ltx2-i2v`, `soulx-flashtalk-14b`, and `soulx-flashhead-1.3b`
-- This means the codebase is already ahead of the older roadmap on Flux and Wan family versions
-- The roadmap below treats those newer Flux2 and Wan2.2 integrations as real baseline support, while keeping the still-important `flux-dev`, `flux-schnell`, and `wan2.1-*` compatibility targets visible where they remain strategically useful
+- This means the codebase already has a broad model-zoo surface, but future work should not expand merely to look comprehensive
+- The roadmap below treats FlashTalk / FlashHead / LiveAct / CosyVoice as Core, and SDXL / Flux2 / Qwen-Image / SVD / Wan as adjacent digital-human asset capabilities
 - For multi-task families, the current registry uses task-specific suffixes where needed, for example `helios-t2v` / `helios-i2v` and `hunyuan-video-1.5-t2v` / `hunyuan-video-1.5-i2v`
 
 ## Current snapshot
 
 The authoritative list of implemented models is generated from the live registry: [Supported Models](supported_models.md). This document focuses on priorities and outstanding work.
 
-Highest-priority unsupported targets:
+The highest priority is not adding more general models. It is completing a deployable digital-human loop:
 
-- `sdxl-refiner-1.0`
-- `qwen-image-edit`
-- `flux-fill`
-- `qwen-image-edit-plus`
-- `flux-kontext`
-- `chronoedit`
-- `helios`
-- `hunyuan-video-1.5`
+- stable streaming TTS and reusable speaker profiles for `cosyvoice3-triton-trtllm`
+- resident workers, hot-path benchmarks, and realtime serving for `soulx-flashtalk-14b`
+- resident paths and deployment docs for `soulx-flashhead-1.3b` / `soulx-liveact-14b`
+- ASR / speech understanding entries such as Whisper / Paraformer / SenseVoice
+- a minimal recommended set for avatar assets and idle video material
 
 ## Planning principles
 
-1. Prefer models with first-class Diffusers support.
-2. Favor models that also appear in mainstream production-facing tools such as ComfyUI or InvokeAI.
-3. Keep `text2image` and `image2video` as the primary compatibility targets.
-   Audio-driven avatar generation is now also a first-class OmniRT task surface via `audio2video`.
-4. Prioritize open-weight models and safe formats such as `safetensors`.
-5. Avoid investing early in deprecated upstream pipelines.
+1. Prioritize models and services that directly serve digital-human products.
+2. Core models must have real-hardware smoke, benchmarks, and deployment docs; registration alone is not mainline support.
+3. Adjacent models continue only when they support avatar assets, backgrounds, idle video, editing, or post-processing.
+4. Experimental models keep registry entries and basic tests, but no longer require CUDA / Ascend dual-backend validation.
+5. Avoid turning OmniRT into a thin Diffusers / ComfyUI clone; the value should be runtime, resident serving, observability, and deployment for digital-human systems.
 
 ## Registry key convention
 
@@ -79,94 +78,75 @@ Naming rules:
 
 ## Support tiers
 
-- `P0`: must-have baseline
-- `P1`: next major compatibility targets
-- `P2`: high-value extensions
-- `P3`: watchlist / opportunistic additions
+- `Core`: digital-human main path; validation and operations loop required
+- `Adjacent`: capabilities that serve digital-human asset production or enhancement
+- `Experimental`: existing integrations retained without a mainline promise
 
 ## Phase roadmap
 
-### Phase A: Finish the baseline
+### Phase A: Close the Digital-Human Main Loop
 
 Goal:
 
-- complete true end-to-end CUDA and Ascend validation for the current implemented baseline
+- make TTS -> audio-driven avatar -> video output / realtime service reproducible
 
 Models:
 
-- `sdxl-base-1.0`
-- `svd`
-- `svd-xt`
-- `flux2.dev`
-- `wan2.2-t2v-14b`
-- `wan2.2-i2v-14b`
+- `cosyvoice3-triton-trtllm`
+- `soulx-flashtalk-14b`
+- `soulx-flashhead-1.3b`
+- `soulx-liveact-14b`
 
-### Phase B: Mainstream image compatibility
+Deliverables:
+
+- fixed benchmark scenarios: first chunk, cold start, hot chunks, end-to-end time
+- resident worker health checks, restart behavior, log tails, and error classes
+- minimal HTTP / CLI / WebSocket startup docs
+
+### Phase B: Digital-Human Asset Production
 
 Goal:
 
-- cover the image models most commonly encountered across Diffusers, ComfyUI, and InvokeAI workflows, including compatibility with older but still widely-used Flux and Stable Diffusion families
+- keep a small high-value asset path for portraits, backgrounds, style images, and idle video material
 
 Models:
 
-- `sd15`
-- `sd21`
 - `sdxl-refiner-1.0`
-- `sdxl-turbo`
-- `sd3-medium`
-- `sd3.5-large`
-- `sd3.5-large-turbo`
 - `flux2.dev`
-- `flux-dev`
-- `flux-schnell`
-- `flux-fill`
-- `glm-image`
-- `hunyuan-image-2.1`
-- `omnigen`
 - `qwen-image`
 - `qwen-image-edit`
-- `sana-1.6b`
-- `ovis-image`
-- `hidream-i1`
-
-### Phase C: Video-first expansion
-
-Goal:
-
-- make OmniRT genuinely competitive as an open image and video runtime rather than only an SDXL + SVD + Wan wrapper
-
-Models:
-
-- `cogvideox-2b`
-- `cogvideox-5b`
-- `kandinsky5-t2v`
-- `kandinsky5-i2v`
+- `svd-xt`
 - `wan2.2-t2v-14b`
 - `wan2.2-i2v-14b`
-- `wan2.1-t2v-14b`
-- `wan2.1-i2v-14b`
-- `hunyuan-video`
-- `hunyuan-video-1.5`
-- `helios`
-- `sana-video`
-- `ltx-video`
-- `ltx2-i2v`
 
-### Phase D: Controlled generation and editing
+### Phase C: Speech Understanding and Post-Processing
 
 Goal:
 
-- add the higher-value editing and controlled-generation surfaces people expect from mature runtimes
+- add upstream and downstream capabilities needed for real digital-human conversations and video delivery
 
-Models:
+Candidates:
 
-- `flux-depth`
-- `flux-canny`
-- `flux-kontext`
-- `chronoedit`
-- `qwen-image-edit-plus`
-- `qwen-image-layered`
-- `animate-diff-sdxl`
+- Whisper / Paraformer / SenseVoice
+- GFPGAN / CodeFormer / Real-ESRGAN
+- RIFE / matting / background replacement
+
+### Phase D: General-Model Contraction and Compatibility
+
+Goal:
+
+- move integrated but non-digital-human models out of the main investment line
+
+Policy:
+
+- README / docs no longer market general model count
+- CI does not expand general-model smoke by default
+- registry and generated docs retain the full list
+- experimental models move up to adjacent only when a concrete digital-human scenario appears
+
+## Historical compatibility list
+
+The detailed target list below is retained as compatibility context for already-integrated families. New validation priority should follow the Core / Adjacent / Experimental tiers above.
 
 ## Detailed target list
 

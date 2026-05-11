@@ -44,6 +44,7 @@ from omnirt.models.flux.pipeline import FluxPipeline
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="beta",
+        tier="adjacent",
         summary="Flux Kontext image editing pipeline.",
         example="omnirt generate --task edit --model flux-kontext --image input.png --prompt \"turn this product shot into a warm editorial scene\" --backend cuda",
     ),

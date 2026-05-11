@@ -1,6 +1,8 @@
 # OmniRT Architecture
 
-OmniRT has evolved from a single-process pipeline wrapper into a generation runtime with queues, executors, observability, and remote-worker extension points.
+OmniRT has evolved from a single-process pipeline wrapper into a generation runtime with queues, executors, observability, remote-worker extension points, and resident-worker extension points.
+
+The current architecture direction is focused on the digital-human pipeline: TTS, audio-driven avatars, avatar assets, idle video material, and post-processing share the same request contract and serving foundation. General image / video models remain in the registry, but they no longer drive the architecture roadmap.
 
 ## Main layers
 
@@ -37,15 +39,18 @@ This layer owns:
 
 ### 4. Executor layer
 
-There are currently three execution paths:
+There are currently four execution paths:
 
 | execution_mode | Meaning |
 |---|---|
 | `modular` | component-oriented path for migrated families |
 | `legacy_call` | wrapper path around existing Diffusers pipelines |
-| `subprocess` | external script / repository-driven execution such as FlashTalk |
+| `subprocess` | external script / repository-driven execution |
+| `persistent_worker` | resident worker / resident multi-device process group, useful for high-initialization-cost avatar models such as FlashTalk |
 
 `ModelSpec.execution_mode` decides which path the engine takes.
+
+`persistent_worker` moves model loading, distributed initialization, and resident lifecycle management into a separate worker. Later requests only run request-level inference and artifact export. `soulx-flashtalk-14b` is the first validated `persistent_worker` model on an 8-card `Ascend 910B2` host.
 
 ### 5. Model / launcher / backend layer
 

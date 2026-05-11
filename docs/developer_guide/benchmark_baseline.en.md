@@ -27,17 +27,21 @@ omnirt bench ... --output bench.json --json
 
 Current built-in scenario:
 
+- `core_audio2video_flashtalk_smoke`
+- `adjacent_text2image_sdxl_concurrent4`
 - `text2image_sdxl_concurrent4`
 
 Example:
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --warmup 2 \
   --output bench-sdxl-c4.json
 ```
+
+`text2image_sdxl_concurrent4` remains as a compatibility alias for older scripts. New scenario names explicitly mark Core / Adjacent scope so experimental models do not become default release baselines.
 
 ## SoulX-LiveAct Ascend Baseline
 
@@ -93,7 +97,7 @@ Control:
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --batch-window-ms 0 \
   --max-batch-size 1 \
@@ -104,7 +108,7 @@ Experiment:
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --batch-window-ms 50 \
   --max-batch-size 4 \

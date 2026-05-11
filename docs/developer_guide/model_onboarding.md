@@ -1,6 +1,18 @@
 # 模型接入指南
 
-本文档给出把一个 Diffusers 风格新模型接入 `omnirt` 的最短路径。
+本文档给出把一个 Diffusers 风格新模型接入 `omnirt` 的最短路径。OmniRT 当前聚焦数字人垂直链路；新增模型默认进入 `experimental`，只有能服务数字人主链路或素材生产，并且有明确验证证据时，才进入 `adjacent` 或 `core`。
+
+## 0. 先确定维护层级
+
+接入前先写清楚模型为什么进入 registry：
+
+| Tier | 准入标准 |
+|---|---|
+| `core` | TTS、音频驱动数字人、实时 / 常驻 worker、部署和 benchmark 主线；必须有单测、真机 smoke、benchmark 和部署说明 |
+| `adjacent` | 角色资产、背景、idle 视频、可控修图或后处理；必须能服务数字人产品链路，并有按场景设计的 smoke |
+| `experimental` | 兼容保留或探索性泛模型；可以有 registry 和单测，但不进入默认生产服务、硬件 CI 或主线 benchmark |
+
+升层规则：`experimental -> adjacent` 需要清楚的数字人用例和至少一个真实后端 smoke；`adjacent -> core` 需要端到端链路证据、benchmark、部署文档和维护人承诺。
 
 ## 1. 新增 pipeline 类
 
@@ -31,6 +43,7 @@ from omnirt.core.registry import ModelCapabilities, register_model
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="experimental",   # experimental | beta | stable
+        tier="experimental",        # core | adjacent | experimental
         summary="One-sentence description that shows up in `omnirt models`.",
         example='omnirt generate --task text2image --model my-model --prompt "..." --backend cuda',
     ),
@@ -57,6 +70,7 @@ class MyPipeline(BasePipeline):
 | `adapter_kinds` | 支持的 adapter 种类（目前仅 `"lora"`） |
 | `artifact_kind` | `"image"` / `"video"`；决定导出器选择 |
 | `maturity` | `experimental` / `beta` / `stable`；CLI `models` 列表会显示 |
+| `tier` | `core` / `adjacent` / `experimental`；决定生产服务、CI 和 benchmark 的默认优先级 |
 | `summary` / `example` | 给 `omnirt models` 和文档用的简介和示例命令 |
 
 完整定义见 [src/omnirt/core/registry.py](https://github.com/datascale-ai/omnirt/blob/main/src/omnirt/core/registry.py)。
@@ -105,11 +119,18 @@ class Flux2Pipeline(BasePipeline):
 - Integration：`tests/integration/test_<model>_{cuda,ascend}.py`，依赖硬件的 case 在 `conftest.py` 里有自动 skip
 - Parity（可选）：如果要参与跨后端验证，用 `tests/parity/test_parity.py` 的 latent 统计 / PSNR helper
 
+测试准入建议：
+
+- `experimental`：至少要有 registry / validate / pipeline 单测
+- `adjacent`：在 experimental 基础上补数字人场景 smoke，并确认不会进入默认生产 tier 之外的 CI
+- `core`：必须有端到端 smoke、benchmark 记录、部署文档和服务侧验证路径
+
 ## 7. 文档
 
 - 新增模型**不需要**手工改 `docs/_generated/models.md` —— 跑一遍 `python scripts/generate_models_doc.py` 即可，`ModelCapabilities.summary` 会自动出现在表里
 - 如果模型有特殊部署要求或已知限制，写进 [支持状态](../user_guide/models/support_status.md) 的「部分支持」或「已接入但仍待真机 smoke」小节
+- 如果要把模型标成 `adjacent` 或 `core`，同步更新 [支持状态](../user_guide/models/support_status.md) 和 [路线图](../user_guide/models/roadmap.md)，说明它服务的数字人链路、验证范围和剩余风险
 
 ## 参考实现
 
-`src/omnirt/models/sd15/`、`src/omnirt/models/sdxl/`、`src/omnirt/models/svd/` 是当前覆盖面最完整的参考：分别给出 SD1.5、SDXL 和 SVD 的完整五阶段实现，并且同时展示了 fp16 variant 检测、LoRA 装配、视频帧导出等通用技巧。
+数字人主线优先参考 `src/omnirt/models/flashtalk/`、`src/omnirt/models/flashhead/`、`src/omnirt/models/liveact/` 和 `src/omnirt/models/cosyvoice/`。素材和编辑能力可以参考 `src/omnirt/models/sdxl/`、`src/omnirt/models/svd/`、`src/omnirt/models/flux/`、`src/omnirt/models/flux2/` 和 `src/omnirt/models/generalist_image/`。`src/omnirt/models/sd15/`、`sd3/` 与其它泛模型保留为 experimental 兼容参考，不应作为新模型接入的默认方向。

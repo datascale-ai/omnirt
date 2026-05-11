@@ -5,6 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse
 
+from omnirt.server.request_config import allowed_model_tiers
+
 router = APIRouter()
 
 
@@ -20,6 +22,7 @@ async def readyz(request: Request):
         "ok": bool(engine.is_ready()),
         "job_store_backend": getattr(request.app.state, "job_store_backend", "memory"),
         "remote_worker_count": len(getattr(request.app.state, "remote_workers", []) or []),
+        "allowed_model_tiers": list(allowed_model_tiers(request.app.state)),
     }
 
 

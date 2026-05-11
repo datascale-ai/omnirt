@@ -30,6 +30,7 @@ omnirt serve \
 | `--batch-window-ms` | batching wait window |
 | `--max-batch-size` | batching cap |
 | `--device-map` / `--devices` | default request config passed to all server entry points |
+| `--model-tier` | enable only the selected maintenance tier; repeat it, for example `--model-tier core --model-tier adjacent` |
 | `--api-key-file` | API-key file |
 | `--model-aliases` | alias map for OpenAI-compatible model names |
 | `--redis-url` | enable `RedisJobStore` |
@@ -41,8 +42,9 @@ omnirt serve \
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/healthz` | liveness probe |
-| `GET` | `/readyz` | readiness probe including `job_store_backend` and `remote_worker_count` |
+| `GET` | `/readyz` | readiness probe including `job_store_backend`, `remote_worker_count`, and `allowed_model_tiers` |
 | `GET` | `/metrics` | Prometheus text exposition |
+| `GET` | `/v1/models` | OpenAI-compatible model list with `tier` / `status`; supports `?tier=core` |
 | `POST` | `/v1/generate` | sync or async generation |
 | `GET` | `/v1/jobs/{id}` | job state and result |
 | `DELETE` | `/v1/jobs/{id}` | cancel a job |
@@ -104,6 +106,15 @@ client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-local")
 resp = client.images.generate(model="sdxl-base-1.0", prompt="a lighthouse at dusk")
 print(resp.data[0].url)
 ```
+
+Model discovery can be filtered by maintenance tier:
+
+```bash
+curl -sS 'http://127.0.0.1:8000/v1/models?tier=core'
+curl -sS 'http://127.0.0.1:8000/v1/models?tier=adjacent'
+```
+
+If the server starts with `--model-tier core`, `/v1/models` only returns core models and generation endpoints reject other tiers. For production, `--model-tier core --model-tier adjacent` exposes the digital-human main path plus adjacent asset capabilities while leaving experimental models for development or compatibility entry points.
 
 Notes:
 

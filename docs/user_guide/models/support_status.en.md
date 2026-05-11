@@ -1,6 +1,6 @@
 # Support Status
 
-This document tracks the models already integrated into `omnirt`, the ones that have completed real hardware smoke tests, and the high-priority targets that are still pending.
+This document tracks OmniRT's digital-human model priorities, real-hardware smoke coverage, and the general models that are being contracted into the experimental tier.
 
 Last updated: `2026-04-28`
 
@@ -13,9 +13,17 @@ Last updated: `2026-04-28`
 - `image2video`
 - `audio2video`
 
-## Integrated models
+## Model Maintenance Tiers
 
-The full list is generated from the live registry: [Supported Models](supported_models.md). This page only tracks real-hardware smoke status and partial-support notes.
+The full list is generated from the live registry: [Supported Models](supported_models.md). This page is no longer organized by model count; it is organized by digital-human maintenance priority:
+
+| Tier | Maintenance promise | Current models |
+|---|---|---|
+| Core | Digital-human main path; requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm` |
+| Adjacent | Avatar assets, backgrounds, idle video material, and post-processing; smoke tests are added by digital-human scenario | `sdxl-base-1.0`, `svd-xt`, `flux2.dev`, `qwen-image`, `wan2.2-*` |
+| Experimental | Integrated, but no longer a main investment line; keeps registry and basic tests, without a dual-backend smoke promise | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2`, and similar general models |
+
+Existing general image / video integrations are not being removed immediately, but README, roadmap, CI, and benchmarks should prioritize Core and Adjacent tiers.
 
 ## Real hardware smoke completed
 
@@ -40,9 +48,9 @@ The following models have completed real hardware smoke tests using local model 
   CUDA: `validated`
   Notes: the official `runtime/triton_trtllm` service has completed real benchmark runs. The stable profile is `token2wav=2`, `vocoder=2`, and `kv_cache_free_gpu_memory_fraction=0.2`. The OmniRT wrapper generated a real `2.92s / 24kHz` wav with `denoise_loop_ms=1969.611`; the official 26-sample streaming benchmark measured `RTF=0.1303` and `699.13ms` average first-chunk latency. Client-side `seed` is forwarded, but the server-side BLS still needs to consume that parameter for fully deterministic sampling.
 
-## Integrated but still waiting for real hardware smoke
+## Adjacent: Smoke by Digital-Human Scenario
 
-These models already have registry entries, request-surface integration, and local unit coverage, but they do not yet have repository-tracked local model directories plus verified dual-backend smoke results:
+These models already have registry entries, request-surface integration, and local unit coverage, but future investment depends on whether they serve the digital-human product path:
 
 - `sdxl-refiner-1.0`
 - `flux-fill`
@@ -51,14 +59,8 @@ These models already have registry entries, request-surface integration, and loc
 - `qwen-image-edit-plus`
 - `qwen-image-layered`
 - `animate-diff-sdxl`
-- `kolors`
-- `pixart-sigma`
-- `bria-3.2`
-- `lumina-t2x`
-- `mochi`
-- `skyreels-v2`
 
-Relevant smoke tests already exist. For the now-public `image2image` surface, the recommended starting models are `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sd15`, and `sd21`:
+Some smoke tests already exist. The next validation criterion is not model popularity; it is whether the model helps avatar assets, backgrounds, controlled edits, idle material, or digital-human video post-processing:
 
 - `tests/integration/test_sdxl_refiner_cuda.py`
 - `tests/integration/test_sdxl_refiner_ascend.py`
@@ -67,6 +69,18 @@ Relevant smoke tests already exist. For the now-public `image2image` surface, th
 - `tests/integration/test_image_edit_cuda.py`
 - `tests/integration/test_image_edit_ascend.py`
 
+## Experimental: Contract General-Model Investment
+
+The following models keep registry entries, generated docs, and basic unit coverage, but are no longer primary smoke / benchmark targets unless a concrete digital-human use case appears:
+
+- `kolors`
+- `pixart-sigma`
+- `bria-3.2`
+- `lumina-t2x`
+- `mochi`
+- `skyreels-v2`
+- Other models that only serve general image / video generation
+
 ## Partial support
 
 - `helios`
@@ -74,11 +88,12 @@ Relevant smoke tests already exist. For the now-public `image2image` surface, th
 - `hunyuan-video-1.5`
   Currently exposed as two registry keys: `hunyuan-video-1.5-t2v` and `hunyuan-video-1.5-i2v`.
 
-## High-priority targets not completed yet
+## Digital-Human Targets Not Completed Yet
 
-- `flux-depth`
-- `flux-canny`
-- `chronoedit`
+- ASR / speech understanding: Whisper, Paraformer, SenseVoice, and similar candidates
+- TTS and voice reuse: CosyVoice profile caching, stable seed behavior, streaming first-chunk metrics
+- Realtime avatars: resident workers, restart behavior, and hot-path benchmarks for FlashTalk / FlashHead / LiveAct
+- Post-processing: GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting for digital-human enhancement
 
 ## Related docs
 

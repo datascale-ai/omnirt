@@ -71,7 +71,8 @@ pre-commit install
 
 1. **`scripts/generate_models_doc.py --check`** — registry 文档未过期
 2. **`scripts/check_bilingual_parity.py`** — 每篇中文都有英文兄弟，长度不怪
-3. **`mkdocs build --strict`** — 链接、引用、nav 全部合法
+3. **`scripts/check_docs_tier_policy.py`** — quickstart / 默认示例没有把 experimental 模型提升成主路径
+4. **`mkdocs build --strict`** — 链接、引用、nav 全部合法
 
 本地一次性复现：
 
@@ -79,17 +80,29 @@ pre-commit install
 python -m pip install -e '.[dev,docs]'
 python scripts/generate_models_doc.py --check
 python scripts/check_bilingual_parity.py
+python scripts/check_docs_tier_policy.py
 mkdocs build --strict
 ```
 
 双语写作约定：中文文件是 `foo.md`，英文兄弟是 `foo.en.md`。详见 [文档发布](../community/publishing_docs.md)。
+
+## 模型维护层级约束
+
+OmniRT 的默认开发方向是数字人垂直链路，不再把所有泛图像 / 泛视频模型都当作同等主线维护：
+
+- 新模型默认先标 `tier="experimental"`，除非 PR 同时给出数字人场景、真实后端 smoke 和文档入口
+- 文档、quickstart、benchmark、CI smoke 的默认示例优先使用 `core` 或 `adjacent` 模型；experimental 模型只出现在兼容性、路线图或 legacy 优化上下文
+- `core` 晋级需要端到端证据：真实硬件 smoke、benchmark、部署说明、维护 owner，以及失败路径测试
+- 服务化示例默认建议 `omnirt serve --model-tier core --model-tier adjacent`，避免生产环境无意暴露 experimental registry
+
+改模型 tier 时必须同步检查 `omnirt models --tier ...`、`/v1/models?tier=...`、生成文档和相关测试。
 
 ## PR 流程
 
 1. **fork → 分支**：按 `feat/xxx`、`fix/xxx`、`docs/xxx` 命名
 2. **commit 信息**：首行 ≤ 72 字，祈使句；正文解释"为什么"
 3. **测试覆盖**：新增公开行为必须附 `tests/unit` 或 `tests/parity` 用例；硬件相关功能至少写一个 skippable smoke
-4. **文档**：改动公开接口 / 请求 schema / 新模型时需同步更新 `docs/`
+4. **文档**：改动公开接口 / 请求 schema / 新模型时需同步更新 `docs/`，并确认默认示例没有把 experimental 模型提升成主路径
 5. **提 PR**：在描述里说明改动动机与影响范围，附带本地 `pytest tests/unit tests/parity --maxfail=1` 的输出
 
 ## 新能力的接入点

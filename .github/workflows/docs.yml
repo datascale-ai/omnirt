@@ -30,6 +30,8 @@ jobs:
           enablement: true
       - name: Install documentation dependencies
         run: python -m pip install -e '.[docs]'
+      - name: Check docs tier policy
+        run: python scripts/check_docs_tier_policy.py
       - name: Build documentation site
         run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3

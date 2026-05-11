@@ -2,7 +2,7 @@
 
 OmniRT exposes a small public Python surface for request construction, validation, direct execution, and model-oriented convenience helpers.
 
-The currently documented public task helpers include `text2image`, `image2image`, `text2video`, `image2video`, and `audio2video`. For `image2image`, start with `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sd15`, or `sd21`.
+The currently documented public task helpers include `text2image`, `image2image`, `text2video`, `image2video`, and `audio2video`. For `image2image`, start with `sdxl-base-1.0` or `sdxl-refiner-1.0`; `sd15` and `sd21` are experimental compatibility references.
 
 ## Core imports
 
@@ -71,6 +71,17 @@ print(validation.resolved_config)
 
 Validation is the safest place to inspect resolved defaults, backend selection, and request errors before starting a long run.
 
+## Model discovery
+
+`list_available_models(...)` can filter by maintenance tier, which lets services expose only the digital-human main path or adjacent asset capabilities:
+
+```python
+import omnirt
+
+core_models = omnirt.list_available_models(tier="core")
+adjacent_models = omnirt.list_available_models(tier="adjacent")
+```
+
 ## Direct generation
 
 ```python
@@ -97,7 +108,7 @@ Use `pipeline(...)` when you want a model-oriented wrapper that routes keyword a
 ```python
 import omnirt
 
-pipe = omnirt.pipeline("sd15", backend="cpu-stub")
+pipe = omnirt.pipeline("sdxl-base-1.0", backend="cpu-stub")
 validation = pipe.validate(prompt="a lighthouse in fog", preset="fast")
 ```
 

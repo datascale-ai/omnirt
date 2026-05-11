@@ -44,6 +44,7 @@ from omnirt.models.flux.pipeline import FluxPipeline
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="beta",
+        tier="adjacent",
         summary="Flux Fill inpainting and outpainting pipeline.",
         example="omnirt generate --task inpaint --model flux-fill --image input.png --mask mask.png --prompt \"replace the missing area with folded paper texture\" --backend cuda",
     ),

@@ -48,6 +48,7 @@ from omnirt.schedulers import build_scheduler
         adapter_kinds=("lora",),
         artifact_kind="image",
         maturity="stable",
+        tier="adjacent",
         summary="SDXL base text-to-image pipeline with LoRA support.",
         example="omnirt generate --task text2image --model sdxl-base-1.0 --prompt \"a cinematic sci-fi city at sunrise\" --backend cuda",
     ),

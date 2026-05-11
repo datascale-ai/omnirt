@@ -22,7 +22,7 @@ RUN python3 -m pip install --no-cache-dir \
  && python3 -m pip install --no-cache-dir -e '.[runtime,server]'
 
 EXPOSE 8000
-CMD ["uvicorn", "omnirt.server.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["omnirt", "serve", "--host", "0.0.0.0", "--port", "8000", "--model-tier", "core", "--model-tier", "adjacent"]
 ```
 
 Build and run:
@@ -33,6 +33,8 @@ docker run --gpus all -p 8000:8000 \
   -v $HOME/.cache/huggingface:/root/.cache/huggingface \
   omnirt:cuda
 ```
+
+Production images should expose `core + adjacent` by default: the digital-human main path plus adjacent asset capabilities. If you need broad model access temporarily, append `--model-tier experimental` explicitly instead of baking experimental models into the default image command.
 
 ## Ascend image template
 
@@ -57,7 +59,7 @@ ENV PATH=$ASCEND_TOOLKIT_HOME/bin:$PATH
 
 EXPOSE 8000
 CMD ["bash", "-c", "source $ASCEND_TOOLKIT_HOME/set_env.sh && \
-  uvicorn omnirt.server.app:create_app --factory --host 0.0.0.0 --port 8000"]
+  omnirt serve --host 0.0.0.0 --port 8000 --model-tier core --model-tier adjacent"]
 ```
 
 Run:
@@ -91,6 +93,17 @@ services:
     environment:
       - OMNIRT_LOG_LEVEL=INFO
       - HF_ENDPOINT=${HF_ENDPOINT:-}          # e.g. https://hf-mirror.com behind the GFW
+    command:
+      - omnirt
+      - serve
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --model-tier
+      - core
+      - --model-tier
+      - adjacent
 ```
 
 ## Slim-image tips

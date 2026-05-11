@@ -14,6 +14,7 @@ class GeneralistImageModelConfig:
     default_config: dict
     summary: str
     example: str
+    tier: str = "experimental"
     call_config_keys: tuple[str, ...] = ()
 
 
@@ -62,6 +63,7 @@ MODEL_CONFIGS = {
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "bf16"},
         summary="Qwen-Image multilingual text-to-image pipeline.",
         example="omnirt generate --task text2image --model qwen-image --prompt \"一张带有中文标题的电影海报\" --backend cuda",
+        tier="adjacent",
     ),
     "sana-1.6b": GeneralistImageModelConfig(
         source="Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers",
@@ -138,6 +140,7 @@ EDIT_MODEL_CONFIGS = {
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "bf16", "true_cfg_scale": 4.0},
         summary="Qwen-Image single-image editing pipeline.",
         example="omnirt generate --task edit --model qwen-image-edit --image input.png --prompt \"把海报标题改成中文霓虹字体\" --backend cuda",
+        tier="adjacent",
         call_config_keys=("true_cfg_scale",),
     ),
     "qwen-image-edit-plus": GeneralistImageModelConfig(
@@ -148,6 +151,7 @@ EDIT_MODEL_CONFIGS = {
         default_config={"scheduler": "native", "height": 1024, "width": 1024, "dtype": "bf16", "true_cfg_scale": 4.0},
         summary="Qwen-Image multi-reference editing pipeline.",
         example="omnirt generate --task edit --model qwen-image-edit-plus --image input.png --prompt \"保留主体，叠加更强的品牌视觉语言\" --backend cuda",
+        tier="adjacent",
         call_config_keys=("true_cfg_scale",),
     ),
     "qwen-image-layered": GeneralistImageModelConfig(
@@ -166,6 +170,7 @@ EDIT_MODEL_CONFIGS = {
         },
         summary="Qwen-Image layered decomposition pipeline.",
         example="omnirt generate --task edit --model qwen-image-layered --image input.png --prompt \"\" --backend cuda",
+        tier="adjacent",
         call_config_keys=("layers", "resolution", "cfg_normalize", "use_en_prompt", "true_cfg_scale"),
     ),
 }

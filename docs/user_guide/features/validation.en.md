@@ -16,7 +16,7 @@
     from omnirt import validate
     from omnirt.requests import text2image
 
-    req = text2image(model="sd15", prompt="a lighthouse", width=513)  # 513 isn't a multiple of 8
+    req = text2image(model="sdxl-base-1.0", prompt="a lighthouse", width=513)  # 513 isn't a multiple of 8
     result = validate(req, backend="cpu-stub")
     print(result.ok)          # False
     print(result.errors)      # [("config.width", "must be a multiple of 8"), ...]
@@ -27,7 +27,7 @@
     ```bash
     omnirt validate \
       --task text2image \
-      --model sd15 \
+      --model sdxl-base-1.0 \
       --prompt "a lighthouse" \
       --width 513 \
       --backend cpu-stub
@@ -49,7 +49,7 @@
       -H 'Content-Type: application/json' \
       -d '{
         "task": "text2image",
-        "model": "sd15",
+        "model": "sdxl-base-1.0",
         "inputs": {"prompt": "a lighthouse"},
         "config": {"width": 513, "dry_run": true}
       }'

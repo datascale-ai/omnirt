@@ -48,7 +48,7 @@ Generate an MP4 from a prompt. OmniRT wraps video tasks in the same request cont
 | Parameter | Type | Default | Notes |
 |---|---|---|---|
 | `prompt` | `str` | **required** | text prompt |
-| `num_frames` | `int?` | model default | typically `81` for Wan2.2, `49` for CogVideoX, `129` for Hunyuan |
+| `num_frames` | `int?` | model default | typically `81` for Wan2.2; experimental video models have their own defaults |
 | `fps` | `int?` | model default | output frames per second |
 | `negative_prompt` | `str?` | `None` | negative prompt (if supported) |
 | `preset` | `fast`/`balanced`/`quality`/`low-vram` | `balanced` | see [Presets](../features/presets.md) |
@@ -59,9 +59,9 @@ Generate an MP4 from a prompt. OmniRT wraps video tasks in the same request cont
 
 ## Supported models
 
-- **High-quality**: `wan2.2-t2v-14b` (24 GB+), `hunyuan-video` (48 GB+)
-- **Mid-tier**: `cogvideox-2b`, `cogvideox-5b`
-- **Experimental / roadmap**: see [Roadmap](../models/roadmap.md)
+- **Adjacent main path**: `wan2.2-t2v-14b` (24 GB+)
+- **Asset motion**: `animate-diff-sdxl`
+- **Compatibility / experimental**: `cogvideox-*`, `hunyuan-video*`, and similar families remain in the registry, but are not default release baselines
 
 Full list: `omnirt models --task text2video`.
 
@@ -74,11 +74,11 @@ Full list: `omnirt models --task text2video`.
       --prompt "..." --num-frames 81 --fps 16 --preset balanced
     ```
 
-=== "Low-VRAM short clip"
+=== "Asset motion"
 
     ```bash
-    omnirt generate --task text2video --model cogvideox-2b \
-      --prompt "..." --num-frames 49 --fps 8 --preset low-vram
+    omnirt generate --task text2video --model animate-diff-sdxl \
+      --prompt "..." --num-frames 16 --fps 8 --preset balanced
     ```
 
 ## Troubleshooting

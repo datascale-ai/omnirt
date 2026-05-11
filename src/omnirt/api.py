@@ -36,11 +36,15 @@ def _coerce_request(request: RequestLike) -> GenerateRequest:
     raise TypeError(f"Unsupported request type: {type(request)!r}")
 
 
-def list_available_models(*, include_aliases: bool = True) -> List[ModelSpec]:
+def list_available_models(*, include_aliases: bool = True, tier: Optional[str] = None) -> List[ModelSpec]:
     ensure_registered()
+    if tier is not None and tier not in {"core", "adjacent", "experimental"}:
+        raise ValueError(f"Unknown model tier: {tier!r}")
     specs = list(list_models().values())
     if not include_aliases:
         specs = [spec for spec in specs if spec.capabilities.alias_of is None]
+    if tier is not None:
+        specs = [spec for spec in specs if spec.capabilities.tier == tier]
     return sorted(specs, key=lambda spec: spec.id)
 
 

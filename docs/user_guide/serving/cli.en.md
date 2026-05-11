@@ -121,6 +121,12 @@ bash scripts/start_flashtalk_ws.sh
 
 See [FlashTalk-compatible WebSocket](flashtalk_ws.md) for the full configuration.
 
+Production services can expose only the digital-human main path and adjacent asset capabilities:
+
+```bash
+omnirt serve --model-tier core --model-tier adjacent
+```
+
 ## `omnirt worker`
 
 ```bash
@@ -144,7 +150,7 @@ Built-in scenario:
 
 ```bash
 omnirt bench \
-  --scenario text2image_sdxl_concurrent4 \
+  --scenario adjacent_text2image_sdxl_concurrent4 \
   --total 100 \
   --warmup 2 \
   --output bench.json
@@ -163,12 +169,12 @@ omnirt bench \
   --max-batch-size 4
 ```
 
-## Legacy / runtime optimization example
+## Runtime optimization example
 
 ```bash
 omnirt generate \
   --task text2image \
-  --model sd15 \
+  --model sdxl-base-1.0 \
   --prompt "a lighthouse" \
   --enable-layerwise-casting \
   --quantization int8 \
@@ -176,4 +182,4 @@ omnirt generate \
   --enable-tea-cache
 ```
 
-To confirm whether these knobs are actually taking effect, inspect `RunReport` and `/metrics`. See [Legacy Optimization Guide](../../developer_guide/legacy_optimization_guide.md).
+To confirm whether these knobs are actually taking effect, inspect `RunReport` and `/metrics`. For compatibility tuning on older general-model families, see [Legacy Optimization Guide](../../developer_guide/legacy_optimization_guide.md).

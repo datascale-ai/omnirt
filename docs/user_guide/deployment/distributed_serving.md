@@ -29,6 +29,8 @@ omnirt serve \
   --host 0.0.0.0 \
   --port 8000 \
   --backend auto \
+  --model-tier core \
+  --model-tier adjacent \
   --remote-worker 'sdxl-a=127.0.0.1:50061@sdxl-base-1.0,sdxl-refiner-1.0'
 ```
 
@@ -41,6 +43,7 @@ worker_id=host:port@model1,model2#tag1,tag2
 - `@model1,model2` 用来声明这个 worker 优先处理哪些模型
 - `#tag1,tag2` 是可选的调度标签
 - 启动 `serve` 时会先探测 worker 健康，如果不可达会直接报错退出
+- 生产网关建议始终设置 `--model-tier core --model-tier adjacent`；只有开发或兼容验证时才额外开放 `experimental`
 
 ## 接 Redis 和 OTLP
 
@@ -48,6 +51,8 @@ worker_id=host:port@model1,model2#tag1,tag2
 omnirt serve \
   --host 0.0.0.0 \
   --port 8000 \
+  --model-tier core \
+  --model-tier adjacent \
   --redis-url redis://127.0.0.1:6379/0 \
   --otlp-endpoint http://127.0.0.1:4318/v1/traces \
   --remote-worker 'sdxl-a=10.0.0.21:50061@sdxl-base-1.0'
@@ -80,14 +85,15 @@ curl -sS http://127.0.0.1:8000/metrics | head
 
 期望现象：
 
-- `/readyz` 返回 `job_store_backend` 和 `remote_worker_count`
+- `/readyz` 返回 `job_store_backend`、`remote_worker_count` 和 `allowed_model_tiers`
+- `/v1/models` 只暴露当前网关允许的模型层级
 - `/metrics` 能看到 `omnirt_jobs_total`、`omnirt_stage_duration_seconds`、`omnirt_queue_depth`
 - 异步任务能通过 `/v1/jobs/{id}`、`/v1/jobs/{id}/events`、`/v1/jobs/{id}/stream` 读到状态
 - 如果开启了 OTLP，`/v1/jobs/{id}/trace` 能返回同一个 job 的 trace 视图
 
 ## 推荐部署顺序
 
-1. 先在单进程模式下跑通 `omnirt serve`
+1. 先在单进程模式下跑通 `omnirt serve --model-tier core --model-tier adjacent`
 2. 引入 Redis，把异步 job 和事件流稳定下来
 3. 增加一个远程 worker，验证模型路由和 `/readyz`
 4. 最后接 Prometheus 和 OTLP 做外部观测

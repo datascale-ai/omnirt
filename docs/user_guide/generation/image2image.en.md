@@ -61,8 +61,9 @@ Repaint an input image under a new prompt and export a PNG. Ideal for stylizatio
 
 ## Supported models
 
-- **Mainstream**: `sd15`, `sd21`, `sdxl-base-1.0`
+- **Recommended**: `sdxl-base-1.0`
 - **Refiner**: `sdxl-refiner-1.0` (typically used as a second pass over `sdxl-base-1.0`)
+- **Compatibility / experimental**: `sd15` and `sd21` remain available, but are not the default starting point for new digital-human asset pipelines
 
 Run `omnirt models --task image2image` for the full list.
 

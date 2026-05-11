@@ -49,6 +49,16 @@ OmniRT 原生请求与 `GenerateRequest` 对齐：
 - `config`：执行配置，如 `preset`、`scheduler`、`device_map`、`quantization`
 - `adapters`：可选的 LoRA 列表
 
+## 模型层级策略
+
+每个 registry 条目都有 `tier`：`core`、`adjacent` 或 `experimental`。默认 Python API 仍能访问完整 registry；生产 HTTP 服务建议通过 `omnirt serve --model-tier core --model-tier adjacent` 收紧可见和可执行模型：
+
+- `/v1/models` 只返回服务允许的层级
+- `/readyz` 返回 `allowed_model_tiers`，用于部署侧确认策略
+- `/v1/generate`、OpenAI 兼容入口和 `/v1/realtime` 会拒绝未启用层级的模型
+
+`experimental` 只应出现在开发、兼容验证或明确授权的内部服务里，不应作为默认生产能力暴露。
+
 ## 同步响应
 
 同步 `POST /v1/generate` 返回 `GenerateResult`：
@@ -107,6 +117,7 @@ OmniRT 原生请求与 `GenerateRequest` 对齐：
 
 当前已提供这些兼容入口：
 
+- `GET /v1/models`
 - `POST /v1/images/generations`
 - `POST /v1/images/edits`
 - `POST /v1/videos/generations`

@@ -76,6 +76,7 @@ Usage:
 ```bash
 omnirt models
 omnirt models sdxl-base-1.0
+omnirt models --tier core
 omnirt models --format markdown
 omnirt models --json
 ```
@@ -97,6 +98,7 @@ Key flags:
 | `--remote-worker` | remote worker spec, repeatable |
 | `--device-map` / `--devices` | default request placement config |
 | `--batch-window-ms` / `--max-batch-size` | batching config |
+| `--model-tier` | enable only the selected model maintenance tier, repeatable |
 
 `--remote-worker` format:
 
@@ -131,6 +133,8 @@ Additional flags:
 Current built-in scenarios:
 
 - `text2image_sdxl_concurrent4`
+- `adjacent_text2image_sdxl_concurrent4`
+- `core_audio2video_flashtalk_smoke`
 
 ## `worker`
 

@@ -117,7 +117,7 @@ def test_model_listing_and_description(monkeypatch) -> None:
     @register_model(
         id="dummy-image",
         task="text2image",
-        capabilities=ModelCapabilities(required_inputs=("prompt",), summary="Dummy model"),
+        capabilities=ModelCapabilities(required_inputs=("prompt",), summary="Dummy model", tier="core"),
     )
     class DummyPipeline:
         pass
@@ -137,6 +137,8 @@ def test_model_listing_and_description(monkeypatch) -> None:
     )
 
     assert [spec.id for spec in listed] == ["dummy-image"]
+    assert [spec.id for spec in list_available_models(tier="core")] == ["dummy-image"]
+    assert list_available_models(tier="experimental") == []
     assert described.capabilities.summary == "Dummy model"
     assert validation.ok is False
     assert "Missing required input" in validation.format_errors()

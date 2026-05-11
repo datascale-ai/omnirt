@@ -61,8 +61,9 @@
 
 ## 支持模型
 
-- **主流**：`sd15`、`sd21`、`sdxl-base-1.0`
+- **推荐**：`sdxl-base-1.0`
 - **精修**：`sdxl-refiner-1.0`（通常作为 `sdxl-base-1.0` 的二次推理）
+- **兼容 / experimental**：`sd15`、`sd21` 仍保留，但不作为新数字人素材链路默认起点
 
 运行 `omnirt models --task image2image` 查看完整清单。
 
