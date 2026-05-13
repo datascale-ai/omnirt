@@ -24,6 +24,7 @@ MAGIC_VIDEO = b"VIDX"
 AudioFormat = Literal["pcm_s16le"]
 VideoEncoding = Literal["jpeg-seq"]
 ReferenceMode = Literal["image", "frames"]
+TemplateMode = Literal["image", "video", "frames"]
 
 
 class RealtimeAvatarError(ValueError):
@@ -85,6 +86,10 @@ class RealtimeAvatarSession:
     reference_mode: ReferenceMode = "image"
     ref_frame_dir: str | None = None
     ref_frame_metadata_path: str | None = None
+    template_mode: TemplateMode = "image"
+    template_video: str | None = None
+    template_frame_dir: str | None = None
+    quicktalk_face_cache: str | None = None
     audio: AvatarAudioSpec = field(default_factory=AvatarAudioSpec)
     video: AvatarVideoSpec = field(default_factory=AvatarVideoSpec)
     wav2lip_postprocess_mode: str = "easy_improved"
@@ -101,6 +106,7 @@ class RealtimeAvatarSession:
             "audio": self.audio.to_dict(),
             "video": self.video.to_dict(),
             "reference_mode": self.reference_mode,
+            "template_mode": self.template_mode,
             "wav2lip_postprocess_mode": self.wav2lip_postprocess_mode,
             "preprocessed": self.preprocessed,
             "mouth_metadata": self.mouth_metadata,
@@ -108,6 +114,9 @@ class RealtimeAvatarSession:
         if include_paths:
             metadata["ref_frame_dir"] = self.ref_frame_dir
             metadata["ref_frame_metadata_path"] = self.ref_frame_metadata_path
+            metadata["template_video"] = self.template_video
+            metadata["template_frame_dir"] = self.template_frame_dir
+            metadata["quicktalk_face_cache"] = self.quicktalk_face_cache
         return metadata
 
 
@@ -179,6 +188,14 @@ def _parse_wav2lip_postprocess_mode(raw: object) -> str:
 
 def _wav2lip_max_long_edge() -> int:
     raw = os.environ.get("OMNIRT_WAV2LIP_MAX_LONG_EDGE", "0").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _quicktalk_max_long_edge() -> int:
+    raw = os.environ.get("OMNIRT_QUICKTALK_MAX_LONG_EDGE", "900").strip()
     try:
         return max(0, int(raw))
     except ValueError:
@@ -370,6 +387,55 @@ class RealtimeAvatarService:
                 must_be_dir=False,
             )
             ref_frame_metadata_path_str = str(ref_frame_metadata_path)
+        template_mode = str(config.get("template_mode") or "image").strip().lower()
+        if template_mode not in {"image", "video", "frames"}:
+            raise RealtimeAvatarError(
+                "bad_template_mode",
+                "template_mode must be 'image', 'video', or 'frames'.",
+            )
+        template_video_str: str | None = None
+        template_frame_dir_str: str | None = None
+        if template_mode == "video":
+            template_video = config.get("template_video")
+            template_video_raw = str(template_video).strip() if template_video is not None else ""
+            if not template_video_raw:
+                raise RealtimeAvatarError(
+                    "missing_template_video",
+                    "template_video is required when template_mode='video'.",
+                )
+            template_video_path = self._validate_allowed_frame_path(
+                template_video_raw,
+                code="bad_template_video",
+                label="template_video",
+                must_be_dir=False,
+            )
+            template_video_str = str(template_video_path)
+        elif template_mode == "frames":
+            template_frame_dir = config.get("template_frame_dir")
+            template_frame_dir_raw = str(template_frame_dir).strip() if template_frame_dir is not None else ""
+            if not template_frame_dir_raw:
+                raise RealtimeAvatarError(
+                    "missing_template_frame_dir",
+                    "template_frame_dir is required when template_mode='frames'.",
+                )
+            template_frame_dir_path = self._validate_allowed_frame_path(
+                template_frame_dir_raw,
+                code="bad_template_frame_dir",
+                label="template_frame_dir",
+                must_be_dir=True,
+            )
+            template_frame_dir_str = str(template_frame_dir_path)
+        quicktalk_face_cache_str: str | None = None
+        quicktalk_face_cache = config.get("quicktalk_face_cache")
+        quicktalk_face_cache_raw = str(quicktalk_face_cache).strip() if quicktalk_face_cache is not None else ""
+        if quicktalk_face_cache_raw:
+            quicktalk_face_cache_path = self._validate_allowed_frame_path(
+                quicktalk_face_cache_raw,
+                code="bad_quicktalk_face_cache",
+                label="quicktalk_face_cache",
+                must_be_dir=False,
+            )
+            quicktalk_face_cache_str = str(quicktalk_face_cache_path)
         sample_rate = int(config.get("sample_rate", 16000))
         video = AvatarVideoSpec(
             fps=int(config.get("fps", 25)),
@@ -381,6 +447,16 @@ class RealtimeAvatarService:
         )
         if model == "wav2lip":
             video = _scale_video_to_max_long_edge(video, _wav2lip_max_long_edge())
+        elif model == "quicktalk":
+            video = AvatarVideoSpec(
+                fps=25,
+                width=video.width,
+                height=video.height,
+                frame_count=video.frame_count,
+                motion_frames_num=video.motion_frames_num,
+                slice_len=video.slice_len,
+            )
+            video = _scale_video_to_max_long_edge(video, _quicktalk_max_long_edge())
         audio = AvatarAudioSpec(
             sample_rate=sample_rate,
             channels=int(config.get("channels", 1)),
@@ -405,6 +481,10 @@ class RealtimeAvatarService:
             reference_mode=reference_mode,  # type: ignore[arg-type]
             ref_frame_dir=ref_frame_dir_str,
             ref_frame_metadata_path=ref_frame_metadata_path_str,
+            template_mode=template_mode,  # type: ignore[arg-type]
+            template_video=template_video_str,
+            template_frame_dir=template_frame_dir_str,
+            quicktalk_face_cache=quicktalk_face_cache_str,
             audio=audio,
             video=video,
             wav2lip_postprocess_mode=_parse_wav2lip_postprocess_mode(

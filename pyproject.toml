@@ -61,6 +61,21 @@ wav2lip-cuda = [
   "torch>=2.1",
   "tqdm>=4.65",
 ]
+quicktalk-cuda = [
+  "insightface>=0.7",
+  "kornia>=0.7",
+  "librosa>=0.10",
+  "opencv-python-headless>=4.8",
+  "scipy>=1.10",
+  "torch>=2.1",
+  "torchvision>=0.16",
+  "transformers>=4.51",
+]
+quicktalk-converter = [
+  "onnx>=1.16",
+  "onnx2torch>=1.5",
+  "onnxruntime>=1.18",
+]
 server = [
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
@@ -90,3 +105,4 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }

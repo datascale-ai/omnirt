@@ -18,7 +18,7 @@ def _allowed_frame_roots_from_env() -> list[str]:
 
 def _avatar_model_ws_urls_from_env() -> dict[str, str]:
     mapping: dict[str, str] = {}
-    for model in ("flashtalk", "wav2lip", "musetalk", "flashhead"):
+    for model in ("flashtalk", "wav2lip", "quicktalk", "musetalk", "flashhead"):
         raw = os.environ.get(f"OMNIRT_AVATAR_{model.upper()}_WS_URL", "").strip()
         if raw:
             mapping[model] = raw
@@ -28,10 +28,18 @@ def _avatar_model_ws_urls_from_env() -> dict[str, str]:
 def create_avatar_app(*, default_backend: str = "auto") -> FastAPI:
     app = FastAPI(title="OmniRT Avatar", version="1.0.0")
     runtime = FakeRealtimeAvatarRuntime()
-    if os.environ.get("OMNIRT_WAV2LIP_RUNTIME", "").strip().lower() in {"1", "true", "opentalking"}:
+    wav2lip_enabled = os.environ.get("OMNIRT_WAV2LIP_RUNTIME", "").strip().lower() in {"1", "true", "opentalking"}
+    quicktalk_enabled = os.environ.get("OMNIRT_QUICKTALK_RUNTIME", "").strip().lower() in {"1", "true", "opentalking"}
+    if wav2lip_enabled or quicktalk_enabled:
+        quicktalk = None
+        if quicktalk_enabled:
+            from omnirt.models.quicktalk.runtime import QuickTalkRealtimeRuntime
+
+            quicktalk = QuickTalkRealtimeRuntime()
         runtime = AvatarRuntimeRouter(
             fallback=runtime,
-            wav2lip=Wav2LipRealtimeRuntime(),
+            wav2lip=Wav2LipRealtimeRuntime() if wav2lip_enabled else None,
+            quicktalk=quicktalk,
         )
     app.state.default_backend = default_backend
     app.state.default_request_config = {}

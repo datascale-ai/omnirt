@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import struct
 from pathlib import Path
@@ -11,6 +12,7 @@ fastapi = pytest.importorskip("fastapi")
 pytest.importorskip("fastapi.testclient")
 
 from fastapi.testclient import TestClient  # noqa: E402
+from PIL import Image  # noqa: E402
 
 from omnirt.server import create_app  # noqa: E402
 from omnirt.server.realtime_avatar import (  # noqa: E402
@@ -27,6 +29,12 @@ from omnirt.server.realtime_avatar import (  # noqa: E402
 
 def _image_b64() -> str:
     return base64.b64encode(b"fake-image-bytes").decode("ascii")
+
+
+def _png_bytes(size: tuple[int, int]) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, (128, 96, 64)).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def _audio_payload(chunk_samples: int) -> bytes:
@@ -123,6 +131,8 @@ def test_audio2video_models_reports_wav2lip_unavailable_by_default() -> None:
     assert statuses["flashtalk"]["connected"] is False
     assert statuses["flashtalk"]["reason"] == "fallback_runtime"
     assert statuses["wav2lip"]["connected"] is False
+    assert statuses["quicktalk"]["connected"] is False
+    assert statuses["quicktalk"]["reason"] == "runtime_not_enabled"
 
 
 def test_audio2video_models_reports_resident_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,16 +168,19 @@ def test_audio2video_models_reports_proxy_targets(monkeypatch: pytest.MonkeyPatc
     client.app.state.avatar_model_ws_urls = {
         "flashtalk": "ws://127.0.0.1:8765",
         "wav2lip": "ws://127.0.0.1:8767",
+        "quicktalk": "ws://127.0.0.1:8768",
     }
 
     response = client.get("/v1/audio2video/models")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["models"] == ["flashtalk", "wav2lip"]
+    assert payload["models"] == ["flashtalk", "wav2lip", "quicktalk"]
     statuses = {item["id"]: item for item in payload["statuses"]}
     assert statuses["flashtalk"]["reason"] == "proxy"
     assert statuses["wav2lip"]["connected"] is True
+    assert statuses["quicktalk"]["connected"] is True
+    assert statuses["quicktalk"]["reason"] == "proxy"
 
 
 def test_audio2video_models_reads_proxy_targets_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,6 +191,7 @@ def test_audio2video_models_reads_proxy_targets_from_env(monkeypatch: pytest.Mon
 
     monkeypatch.setenv("OMNIRT_AVATAR_FLASHTALK_WS_URL", "ws://127.0.0.1:8765")
     monkeypatch.setenv("OMNIRT_AVATAR_WAV2LIP_WS_URL", "ws://127.0.0.1:8767")
+    monkeypatch.setenv("OMNIRT_AVATAR_QUICKTALK_WS_URL", "ws://127.0.0.1:8768")
     monkeypatch.setattr(avatar_routes, "_is_ws_url_reachable", fake_reachable)
 
     client = TestClient(create_app(default_backend="cpu-stub"))
@@ -185,10 +199,31 @@ def test_audio2video_models_reads_proxy_targets_from_env(monkeypatch: pytest.Mon
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["models"] == ["flashtalk", "wav2lip"]
+    assert payload["models"] == ["flashtalk", "wav2lip", "quicktalk"]
     statuses = {item["id"]: item for item in payload["statuses"]}
     assert statuses["flashtalk"]["reason"] == "proxy"
     assert statuses["wav2lip"]["reason"] == "proxy"
+    assert statuses["quicktalk"]["reason"] == "proxy"
+
+
+def test_audio2video_models_reports_quicktalk_runtime() -> None:
+    class FakeRouter:
+        runtime_kind = "router"
+        wav2lip = None
+        quicktalk = object()
+
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(runtime=FakeRouter())
+    client = TestClient(app)
+
+    response = client.get("/v1/audio2video/models")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "quicktalk" in payload["models"]
+    statuses = {item["id"]: item for item in payload["statuses"]}
+    assert statuses["quicktalk"]["connected"] is True
+    assert statuses["quicktalk"]["reason"] == "quicktalk_runtime"
 
 
 def test_flashtalk_compatible_ws_errors() -> None:
@@ -329,6 +364,79 @@ def test_wav2lip_init_accepts_frame_reference_dir(tmp_path: Path) -> None:
     assert "ref_frame_dir" not in init
 
 
+def test_quicktalk_compatible_ws_accepts_template_video(tmp_path: Path) -> None:
+    template = tmp_path / "template.mp4"
+    template.write_bytes(b"video")
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(allowed_frame_roots=[tmp_path])
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/audio2video/quicktalk") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "template_mode": "video",
+                "template_video": str(template),
+            }
+        )
+        init = ws.receive_json()
+
+    assert init["type"] == "init_ok"
+    assert init["model"] == "quicktalk"
+    assert init["template_mode"] == "video"
+    assert "template_video" not in init
+
+
+def test_quicktalk_compatible_ws_accepts_template_frame_dir(tmp_path: Path) -> None:
+    frame_dir = tmp_path / "frames"
+    frame_dir.mkdir()
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(allowed_frame_roots=[tmp_path])
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/audio2video/quicktalk") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "template_mode": "frames",
+                "template_frame_dir": str(frame_dir),
+            }
+        )
+        init = ws.receive_json()
+
+    assert init["type"] == "init_ok"
+    assert init["model"] == "quicktalk"
+    assert init["template_mode"] == "frames"
+
+
+def test_quicktalk_template_rejects_paths_outside_allowed_roots(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    outside = tmp_path / "outside"
+    allowed.mkdir()
+    outside.mkdir()
+    template = outside / "template.mp4"
+    template.write_bytes(b"video")
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(allowed_frame_roots=[allowed])
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/audio2video/quicktalk") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "template_mode": "video",
+                "template_video": str(template),
+            }
+        )
+        error = ws.receive_json()
+
+    assert error["type"] == "error"
+    assert error["code"] == "bad_template_video"
+
+
 def test_wav2lip_video_dimensions_respect_max_long_edge(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OMNIRT_WAV2LIP_MAX_LONG_EDGE", "768")
     client = TestClient(create_app(default_backend="cpu-stub"))
@@ -348,6 +456,147 @@ def test_wav2lip_video_dimensions_respect_max_long_edge(monkeypatch: pytest.Monk
     assert init["type"] == "init_ok"
     assert init["width"] == 574
     assert init["height"] == 768
+
+
+def test_quicktalk_video_dimensions_default_to_900_long_edge() -> None:
+    service = RealtimeAvatarService()
+    session = service.create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((1600, 1200)),
+        config={"width": 1600, "height": 1200},
+    )
+
+    assert session.video.width == 900
+    assert session.video.height == 674
+    assert session.video.fps == 25
+
+
+def test_quicktalk_video_dimensions_respect_max_long_edge(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OMNIRT_QUICKTALK_MAX_LONG_EDGE", "512")
+    client = TestClient(create_app(default_backend="cpu-stub"))
+
+    with client.websocket_connect("/v1/audio2video/quicktalk") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "width": 830,
+                "height": 1108,
+                "fps": 30,
+            }
+        )
+        init = ws.receive_json()
+
+    assert init["type"] == "init_ok"
+    assert init["width"] == 384
+    assert init["height"] == 512
+    assert init["fps"] == 25
+
+
+def test_quicktalk_init_accepts_asset_face_cache_path(tmp_path: Path) -> None:
+    cache_path = tmp_path / "quicktalk" / "face_cache_v3_900.npz"
+    cache_path.parent.mkdir()
+    cache_path.write_bytes(b"cache")
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(allowed_frame_roots=[tmp_path])
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/audio2video/quicktalk") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "quicktalk_face_cache": str(cache_path),
+            }
+        )
+        init = ws.receive_json()
+
+    assert init["type"] == "init_ok"
+    assert init["model"] == "quicktalk"
+
+
+def test_quicktalk_face_cache_rejects_paths_outside_allowed_roots(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    outside = tmp_path / "outside"
+    allowed.mkdir()
+    outside.mkdir()
+    cache_path = outside / "face_cache.npz"
+    cache_path.write_bytes(b"cache")
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(allowed_frame_roots=[allowed])
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/audio2video/quicktalk") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "quicktalk_face_cache": str(cache_path),
+            }
+        )
+        error = ws.receive_json()
+
+    assert error["type"] == "error"
+    assert error["code"] == "bad_quicktalk_face_cache"
+
+
+def test_quicktalk_static_template_video_uses_session_dimensions(tmp_path: Path) -> None:
+    from omnirt.models.quicktalk.runtime import QuickTalkRealtimeRuntime
+
+    session = RealtimeAvatarService().create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((2048, 2048)),
+        config={"width": 512, "height": 512},
+    )
+    runtime = QuickTalkRealtimeRuntime(
+        model_root=tmp_path / "model",
+        checkpoint=tmp_path / "quicktalk.pth",
+        template_cache_dir=tmp_path / "templates",
+    )
+
+    template = runtime._template_video_for(session)
+
+    import cv2
+
+    cap = cv2.VideoCapture(str(template))
+    try:
+        assert int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) == 512
+        assert int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 512
+    finally:
+        cap.release()
+
+
+def test_quicktalk_runtime_passes_asset_face_cache_to_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from omnirt.models.quicktalk import runtime as quicktalk_runtime
+
+    captured: dict[str, object] = {}
+
+    class FakeWorker:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        quicktalk_runtime.QuickTalkRealtimeRuntime,
+        "_worker_class",
+        staticmethod(lambda: FakeWorker),
+    )
+    cache = tmp_path / "quicktalk" / "face_cache_v3_900.npz"
+    cache.parent.mkdir()
+    cache.write_bytes(b"cache")
+    session = RealtimeAvatarService(allowed_frame_roots=[tmp_path]).create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((64, 64)),
+        config={"quicktalk_face_cache": str(cache)},
+    )
+    runtime = quicktalk_runtime.QuickTalkRealtimeRuntime(
+        model_root=tmp_path / "model",
+        checkpoint=tmp_path / "quicktalk.pth",
+        template_cache_dir=tmp_path / "templates",
+    )
+
+    runtime._worker_for(session)
+
+    assert captured["face_cache_file"] == tmp_path / "quicktalk" / "face_cache_v3_900.npz"
 
 
 def test_wav2lip_init_accepts_frame_metadata_path(tmp_path: Path) -> None:

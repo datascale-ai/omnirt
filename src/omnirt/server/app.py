@@ -26,7 +26,7 @@ def _allowed_frame_roots_from_env() -> list[str]:
 
 def _avatar_model_ws_urls_from_env() -> dict[str, str]:
     mapping: dict[str, str] = {}
-    for model in ("flashtalk", "wav2lip", "musetalk", "flashhead"):
+    for model in ("flashtalk", "wav2lip", "quicktalk", "musetalk", "flashhead"):
         raw = os.environ.get(f"OMNIRT_AVATAR_{model.upper()}_WS_URL", "").strip()
         if raw:
             mapping[model] = raw
@@ -47,14 +47,23 @@ def _create_realtime_avatar_service(*, engine, default_backend: str, default_req
         )
     if runtime_mode == "proxy":
         return RealtimeAvatarService(allowed_frame_roots=allowed_frame_roots)
-    if os.environ.get("OMNIRT_WAV2LIP_RUNTIME", "").strip().lower() not in {"1", "true", "opentalking"}:
+    wav2lip_enabled = os.environ.get("OMNIRT_WAV2LIP_RUNTIME", "").strip().lower() in {"1", "true", "opentalking"}
+    quicktalk_enabled = os.environ.get("OMNIRT_QUICKTALK_RUNTIME", "").strip().lower() in {"1", "true", "opentalking"}
+    if not wav2lip_enabled and not quicktalk_enabled:
         return RealtimeAvatarService(allowed_frame_roots=allowed_frame_roots)
     from omnirt.models.wav2lip.runtime import AvatarRuntimeRouter, Wav2LipRealtimeRuntime
+
+    quicktalk = None
+    if quicktalk_enabled:
+        from omnirt.models.quicktalk.runtime import QuickTalkRealtimeRuntime
+
+        quicktalk = QuickTalkRealtimeRuntime()
 
     return RealtimeAvatarService(
         runtime=AvatarRuntimeRouter(
             fallback=FakeRealtimeAvatarRuntime(),
-            wav2lip=Wav2LipRealtimeRuntime(),
+            wav2lip=Wav2LipRealtimeRuntime() if wav2lip_enabled else None,
+            quicktalk=quicktalk,
         ),
         allowed_frame_roots=allowed_frame_roots,
     )

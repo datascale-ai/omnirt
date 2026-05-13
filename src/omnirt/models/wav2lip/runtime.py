@@ -822,15 +822,24 @@ class Wav2LipRealtimeRuntime:
 
 
 class AvatarRuntimeRouter:
-    """Route Wav2Lip sessions to real runtime and other sessions to fallback."""
+    """Route realtime avatar sessions to model-specific runtimes."""
 
-    def __init__(self, *, fallback: Any, wav2lip: Wav2LipRealtimeRuntime | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fallback: Any,
+        wav2lip: Wav2LipRealtimeRuntime | None = None,
+        quicktalk: Any | None = None,
+    ) -> None:
         self.fallback = fallback
         self.wav2lip = wav2lip
+        self.quicktalk = quicktalk
 
     def render_chunk(self, session: RealtimeAvatarSession, pcm_s16le: bytes) -> bytes:
         if session.model == "wav2lip" and self.wav2lip is not None:
             return self.wav2lip.render_chunk(session, pcm_s16le)
+        if session.model == "quicktalk" and self.quicktalk is not None:
+            return self.quicktalk.render_chunk(session, pcm_s16le)
         return self.fallback.render_chunk(session, pcm_s16le)
 
     def preload_reference(self, session: RealtimeAvatarSession) -> dict[str, object]:
@@ -841,3 +850,7 @@ class AvatarRuntimeRouter:
     def close_session(self, session_id: str) -> None:
         if self.wav2lip is not None:
             self.wav2lip.close_session(session_id)
+        if self.quicktalk is not None:
+            close = getattr(self.quicktalk, "close_session", None)
+            if callable(close):
+                close(session_id)

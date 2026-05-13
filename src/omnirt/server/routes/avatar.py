@@ -89,6 +89,25 @@ def _wav2lip_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
+def _quicktalk_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    config: dict[str, Any] = {}
+    for key in (
+        "width",
+        "height",
+        "fps",
+        "frame_num",
+        "motion_frames_num",
+        "slice_len",
+        "template_mode",
+        "template_video",
+        "template_frame_dir",
+        "quicktalk_face_cache",
+    ):
+        if payload.get(key) is not None:
+            config[key] = payload.get(key)
+    return config
+
+
 def _avatar_model_ws_urls(request_or_websocket: Request | WebSocket) -> dict[str, str]:
     raw = getattr(request_or_websocket.app.state, "avatar_model_ws_urls", {}) or {}
     return {
@@ -167,9 +186,11 @@ async def list_audio2video_models(request: Request) -> dict[str, object]:
     runtime = getattr(service, "runtime", None)
     runtime_kind = str(getattr(runtime, "runtime_kind", "") or "")
     wav2lip_connected = bool(getattr(runtime, "wav2lip", None))
+    quicktalk_connected = bool(getattr(runtime, "quicktalk", None))
     proxy_urls = _avatar_model_ws_urls(request)
     flashtalk_proxy = proxy_urls.get("flashtalk")
     wav2lip_proxy = proxy_urls.get("wav2lip")
+    quicktalk_proxy = proxy_urls.get("quicktalk")
     if runtime_kind == "resident":
         ready = getattr(runtime, "ready", None)
         flashtalk_connected = bool(ready() if callable(ready) else True)
@@ -183,6 +204,8 @@ async def list_audio2video_models(request: Request) -> dict[str, object]:
         flashtalk_reason = "proxy" if flashtalk_proxy else "fallback_runtime"
     if wav2lip_proxy:
         wav2lip_connected = await _is_ws_url_reachable(wav2lip_proxy)
+    if quicktalk_proxy:
+        quicktalk_connected = await _is_ws_url_reachable(quicktalk_proxy)
     statuses = [
         {
             "id": "flashtalk",
@@ -196,6 +219,15 @@ async def list_audio2video_models(request: Request) -> dict[str, object]:
                 "proxy"
                 if wav2lip_proxy
                 else ("wav2lip_runtime" if wav2lip_connected else "runtime_not_enabled")
+            ),
+        },
+        {
+            "id": "quicktalk",
+            "connected": quicktalk_connected,
+            "reason": (
+                "proxy"
+                if quicktalk_proxy
+                else ("quicktalk_runtime" if quicktalk_connected else "runtime_not_enabled")
             ),
         },
     ]
@@ -268,6 +300,8 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                                     "mouth_metadata": payload.get("mouth_metadata") or {},
                                 }
                             )
+                        elif model == "quicktalk":
+                            config.update(_quicktalk_config_from_payload(payload))
                         session = service.create_session(
                             model=model,
                             backend=websocket.app.state.default_backend,
@@ -291,6 +325,7 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             "height": session.video.height,
                             "width": session.video.width,
                             "reference_mode": session.reference_mode,
+                            "template_mode": session.template_mode,
                             "preprocessed": session.preprocessed,
                         }
                     )
@@ -349,6 +384,18 @@ async def wav2lip_compatible_avatar(websocket: WebSocket):
         await _proxy_websocket(websocket, proxy_url)
         return
     await _flashtalk_compatible_loop(websocket, model="wav2lip")
+
+
+@router.websocket("/v1/audio2video/quicktalk")
+@router.websocket("/v1/avatar/quicktalk")
+async def quicktalk_compatible_avatar(websocket: WebSocket):
+    """QuickTalk-compatible WS used by OpenTalking avatar synthesis."""
+
+    proxy_url = _avatar_model_ws_urls(websocket).get("quicktalk")
+    if proxy_url:
+        await _proxy_websocket(websocket, proxy_url)
+        return
+    await _flashtalk_compatible_loop(websocket, model="quicktalk")
 
 
 @router.websocket("/v1/avatar/realtime")

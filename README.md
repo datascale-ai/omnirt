@@ -141,7 +141,7 @@ omnirt models
 对应的完整文档镜像见 [docs/user_guide/models/supported_models.md](./docs/user_guide/models/supported_models.md)，数字人优先级与验证状态见 [support_status.md](./docs/user_guide/models/support_status.md)。
 
 | 层级 | 维护策略 | 代表模型 |
-|---|---|
+|---|---|---|
 | Core | 必须有 registry、单测、真机 smoke、benchmark 与部署文档 | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm` |
 | Adjacent | 服务于角色资产、背景、idle 视频、数字人素材生产，按场景补 smoke | `sdxl-base-1.0`, `flux2.dev`, `qwen-image`, `svd-xt`, `wan2.2-*` |
 | Experimental | 保留已接入能力，不再作为主卖点或双后端验证承诺 | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2` 等泛模型 |
