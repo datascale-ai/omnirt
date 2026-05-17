@@ -15,6 +15,8 @@ from omnirt.server.realtime_avatar import RealtimeAvatarError
 
 router = APIRouter()
 
+FASTERLIVEPORTRAIT_MODEL_ID = "fasterliveportrait"
+
 
 def _avatar_runtime_lock(request_or_websocket: Request | WebSocket) -> asyncio.Lock:
     lock = getattr(request_or_websocket.app.state, "avatar_runtime_lock", None)
@@ -49,6 +51,32 @@ async def _preload_reference_async(
             backend=backend,
             config=config,
         )
+
+
+async def _preload_existing_session_async(
+    websocket: WebSocket,
+    service: Any,
+    session_id: str,
+) -> dict[str, object]:
+    def _run() -> dict[str, object]:
+        session = service._get_session(session_id)
+        preload = getattr(service.runtime, "preload_reference", None)
+        if not callable(preload):
+            return {"type": "preload_skipped", "reason": "runtime_unsupported"}
+        return dict(preload(session))
+
+    async with _avatar_runtime_lock(websocket):
+        return await asyncio.to_thread(_run)
+
+
+async def _update_runtime_config_async(
+    websocket: WebSocket,
+    service: Any,
+    session_id: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    async with _avatar_runtime_lock(websocket):
+        return await asyncio.to_thread(service.update_runtime_config, session_id, config)
 
 
 def _error_payload(exc: RealtimeAvatarError) -> dict[str, str]:
@@ -105,6 +133,49 @@ def _quicktalk_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     ):
         if payload.get(key) is not None:
             config[key] = payload.get(key)
+    return config
+
+
+def _fasterliveportrait_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    config: dict[str, Any] = {}
+    for key in (
+        "width",
+        "height",
+        "fps",
+        "frame_num",
+        "motion_frames_num",
+        "slice_len",
+        "chunk_samples",
+        "head_motion_multiplier",
+        "pose_motion_multiplier",
+        "yaw_multiplier",
+        "pitch_multiplier",
+        "roll_multiplier",
+        "animation_region",
+        "expression_multiplier",
+        "mouth_open_multiplier",
+        "mouth_corner_multiplier",
+        "cheek_jaw_multiplier",
+        "driving_multiplier",
+        "cfg_scale",
+        "cfg_cond",
+        "flag_stitching",
+        "flag_relative_motion",
+        "flag_normalize_lip",
+        "flag_lip_retargeting",
+        "lip_retargeting_multiplier",
+        "lip_retargeting_min",
+        "lip_retargeting_max",
+        "lip_retargeting_noise_floor",
+        "head_only_pasteback",
+        "lookahead_ms",
+        "emit_frames_per_chunk",
+        "disable_frame_interpolation",
+    ):
+        if payload.get(key) is not None:
+            config[key] = payload.get(key)
+    if config.get("emit_frames_per_chunk") is not None and config.get("slice_len") is None:
+        config["slice_len"] = config["emit_frames_per_chunk"]
     return config
 
 
@@ -195,11 +266,13 @@ async def list_audio2video_models(request: Request) -> dict[str, object]:
     runtime_kind = str(getattr(runtime, "runtime_kind", "") or "")
     wav2lip_connected = bool(getattr(runtime, "wav2lip", None))
     quicktalk_connected = bool(getattr(runtime, "quicktalk", None))
+    fasterliveportrait_connected = bool(getattr(runtime, "fasterliveportrait", None))
     proxy_urls = _avatar_model_ws_urls(request)
     flashtalk_proxy = proxy_urls.get("flashtalk")
     musetalk_proxy = proxy_urls.get("musetalk")
     wav2lip_proxy = proxy_urls.get("wav2lip")
     quicktalk_proxy = proxy_urls.get("quicktalk")
+    fasterliveportrait_proxy = proxy_urls.get(FASTERLIVEPORTRAIT_MODEL_ID)
     if flashtalk_proxy:
         flashtalk_connected = await _is_ws_url_reachable(flashtalk_proxy)
         flashtalk_reason = "proxy"
@@ -219,6 +292,8 @@ async def list_audio2video_models(request: Request) -> dict[str, object]:
         wav2lip_connected = await _is_ws_url_reachable(wav2lip_proxy)
     if quicktalk_proxy:
         quicktalk_connected = await _is_ws_url_reachable(quicktalk_proxy)
+    if fasterliveportrait_proxy:
+        fasterliveportrait_connected = await _is_ws_url_reachable(fasterliveportrait_proxy)
     statuses = [
         {
             "id": "flashtalk",
@@ -247,6 +322,19 @@ async def list_audio2video_models(request: Request) -> dict[str, object]:
             "id": "musetalk",
             "connected": musetalk_connected,
             "reason": "proxy" if musetalk_proxy else "not_configured",
+        },
+        {
+            "id": FASTERLIVEPORTRAIT_MODEL_ID,
+            "connected": fasterliveportrait_connected,
+            "reason": (
+                "proxy"
+                if fasterliveportrait_proxy
+                else (
+                    "fasterliveportrait_runtime"
+                    if fasterliveportrait_connected
+                    else "runtime_not_enabled"
+                )
+            ),
         },
     ]
     return {
@@ -320,6 +408,8 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             )
                         elif model == "quicktalk":
                             config.update(_quicktalk_config_from_payload(payload))
+                        elif model == FASTERLIVEPORTRAIT_MODEL_ID:
+                            config.update(_fasterliveportrait_config_from_payload(payload))
                         session = service.create_session(
                             model=model,
                             backend=websocket.app.state.default_backend,
@@ -327,8 +417,16 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             prompt=str(payload.get("prompt") or ""),
                             config=config,
                         )
+                        if model == FASTERLIVEPORTRAIT_MODEL_ID:
+                            await _preload_existing_session_async(websocket, service, session.session_id)
                     except RealtimeAvatarError as exc:
                         await websocket.send_json({"type": "error", "message": str(exc), "code": exc.code})
+                        continue
+                    except Exception as exc:
+                        if session_id is not None:
+                            service.close_session(session_id)
+                            session_id = None
+                        await websocket.send_json(_runtime_error_payload(exc))
                         continue
                     session_id = session.session_id
                     await websocket.send_json(
@@ -342,6 +440,7 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             "fps": session.video.fps,
                             "height": session.video.height,
                             "width": session.video.width,
+                            "chunk_samples": session.audio.chunk_samples,
                             "reference_mode": session.reference_mode,
                             "template_mode": session.template_mode,
                             "preprocessed": session.preprocessed,
@@ -352,6 +451,25 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                         service.close_session(session_id)
                         session_id = None
                     await websocket.send_json({"type": "close_ok"})
+                elif msg_type == "config_update":
+                    if session_id is None:
+                        await websocket.send_json({"type": "error", "message": "No active session. Send 'init' first."})
+                        continue
+                    raw_config = payload.get("config") or {}
+                    if not isinstance(raw_config, dict):
+                        await websocket.send_json({"type": "error", "message": "config must be an object"})
+                        continue
+                    try:
+                        updated = await _update_runtime_config_async(
+                            websocket,
+                            service,
+                            session_id,
+                            raw_config,
+                        )
+                    except RealtimeAvatarError as exc:
+                        await websocket.send_json({"type": "error", "message": str(exc), "code": exc.code})
+                        continue
+                    await websocket.send_json({"type": "config_ok", "updated": updated})
                 else:
                     await websocket.send_json({"type": "error", "message": f"Unknown message type: {msg_type}"})
             elif "bytes" in message and message["bytes"] is not None:
@@ -434,6 +552,18 @@ async def musetalk_compatible_avatar(websocket: WebSocket):
         }
     )
     await websocket.close()
+
+
+@router.websocket("/v1/audio2video/fasterliveportrait")
+@router.websocket("/v1/avatar/fasterliveportrait")
+async def fasterliveportrait_compatible_avatar(websocket: WebSocket):
+    """FasterLivePortrait/JoyVASA-compatible WS used by OpenTalking avatar synthesis."""
+
+    proxy_url = _avatar_model_ws_urls(websocket).get(FASTERLIVEPORTRAIT_MODEL_ID)
+    if proxy_url:
+        await _proxy_websocket(websocket, proxy_url)
+        return
+    await _flashtalk_compatible_loop(websocket, model=FASTERLIVEPORTRAIT_MODEL_ID)
 
 
 @router.websocket("/v1/avatar/realtime")

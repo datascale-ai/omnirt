@@ -76,6 +76,29 @@ quicktalk-converter = [
   "onnx2torch>=1.5",
   "onnxruntime>=1.18",
 ]
+fasterliveportrait = [
+  "ffmpeg-python>=0.2",
+  "gradio>=5.0",
+  "huggingface_hub>=0.20",
+  "insightface>=0.7",
+  "mediapipe>=0.10.21; python_version < '3.13' and platform_machine != 'aarch64'",
+  "munch>=4.0",
+  "omegaconf>=2.3",
+  "onnx>=1.16",
+  "onnxruntime-gpu>=1.18",
+  "opencv-python-headless>=4.8",
+  "scikit-image>=0.22",
+  "soundfile>=0.12",
+  "tensorrt-cu12==10.16.1.11; sys_platform == \"linux\" and platform_machine == \"x86_64\"",
+  "tensorrt-cu12-bindings==10.16.1.11; sys_platform == \"linux\" and platform_machine == \"x86_64\"",
+  "tensorrt-cu12-libs==10.16.1.11; sys_platform == \"linux\" and platform_machine == \"x86_64\"",
+  "torch>=2.1",
+  "torchaudio>=2.1",
+  "torchgeometry>=0.1",
+  "tqdm>=4.65",
+  "transformers>=4.51",
+]
+
 server = [
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
@@ -99,10 +122,24 @@ pythonpath = [".", "src"]
 addopts = "-q"
 
 [[tool.uv.index]]
+name = "tsinghua"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
+
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+tensorrt-cu12 = { index = "nvidia" }
+tensorrt-cu12-bindings = { index = "nvidia" }
+tensorrt-cu12-libs = { index = "nvidia" }

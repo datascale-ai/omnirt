@@ -830,19 +830,27 @@ class AvatarRuntimeRouter:
         fallback: Any,
         wav2lip: Wav2LipRealtimeRuntime | None = None,
         quicktalk: Any | None = None,
+        fasterliveportrait: Any | None = None,
     ) -> None:
         self.fallback = fallback
         self.wav2lip = wav2lip
         self.quicktalk = quicktalk
+        self.fasterliveportrait = fasterliveportrait
 
     def render_chunk(self, session: RealtimeAvatarSession, pcm_s16le: bytes) -> bytes:
         if session.model == "wav2lip" and self.wav2lip is not None:
             return self.wav2lip.render_chunk(session, pcm_s16le)
         if session.model == "quicktalk" and self.quicktalk is not None:
             return self.quicktalk.render_chunk(session, pcm_s16le)
+        if session.model == "fasterliveportrait" and self.fasterliveportrait is not None:
+            return self.fasterliveportrait.render_chunk(session, pcm_s16le)
         return self.fallback.render_chunk(session, pcm_s16le)
 
     def preload_reference(self, session: RealtimeAvatarSession) -> dict[str, object]:
+        if session.model == "fasterliveportrait" and self.fasterliveportrait is not None:
+            preload = getattr(self.fasterliveportrait, "preload_reference", None)
+            if callable(preload):
+                return dict(preload(session))
         if session.model != "wav2lip" or self.wav2lip is None:
             raise Wav2LipRuntimeError(f"Preload is not supported for model: {session.model}")
         return self.wav2lip.preload_reference(session)
@@ -854,3 +862,5 @@ class AvatarRuntimeRouter:
             close = getattr(self.quicktalk, "close_session", None)
             if callable(close):
                 close(session_id)
+        if self.fasterliveportrait is not None:
+            self.fasterliveportrait.close_session(session_id)

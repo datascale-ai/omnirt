@@ -21,6 +21,21 @@ from omnirt.core.types import GenerateRequest
 MAGIC_AUDIO = b"AUDI"
 MAGIC_VIDEO = b"VIDX"
 
+RUNTIME_UPDATE_CONFIG_KEYS = {
+    "cfg_scale",
+    "head_motion_multiplier",
+    "pose_motion_multiplier",
+    "expression_multiplier",
+    "yaw_multiplier",
+    "pitch_multiplier",
+    "roll_multiplier",
+    "animation_region",
+    "mouth_open_multiplier",
+    "mouth_corner_multiplier",
+    "cheek_jaw_multiplier",
+    "driving_multiplier",
+}
+
 AudioFormat = Literal["pcm_s16le"]
 VideoEncoding = Literal["jpeg-seq"]
 ReferenceMode = Literal["image", "frames"]
@@ -95,6 +110,7 @@ class RealtimeAvatarSession:
     wav2lip_postprocess_mode: str = "easy_improved"
     preprocessed: bool = False
     mouth_metadata: dict[str, Any] = field(default_factory=dict)
+    runtime_config: dict[str, Any] = field(default_factory=dict)
     chunk_index: int = 0
     cancelled: bool = False
     created_at: float = field(default_factory=time.monotonic)
@@ -110,6 +126,7 @@ class RealtimeAvatarSession:
             "wav2lip_postprocess_mode": self.wav2lip_postprocess_mode,
             "preprocessed": self.preprocessed,
             "mouth_metadata": self.mouth_metadata,
+            "runtime_config": dict(self.runtime_config),
         }
         if include_paths:
             metadata["ref_frame_dir"] = self.ref_frame_dir
@@ -437,13 +454,14 @@ class RealtimeAvatarService:
             )
             quicktalk_face_cache_str = str(quicktalk_face_cache_path)
         sample_rate = int(config.get("sample_rate", 16000))
+        emit_frames = int(config.get("emit_frames_per_chunk", config.get("slice_len", 28)))
         video = AvatarVideoSpec(
             fps=int(config.get("fps", 25)),
             width=int(config.get("width", 416)),
             height=int(config.get("height", 704)),
             frame_count=int(config.get("frame_num", 29)),
             motion_frames_num=int(config.get("motion_frames_num", 1)),
-            slice_len=int(config.get("slice_len", 28)),
+            slice_len=int(config.get("slice_len", emit_frames)),
         )
         if model == "wav2lip":
             video = _scale_video_to_max_long_edge(video, _wav2lip_max_long_edge())
@@ -471,6 +489,38 @@ class RealtimeAvatarService:
                 "preprocessed_asset_invalid",
                 "preprocessed frame references require ref_frame_metadata_path.",
             )
+        runtime_config_keys = {
+            "cfg_scale",
+            "cfg_cond",
+            "flag_stitching",
+            "flag_relative_motion",
+            "flag_normalize_lip",
+            "flag_lip_retargeting",
+            "head_motion_multiplier",
+            "pose_motion_multiplier",
+            "expression_multiplier",
+            "lookahead_ms",
+            "emit_frames_per_chunk",
+            "render_keyframes_per_chunk",
+            "disable_frame_interpolation",
+            "yaw_multiplier",
+            "pitch_multiplier",
+            "roll_multiplier",
+            "animation_region",
+            "mouth_open_multiplier",
+            "mouth_corner_multiplier",
+            "cheek_jaw_multiplier",
+            "lip_retargeting_multiplier",
+            "lip_retargeting_min",
+            "lip_retargeting_max",
+            "lip_retargeting_noise_floor",
+            "driving_multiplier",
+            "head_only_pasteback",
+            "source_path",
+        }
+        runtime_config = {
+            key: config[key] for key in runtime_config_keys if config.get(key) is not None
+        }
         session = RealtimeAvatarSession(
             session_id=f"avt_{uuid.uuid4().hex}",
             trace_id=f"trace_{uuid.uuid4().hex}",
@@ -493,6 +543,7 @@ class RealtimeAvatarService:
             ),
             preprocessed=preprocessed,
             mouth_metadata=mouth_metadata,
+            runtime_config=runtime_config,
         )
         self._sessions[session.session_id] = session
         return session
@@ -531,6 +582,18 @@ class RealtimeAvatarService:
             "infer_ms": elapsed_ms,
             "encode_ms": 0,
         }
+
+    def update_runtime_config(self, session_id: str, config: dict[str, Any]) -> dict[str, Any]:
+        session = self._get_session(session_id)
+        if not isinstance(config, dict):
+            raise RealtimeAvatarError("bad_runtime_config", "Runtime config update must be an object.")
+        updated = {
+            key: value
+            for key, value in config.items()
+            if key in RUNTIME_UPDATE_CONFIG_KEYS and value is not None
+        }
+        session.runtime_config.update(updated)
+        return updated
 
     def preload_reference(
         self,

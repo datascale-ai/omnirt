@@ -4,7 +4,11 @@ import base64
 import io
 import json
 import struct
+import sys
+import types
 from pathlib import Path
+
+import numpy as np
 
 import pytest
 
@@ -26,19 +30,28 @@ from omnirt.server.realtime_avatar import (  # noqa: E402
     _scale_video_to_max_long_edge,
 )  # noqa: E402
 
+from omnirt.models.fasterliveportrait import runtime as flp_runtime  # noqa: E402
+from omnirt.models.fasterliveportrait.runtime import (  # noqa: E402
+    FASTLIVEPORTRAIT_MODEL_ID,
+    FasterLivePortraitRuntimeError,
+    FasterLivePortraitRealtimeRuntime,
+)
+
 
 def _image_b64() -> str:
     return base64.b64encode(b"fake-image-bytes").decode("ascii")
 
-
-def _png_bytes(size: tuple[int, int]) -> bytes:
-    buf = io.BytesIO()
-    Image.new("RGB", size, (128, 96, 64)).save(buf, format="PNG")
-    return buf.getvalue()
-
-
 def _audio_payload(chunk_samples: int) -> bytes:
     return MAGIC_AUDIO + (b"\0\0" * chunk_samples)
+
+
+def _png_bytes(source: tuple[int, int] | np.ndarray) -> bytes:
+    buf = io.BytesIO()
+    if isinstance(source, tuple):
+        Image.new("RGB", source, (128, 96, 64)).save(buf, format="PNG")
+    else:
+        Image.fromarray(source.astype(np.uint8), mode="RGB").save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def test_video_jpeg_sequence_round_trip() -> None:
@@ -82,6 +95,957 @@ def test_flashtalk_compatible_ws_init_generate_and_close() -> None:
         video = ws.receive_bytes()
         assert video[:4] == MAGIC_VIDEO
         assert len(decode_jpeg_sequence(video)) == 1
+
+        ws.send_json({"type": "close"})
+        assert ws.receive_json()["type"] == "close_ok"
+
+
+def test_fasterliveportrait_ws_accepts_runtime_config_update() -> None:
+    client = TestClient(create_app(default_backend="cpu-stub"))
+
+    with client.websocket_connect("/v1/audio2video/fasterliveportrait") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "width": 96,
+                "height": 96,
+                "chunk_samples": 8000,
+                "mouth_open_multiplier": 1.0,
+            }
+        )
+        assert ws.receive_json()["type"] == "init_ok"
+
+        ws.send_json(
+            {
+                "type": "config_update",
+                "config": {
+                    "mouth_open_multiplier": 1.8,
+                    "pose_motion_multiplier": 0.2,
+                    "animation_region": "lip",
+                    "width": 999,
+                },
+            }
+        )
+        assert ws.receive_json() == {
+            "type": "config_ok",
+            "updated": {
+                "mouth_open_multiplier": 1.8,
+                "pose_motion_multiplier": 0.2,
+                "animation_region": "lip",
+            },
+        }
+
+
+def test_fasterliveportrait_session_preserves_realtime_config() -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cuda",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "fps": 25,
+            "width": 320,
+            "height": 320,
+            "slice_len": 12,
+            "chunk_samples": 8000,
+            "head_motion_multiplier": 1.0,
+            "pose_motion_multiplier": 0.35,
+            "animation_region": "lip",
+            "expression_multiplier": 1.2,
+            "cfg_scale": 4.0,
+            "cfg_cond": [],
+            "flag_stitching": False,
+            "flag_lip_retargeting": True,
+            "lip_retargeting_multiplier": 2.5,
+            "lookahead_ms": 320,
+            "emit_frames_per_chunk": 12,
+        },
+    )
+
+    assert session.model == FASTLIVEPORTRAIT_MODEL_ID
+    assert session.audio.chunk_samples == 8000
+    assert session.video.slice_len == 12
+    assert session.runtime_config["head_motion_multiplier"] == 1.0
+    assert session.runtime_config["pose_motion_multiplier"] == 0.35
+    assert session.runtime_config["animation_region"] == "lip"
+    assert session.runtime_config["expression_multiplier"] == 1.2
+    assert session.runtime_config["cfg_scale"] == 4.0
+    assert session.runtime_config["cfg_cond"] == []
+    assert session.runtime_config["flag_stitching"] is False
+    assert session.runtime_config["flag_lip_retargeting"] is True
+    assert session.runtime_config["lip_retargeting_multiplier"] == 2.5
+    assert session.runtime_config["lookahead_ms"] == 320
+    assert session.runtime_config["emit_frames_per_chunk"] == 12
+
+
+def test_fasterliveportrait_runtime_config_can_be_updated_in_place() -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cuda",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "fps": 25,
+            "width": 320,
+            "height": 320,
+            "chunk_samples": 8000,
+            "mouth_open_multiplier": 1.0,
+        },
+    )
+
+    updated = service.update_runtime_config(
+        session.session_id,
+        {
+            "mouth_open_multiplier": 1.8,
+            "pose_motion_multiplier": 0.2,
+            "width": 999,
+        },
+    )
+
+    assert updated == {
+        "mouth_open_multiplier": 1.8,
+        "pose_motion_multiplier": 0.2,
+    }
+    assert session.runtime_config["mouth_open_multiplier"] == 1.8
+    assert session.runtime_config["pose_motion_multiplier"] == 0.2
+    assert session.video.width == 320
+    assert "width" not in session.runtime_config
+
+
+def test_fasterliveportrait_runtime_emits_configured_frame_count() -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={"chunk_samples": 8000, "emit_frames_per_chunk": 12, "width": 96, "height": 96},
+    )
+
+    payload, metrics = service.push_audio_chunk(session.session_id, _audio_payload(8000))
+
+    assert metrics["type"] == "metrics"
+    assert metrics["chunk_index"] == 1
+    assert len(decode_jpeg_sequence(payload)) == 12
+    assert runtime.session_state(session.session_id).emitted_frames == 12
+
+
+def test_fasterliveportrait_model_render_uses_realtime_run_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={"chunk_samples": 8000, "emit_frames_per_chunk": 1, "width": 32, "height": 32},
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+        called_run = False
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def run_with_pkl(self, motion_info, img_src, src_info, **kwargs):
+            raise AssertionError("realtime rendering should bypass run_with_pkl to avoid pasteback overhead")
+
+        def _run(
+            self,
+            src_info,
+            x_d_i_info,
+            x_d_0_info,
+            R_d_i,
+            R_d_0,
+            realtime,
+            input_eye_ratio,
+            input_lip_ratio,
+            I_p_pstbk,
+        ):
+            assert realtime is True
+            assert x_d_0_info == x_d_i_info
+            assert R_d_0 == [[1]]
+            self.called_run = True
+            from PIL import Image
+
+            return Image.new("RGB", (32, 32), "red"), None
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(
+        runtime,
+        "_load_model_bundle",
+        lambda: {"joyvasa": object(), "pipeline": fake_pipeline},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[1]], "exp": [[1]]}],
+    )
+
+    payload = runtime._render_model_chunk(session, b"\0" * 16000, state)
+
+    assert len(decode_jpeg_sequence(payload)) == 1
+    assert fake_pipeline.called_run is True
+
+
+def test_fasterliveportrait_applies_stitching_config_before_preparing_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "chunk_samples": 8000,
+            "emit_frames_per_chunk": 1,
+            "render_keyframes_per_chunk": 1,
+            "width": 32,
+            "height": 32,
+            "flag_stitching": True,
+        },
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((64, 96, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+        stitching_at_prepare = None
+        realtime_arg = None
+
+        def __init__(self):
+            class InferParams:
+                flag_stitching = False
+
+            class Cfg:
+                infer_params = InferParams()
+
+            self.cfg = Cfg()
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            self.stitching_at_prepare = self.cfg.infer_params.flag_stitching
+            return True
+
+        def update_cfg(self, args):
+            if "flag_stitching" in args:
+                self.cfg.infer_params.flag_stitching = args["flag_stitching"]
+
+        def _run(
+            self,
+            src_info,
+            x_d_i_info,
+            x_d_0_info,
+            R_d_i,
+            R_d_0,
+            realtime,
+            input_eye_ratio,
+            input_lip_ratio,
+            I_p_pstbk,
+        ):
+            self.realtime_arg = realtime
+            crop = np.zeros((32, 32, 3), dtype=np.uint8)
+            pasted = np.full((64, 96, 3), 180, dtype=np.uint8)
+            return crop, pasted
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": fake_pipeline})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[1]], "exp": [[1]]}],
+    )
+
+    payload = runtime._render_model_chunk(session, b"\0" * 16000, state)
+
+    assert fake_pipeline.stitching_at_prepare is True
+    assert fake_pipeline.realtime_arg is False
+    assert len(decode_jpeg_sequence(payload)) == 1
+
+
+def test_fasterliveportrait_render_keyframes_expand_to_emit_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={"chunk_samples": 8000, "emit_frames_per_chunk": 16, "render_keyframes_per_chunk": 4, "width": 32, "height": 32},
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+        calls = 0
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def _run(self, *args):
+            self.calls += 1
+            from PIL import Image
+
+            return Image.new("RGB", (32, 32), (self.calls * 30, 0, 0)), None
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": fake_pipeline})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[idx]], "exp": [[idx]]} for idx in range(16)],
+    )
+
+    payload = runtime._render_model_chunk(session, b"\0" * 16000, state)
+
+    assert fake_pipeline.calls == 4
+    assert len(decode_jpeg_sequence(payload)) == 16
+
+
+def test_fasterliveportrait_can_disable_frame_interpolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "chunk_samples": 8000,
+            "emit_frames_per_chunk": 16,
+            "render_keyframes_per_chunk": 4,
+            "disable_frame_interpolation": True,
+            "width": 32,
+            "height": 32,
+        },
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+        rendered: list[int] = []
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def _run(self, src_info, x_d_i_info, *args):
+            value = int(x_d_i_info["exp"][0][0])
+            self.rendered.append(value)
+            from PIL import Image
+
+            return Image.new("RGB", (32, 32), (value * 40, 0, 0)), None
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": fake_pipeline})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[idx]], "exp": [[idx]]} for idx in range(3)],
+    )
+
+    payload = runtime._render_model_chunk(session, b"\0" * 16000, state)
+
+    assert fake_pipeline.rendered == [0, 1, 2]
+    assert len(decode_jpeg_sequence(payload)) == 3
+
+
+def test_fasterliveportrait_disable_interpolation_can_downsample_raw_motion(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "chunk_samples": 16000,
+            "emit_frames_per_chunk": 12,
+            "disable_frame_interpolation": True,
+            "width": 32,
+            "height": 32,
+        },
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+        rendered: list[int] = []
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def _run(self, src_info, x_d_i_info, *args):
+            value = int(x_d_i_info["exp"][0][0])
+            self.rendered.append(value)
+            from PIL import Image
+
+            return Image.new("RGB", (32, 32), (value % 255, 0, 0)), None
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": fake_pipeline})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[idx]], "exp": [[idx]]} for idx in range(25)],
+    )
+
+    payload = runtime._render_model_chunk(session, b"\0" * 32000, state)
+
+    assert len(decode_jpeg_sequence(payload)) == 12
+    assert fake_pipeline.rendered == [0, 2, 4, 7, 9, 11, 13, 15, 17, 20, 22, 24]
+
+
+def test_fasterliveportrait_passes_audio_lip_ratios_to_retargeting(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "chunk_samples": 8000,
+            "emit_frames_per_chunk": 4,
+            "render_keyframes_per_chunk": 4,
+            "width": 32,
+            "height": 32,
+            "flag_lip_retargeting": True,
+            "lip_retargeting_multiplier": 5.0,
+            "lip_retargeting_noise_floor": 0.0,
+            "lip_retargeting_min": 0.01,
+            "lip_retargeting_max": 0.6,
+        },
+    )
+    state = runtime._session_state(session)
+    lip_ratios: list[float | None] = []
+    update_args: dict[str, object] = {}
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            update_args.update(args)
+
+        def _run(
+            self,
+            src_info,
+            x_d_i_info,
+            x_d_0_info,
+            R_d_i,
+            R_d_0,
+            realtime,
+            input_eye_ratio,
+            input_lip_ratio,
+            I_p_pstbk,
+        ):
+            lip_ratios.append(input_lip_ratio)
+            from PIL import Image
+
+            return Image.new("RGB", (32, 32), "red"), None
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": fake_pipeline})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[idx]], "exp": [[idx]]} for idx in range(4)],
+    )
+    low = np.zeros(2000, dtype=np.int16)
+    high = np.full(2000, 12000, dtype=np.int16)
+    audio = np.concatenate([low, high, high, low]).astype(np.int16).tobytes()
+
+    payload = runtime._render_model_chunk(session, audio, state)
+
+    assert len(decode_jpeg_sequence(payload)) == 4
+    assert update_args["flag_lip_retargeting"] is True
+    assert lip_ratios[0] < lip_ratios[1]
+    assert lip_ratios[2] > lip_ratios[3]
+
+
+
+def test_fasterliveportrait_forces_eager_attention_for_joyvasa_audio_encoders() -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class FakeAudioModel:
+        @classmethod
+        def from_pretrained(cls, source: str, **kwargs: object) -> object:
+            calls.append((source, kwargs))
+            return object()
+
+    runtime._force_eager_attention_for_audio_encoder(FakeAudioModel, "hubert")
+    FakeAudioModel.from_pretrained("/tmp/hubert")
+    FakeAudioModel.from_pretrained("/tmp/hubert-explicit", attn_implementation="eager")
+
+    assert calls == [
+        ("/tmp/hubert", {"attn_implementation": "eager"}),
+        ("/tmp/hubert-explicit", {"attn_implementation": "eager"}),
+    ]
+    assert FakeAudioModel.from_pretrained.__func__._omnirt_forces_eager_attention is True
+
+
+def test_fasterliveportrait_trt_config_requires_tensorrt(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    import omnirt.models.fasterliveportrait.runtime as flp_runtime
+
+    monkeypatch.setattr(
+        flp_runtime.importlib.util,
+        "find_spec",
+        lambda name: None if name == "tensorrt" else object(),
+    )
+
+    with pytest.raises(FasterLivePortraitRuntimeError, match="TensorRT is required"):
+        runtime._validate_runtime_dependencies(Path("configs/trt_infer.yaml"))
+
+
+def test_fasterliveportrait_trt_config_requires_grid_sample_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(
+        checkpoints_dir="/tmp/missing-fasterliveportrait-checkpoints",
+        load_models=False,
+    )
+    import omnirt.models.fasterliveportrait.runtime as flp_runtime
+
+    monkeypatch.setattr(flp_runtime.importlib.util, "find_spec", lambda name: object())
+
+    with pytest.raises(FasterLivePortraitRuntimeError, match="GridSample3D TensorRT plugin"):
+        runtime._validate_runtime_dependencies(Path("configs/trt_infer.yaml"))
+
+
+def test_fasterliveportrait_resamples_sparse_motion_before_rendering(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "chunk_samples": 8000,
+            "emit_frames_per_chunk": 5,
+            "render_keyframes_per_chunk": 5,
+            "width": 32,
+            "height": 32,
+        },
+    )
+    state = runtime._session_state(session)
+    rendered_exp: list[float] = []
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def _run(self, src_info, x_d_i_info, *args):
+            value = float(x_d_i_info["exp"][0, 0, 0])
+            rendered_exp.append(value)
+            from PIL import Image
+
+            return Image.new("RGB", (32, 32), (int(value * 2), 0, 0)), None
+
+    fake_pipeline = FakePipeline()
+    start = np.zeros((1, 21, 3), dtype=np.float32)
+    end = np.full((1, 21, 3), 100, dtype=np.float32)
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": fake_pipeline})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [
+            {
+                "R": np.zeros((1, 3, 3), dtype=np.float32),
+                "exp": start,
+                "scale": np.ones((1, 1), dtype=np.float32),
+                "t": np.zeros((1, 3), dtype=np.float32),
+                "pitch": np.zeros((1, 1), dtype=np.float32),
+                "yaw": np.zeros((1, 1), dtype=np.float32),
+                "roll": np.zeros((1, 1), dtype=np.float32),
+            },
+            {
+                "R": np.ones((1, 3, 3), dtype=np.float32),
+                "exp": end,
+                "scale": np.ones((1, 1), dtype=np.float32),
+                "t": np.ones((1, 3), dtype=np.float32),
+                "pitch": np.ones((1, 1), dtype=np.float32),
+                "yaw": np.ones((1, 1), dtype=np.float32),
+                "roll": np.ones((1, 1), dtype=np.float32),
+            },
+        ],
+    )
+
+    payload = runtime._render_model_chunk(session, b"\0" * 16000, state)
+
+    assert len(decode_jpeg_sequence(payload)) == 5
+    assert rendered_exp == [0.0, 25.0, 50.0, 75.0, 100.0]
+
+
+def test_fasterliveportrait_chunk_observability_logs_and_prints_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={
+            "chunk_samples": 8000,
+            "emit_frames_per_chunk": 2,
+            "render_keyframes_per_chunk": 2,
+            "width": 32,
+            "height": 32,
+        },
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def _run(self, *args):
+            from PIL import Image
+
+            return Image.new("RGB", (32, 32), "red"), None
+
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": FakePipeline()})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[idx]], "exp": [[idx]]} for idx in range(2)],
+    )
+    logged_messages: list[str] = []
+
+    def capture_log(message: str) -> None:
+        logged_messages.append(message)
+
+    monkeypatch.setattr(flp_runtime.log, "info", capture_log)
+
+    runtime._render_model_chunk(session, b"\0" * 16000, state)
+
+    stdout_text = capsys.readouterr().out
+    assert logged_messages
+    for text in (logged_messages[-1], stdout_text):
+        assert "FasterLivePortrait chunk rendered:" in text
+        assert "frames=2" in text
+        assert "motion_ms=" in text
+        assert "render_ms=" in text
+        assert "encode_ms=" in text
+        assert "payload_kb=" in text
+        assert "gpu_mem_mb=" in text
+
+
+def test_fasterliveportrait_interpolates_repeated_keyframe_jpegs() -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    from PIL import Image
+    import io
+
+    def jpeg(red: int) -> bytes:
+        buffer = io.BytesIO()
+        Image.new("RGB", (8, 8), (red, 0, 0)).save(buffer, format="JPEG", quality=95)
+        return buffer.getvalue()
+
+    frames = runtime._expand_keyframes([jpeg(0), jpeg(0), jpeg(120), jpeg(120)], 5)
+    reds = [
+        int(np.asarray(Image.open(io.BytesIO(frame)).convert("RGB"))[0, 0, 0])
+        for frame in frames
+    ]
+
+    assert len(frames) == 5
+    assert len(set(frames)) == 5
+    assert reds[0] < reds[1] < reds[2] < reds[3] < reds[4]
+
+
+def test_fasterliveportrait_prefers_dynamic_crop_when_org_is_static(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={"chunk_samples": 8000, "emit_frames_per_chunk": 2, "render_keyframes_per_chunk": 2, "width": 32, "height": 32},
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        device = "cpu"
+        source_path = None
+        R_d_0 = None
+        x_d_0_info = None
+        calls = 0
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def _run(self, *args):
+            self.calls += 1
+            crop = np.full((32, 32, 3), self.calls * 80, dtype=np.uint8)
+            org = np.zeros((32, 32, 3), dtype=np.uint8)
+            return crop, org
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"joyvasa": object(), "pipeline": fake_pipeline})
+    monkeypatch.setattr(
+        runtime,
+        "_generate_motion_infos",
+        lambda joyvasa, pcm_s16le, state, session: [{"R": [[idx]], "exp": [[idx]]} for idx in range(2)],
+    )
+
+    payload = runtime._render_model_chunk(session, b"\0" * 16000, state)
+    frames = decode_jpeg_sequence(payload)
+
+    assert len(frames) == 2
+    assert frames[0] != frames[1]
+
+
+def test_fasterliveportrait_head_only_pasteback_keeps_body_from_reference() -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    base = np.zeros((64, 64, 3), dtype=np.uint8)
+    base[40:64, 18:46] = (20, 180, 20)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=_png_bytes(base),
+        config={"width": 64, "height": 64, "flag_stitching": True},
+    )
+    state = runtime._session_state(session)
+    generated = base.copy()
+    generated[12:30, 24:40] = (220, 30, 30)
+    generated[40:64, 18:46] = (20, 20, 220)
+
+    composed = runtime._compose_head_on_reference(generated, session, state)
+
+    assert np.mean(composed[14:28, 26:38, 0]) > 120
+    assert np.array_equal(composed[44:60, 22:42], base[44:60, 22:42])
+
+
+
+def test_fasterliveportrait_pose_multiplier_only_scales_pose(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={"pose_motion_multiplier": 0.25},
+    )
+    motion_info = {
+        "R": np.ones((1, 3, 3), dtype=np.float32),
+        "exp": np.full((1, 21, 3), 7.0, dtype=np.float32),
+        "scale": np.array([[2.0]], dtype=np.float32),
+        "t": np.array([[4.0, 8.0, 12.0]], dtype=np.float32),
+        "pitch": np.array([[1.0]], dtype=np.float32),
+        "yaw": np.array([[2.0]], dtype=np.float32),
+        "roll": np.array([[3.0]], dtype=np.float32),
+    }
+
+    fake_utils = types.ModuleType("src.utils.utils")
+    fake_utils.get_rotation_matrix = lambda pitch, yaw, roll: np.array(
+        [
+            [float(pitch[0, 0]), float(yaw[0, 0]), float(roll[0, 0])],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    fake_src = types.ModuleType("src")
+    fake_src_utils = types.ModuleType("src.utils")
+    fake_src_utils.utils = fake_utils
+    monkeypatch.setitem(sys.modules, "src", fake_src)
+    monkeypatch.setitem(sys.modules, "src.utils", fake_src_utils)
+    monkeypatch.setitem(sys.modules, "src.utils.utils", fake_utils)
+
+    scaled = runtime._apply_pose_motion_multiplier(motion_info, session)
+
+    assert np.array_equal(scaled["exp"], motion_info["exp"])
+    assert scaled["pitch"][0, 0] == pytest.approx(0.25)
+    assert scaled["yaw"][0, 0] == pytest.approx(0.5)
+    assert scaled["roll"][0, 0] == pytest.approx(0.75)
+    assert scaled["scale"][0, 0] == pytest.approx(2.0)
+    assert scaled["t"].tolist() == [[4.0, 8.0, 12.0]]
+    assert scaled["R"][0, 0].tolist() == [0.25, 0.5, 0.75]
+    assert motion_info["pitch"][0, 0] == pytest.approx(1.0)
+
+def test_fasterliveportrait_cfg_scale_zero_disables_joyvasa_cfg(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=b"fake-image-bytes",
+        config={"chunk_samples": 8000, "cfg_scale": 0},
+    )
+    state = runtime._session_state(session)
+
+    class FakeMotionGenerator:
+        def sample(self, audio_in, *args, **kwargs):
+            assert kwargs["cfg_cond"] == []
+            raise RuntimeError("stop after cfg assertion")
+
+    class FakeJoyVASA:
+        device = "cpu"
+        dtype = __import__("torch").float32
+        n_audio_samples = 64000
+        fps = 25
+        n_motions = 100
+        audio_unit = 640
+        pad_mode = "zero"
+        use_indicator = False
+        cfg_scale = 3.5
+        cfg_cond = ["audio"]
+        cfg_mode = "incremental"
+        motion_generator = FakeMotionGenerator()
+
+    with pytest.raises(RuntimeError, match="stop after cfg assertion"):
+        runtime._generate_motion_infos(FakeJoyVASA(), b"\0\0" * 64000, state, session)
+
+
+def test_fasterliveportrait_compatible_ws_init_generate_and_close() -> None:
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(
+        runtime=FasterLivePortraitRealtimeRuntime(load_models=False)
+    )
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/audio2video/fasterliveportrait") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "chunk_samples": 8000,
+                "emit_frames_per_chunk": 12,
+                "head_motion_multiplier": 1.0,
+                "pose_motion_multiplier": 0.4,
+                "animation_region": "lip",
+                "expression_multiplier": 1.1,
+                "mouth_open_multiplier": 2.0,
+                "mouth_corner_multiplier": 1.2,
+                "cheek_jaw_multiplier": 0.9,
+                "driving_multiplier": 1.1,
+                "cfg_scale": 3.5,
+                "lookahead_ms": 240,
+            }
+        )
+        init = ws.receive_json()
+        assert init["type"] == "init_ok"
+        assert init["model"] == FASTLIVEPORTRAIT_MODEL_ID
+        assert init["slice_len"] == 12
+        assert init["chunk_samples"] == 8000
+        session_id = next(iter(app.state.realtime_avatar_service._sessions))
+        session = app.state.realtime_avatar_service._sessions[session_id]
+        assert session.runtime_config["pose_motion_multiplier"] == 0.4
+        assert session.runtime_config["animation_region"] == "lip"
+        assert session.runtime_config["mouth_open_multiplier"] == 2.0
+        assert session.runtime_config["mouth_corner_multiplier"] == 1.2
+        assert session.runtime_config["cheek_jaw_multiplier"] == 0.9
+        assert session.runtime_config["driving_multiplier"] == 1.1
+
+        ws.send_bytes(_audio_payload(8000))
+        video = ws.receive_bytes()
+        assert len(decode_jpeg_sequence(video)) == 12
 
         ws.send_json({"type": "close"})
         assert ws.receive_json()["type"] == "close_ok"
