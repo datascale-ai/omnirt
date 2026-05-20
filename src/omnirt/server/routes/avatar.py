@@ -108,6 +108,7 @@ def _wav2lip_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "reference_mode",
         "ref_frame_dir",
         "ref_frame_metadata_path",
+        "prepared_cache_dir",
         "wav2lip_postprocess_mode",
         "mouth_metadata",
         "preprocessed",
@@ -397,7 +398,13 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             for key in ("width", "height", "fps", "frame_num", "motion_frames_num", "slice_len"):
                                 if payload.get(key) is not None:
                                     config[key] = payload.get(key)
-                            for key in ("reference_mode", "ref_frame_dir", "ref_frame_metadata_path", "preprocessed"):
+                            for key in (
+                                "reference_mode",
+                                "ref_frame_dir",
+                                "ref_frame_metadata_path",
+                                "prepared_cache_dir",
+                                "preprocessed",
+                            ):
                                 if payload.get(key) is not None:
                                     config[key] = payload.get(key)
                             config.update(
@@ -601,6 +608,8 @@ async def native_realtime_avatar(websocket: WebSocket):
                             config["ref_frame_dir"] = inputs.get("ref_frame_dir")
                         if inputs.get("ref_frame_metadata_path") is not None:
                             config["ref_frame_metadata_path"] = inputs.get("ref_frame_metadata_path")
+                        if inputs.get("prepared_cache_dir") is not None:
+                            config["prepared_cache_dir"] = inputs.get("prepared_cache_dir")
                         if inputs.get("preprocessed") is not None:
                             config["preprocessed"] = inputs.get("preprocessed")
                         session = service.create_session(

@@ -9,6 +9,7 @@ import logging
 import os
 from pathlib import Path
 import tempfile
+import threading
 import time
 from typing import Any
 
@@ -65,7 +66,7 @@ class Wav2LipRuntimeError(RuntimeError):
 @dataclass
 class _PreparedFrame:
     base_frame: np.ndarray
-    face_input: np.ndarray
+    face_crop: np.ndarray
     coords: tuple[int, int, int, int]
     geometry: MouthGeometry | None
 
@@ -78,6 +79,10 @@ class _SessionState:
 
     def frame_at(self, index: int) -> _PreparedFrame:
         return self.prepared_frames[index % len(self.prepared_frames)]
+
+
+_PREPARED_CACHE_VERSION = 3
+_LEGACY_PREPARED_CACHE_VERSIONS = (2, 1)
 
 
 class Wav2LipRealtimeRuntime:
@@ -132,6 +137,9 @@ class Wav2LipRealtimeRuntime:
         self._face_detector: FaceAlignment | None = None
         self._sessions: dict[str, _SessionState] = {}
         self._frame_sequence_cache: dict[str, list[_PreparedFrame]] = {}
+        self._frame_sequence_cache_locks: dict[str, threading.Lock] = {}
+        self._frame_sequence_cache_locks_guard = threading.Lock()
+        self.prepared_cache_dir = self._resolve_prepared_cache_dir()
         self._configure_cpu_thread_limits()
 
     @staticmethod
@@ -185,9 +193,14 @@ class Wav2LipRealtimeRuntime:
         prepared_for_chunk = [
             state.frame_at(state.emitted_frames + idx) for idx in range(len(mel_chunks))
         ]
-        face_batch = np.stack([frame.face_input for frame in prepared_for_chunk], axis=0)
+        face_crops = np.stack([frame.face_crop for frame in prepared_for_chunk], axis=0)
         mel_batch = np.stack(mel_chunks, axis=0)
-        img_tensor = torch.FloatTensor(np.transpose(face_batch, (0, 3, 1, 2))).to(self.device)
+        face_tensor = torch.from_numpy(
+            np.ascontiguousarray(np.transpose(face_crops, (0, 3, 1, 2)))
+        ).to(device=self.device, dtype=torch.float32).div_(255.0)
+        masked_tensor = face_tensor.clone()
+        masked_tensor[:, :, input_size // 2 :, :] = 0
+        img_tensor = torch.cat((masked_tensor, face_tensor), dim=1)
         mel_tensor = torch.FloatTensor(
             np.transpose(np.reshape(mel_batch, (len(mel_chunks), 80, MEL_STEP_SIZE, 1)), (0, 3, 1, 2))
         ).to(self.device)
@@ -225,15 +238,14 @@ class Wav2LipRealtimeRuntime:
         )
         max_frames = max(1, int(os.environ.get("OMNIRT_WAV2LIP_MAX_REFERENCE_FRAMES", "125")))
         frame_paths = frame_paths[:max_frames]
-        cache_key = self._frame_sequence_cache_key(session, frame_paths)
-        cache_hit = cache_key in self._frame_sequence_cache
         started = time.monotonic()
-        prepared = self._prepare_frame_sequence(session)
+        prepared, cache_source = self._prepare_frame_sequence_with_cache_source(session)
         return {
             "type": "preload_result",
             "frames": len(prepared),
             "elapsed_ms": round((time.monotonic() - started) * 1000.0, 3),
-            "cache_hit": cache_hit,
+            "cache_hit": cache_source != "built",
+            "cache_source": cache_source,
         }
 
     def _session_state(self, session: RealtimeAvatarSession) -> _SessionState:
@@ -241,7 +253,7 @@ class Wav2LipRealtimeRuntime:
         if existing is not None:
             return existing
         if session.reference_mode == "frames":
-            prepared_frames = self._prepare_frame_sequence(session)
+            prepared_frames, _ = self._prepare_frame_sequence_with_cache_source(session)
         else:
             prepared_frames = [self._prepare_image_reference(session)]
         state = _SessionState(prepared_frames=prepared_frames)
@@ -265,6 +277,13 @@ class Wav2LipRealtimeRuntime:
         return self._prepare_reference_frame(session, frame, frame_index=0)
 
     def _prepare_frame_sequence(self, session: RealtimeAvatarSession) -> list[_PreparedFrame]:
+        prepared, _ = self._prepare_frame_sequence_with_cache_source(session)
+        return prepared
+
+    def _prepare_frame_sequence_with_cache_source(
+        self,
+        session: RealtimeAvatarSession,
+    ) -> tuple[list[_PreparedFrame], str]:
         if not session.ref_frame_dir:
             raise Wav2LipRuntimeError("Wav2Lip frame reference mode requires ref_frame_dir.")
         frame_dir = Path(session.ref_frame_dir).expanduser().resolve()
@@ -280,6 +299,25 @@ class Wav2LipRealtimeRuntime:
         if not frame_paths:
             raise Wav2LipRuntimeError(f"No reference frames found under: {frame_dir}")
         cache_key = self._frame_sequence_cache_key(session, frame_paths)
+        lock = self._frame_sequence_cache_lock(cache_key)
+        with lock:
+            return self._prepare_frame_sequence_locked(session, frame_paths, cache_key)
+
+    def _frame_sequence_cache_lock(self, cache_key: str) -> threading.Lock:
+        with self._frame_sequence_cache_locks_guard:
+            lock = self._frame_sequence_cache_locks.get(cache_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._frame_sequence_cache_locks[cache_key] = lock
+            return lock
+
+    def _prepare_frame_sequence_locked(
+        self,
+        session: RealtimeAvatarSession,
+        frame_paths: list[Path],
+        cache_key: str,
+    ) -> tuple[list[_PreparedFrame], str]:
+        frame_dir = Path(session.ref_frame_dir or "").expanduser().resolve()
         cached = self._frame_sequence_cache.get(cache_key)
         if cached is not None:
             log.info(
@@ -288,7 +326,23 @@ class Wav2LipRealtimeRuntime:
                 len(cached),
                 cache_key[:16],
             )
-            return cached
+            return cached, "memory"
+        cache_dir = self._prepared_cache_dir_for_session(session)
+        disk_cached = self._load_prepared_frame_sequence_from_disk(
+            cache_key,
+            session,
+            frame_paths,
+            cache_dir=cache_dir,
+        )
+        if disk_cached is not None:
+            self._frame_sequence_cache[cache_key] = disk_cached
+            log.info(
+                "wav2lip prepared frame disk cache hit: id=%s frames=%d key=%s",
+                session.session_id,
+                len(disk_cached),
+                cache_key[:16],
+            )
+            return disk_cached, "disk"
         started = time.monotonic()
         metadata_by_frame = self._load_frame_metadata(session.ref_frame_metadata_path)
         prepared: list[_PreparedFrame] = []
@@ -315,6 +369,7 @@ class Wav2LipRealtimeRuntime:
         if not prepared:
             raise Wav2LipRuntimeError(f"No readable reference frames found under: {frame_dir}")
         self._frame_sequence_cache[cache_key] = prepared
+        self._save_prepared_frame_sequence_to_disk(cache_key, prepared, cache_dir=cache_dir)
         log.info(
             "wav2lip reference frame cache built: id=%s frames=%d key=%s elapsed_ms=%.1f",
             session.session_id,
@@ -322,7 +377,7 @@ class Wav2LipRealtimeRuntime:
             cache_key[:16],
             (time.monotonic() - started) * 1000.0,
         )
-        return prepared
+        return prepared, "built"
 
     @staticmethod
     def _validate_preprocessed_frame_hash(path: Path, metadata: dict[str, Any]) -> None:
@@ -382,6 +437,208 @@ class Wav2LipRealtimeRuntime:
             ]
         )
 
+    def _resolve_prepared_cache_dir(self) -> Path:
+        raw = os.environ.get("OMNIRT_WAV2LIP_PREPARED_CACHE_DIR", "").strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+        model_root = (
+            os.environ.get("OMNIRT_MODEL_ROOT", "").strip()
+            or os.environ.get("OMNIRT_WAV2LIP_MODELS_DIR", "").strip()
+        )
+        if model_root:
+            return (Path(model_root).expanduser().resolve() / ".wav2lip_prepared_cache")
+        return (self.models_dir / ".wav2lip_prepared_cache").resolve()
+
+    def _prepared_cache_path(self, cache_key: str) -> Path:
+        digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+        return self.prepared_cache_dir / f"v{_PREPARED_CACHE_VERSION}-{digest}.npz"
+
+    def _prepared_cache_dir_for_session(self, session: RealtimeAvatarSession) -> Path:
+        raw = str(getattr(session, "prepared_cache_dir", "") or "").strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+        return self.prepared_cache_dir
+
+    def _prepared_cache_path_for_dir(self, cache_key: str, cache_dir: Path) -> Path:
+        digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+        return cache_dir / f"v{_PREPARED_CACHE_VERSION}-{digest}.npz"
+
+    def _legacy_prepared_cache_path_for_dir(self, cache_key: str, cache_dir: Path) -> Path:
+        for version in _LEGACY_PREPARED_CACHE_VERSIONS:
+            digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+            path = cache_dir / f"v{version}-{digest}.npz"
+            if path.is_file():
+                return path
+        digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+        return cache_dir / f"v{_LEGACY_PREPARED_CACHE_VERSIONS[0]}-{digest}.npz"
+
+    def _base_frames_from_paths(self, frame_paths: list[Path], session: RealtimeAvatarSession) -> list[np.ndarray] | None:
+        base_frames: list[np.ndarray] = []
+        for path in frame_paths:
+            frame = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if frame is None:
+                log.warning("Skipping unreadable Wav2Lip reference frame while loading prepared cache: %s", path)
+                return None
+            base_frames.append(
+                resize_reference_frame(
+                    frame,
+                    width=int(session.video.width),
+                    height=int(session.video.height),
+                )
+            )
+        return base_frames
+
+    @staticmethod
+    def _geometry_to_jsonable(geometry: MouthGeometry | None) -> dict[str, Any] | None:
+        if geometry is None:
+            return None
+        return {
+            "center": list(geometry.center),
+            "rx": int(geometry.rx),
+            "ry": int(geometry.ry),
+            "outer_lip": [list(point) for point in geometry.outer_lip],
+            "inner_mouth": [list(point) for point in geometry.inner_mouth],
+        }
+
+    @staticmethod
+    def _geometry_from_jsonable(raw: Any) -> MouthGeometry | None:
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            return None
+        center = raw.get("center")
+        if not isinstance(center, (list, tuple)) or len(center) != 2:
+            return None
+        try:
+            return MouthGeometry(
+                center=(int(center[0]), int(center[1])),
+                rx=int(raw.get("rx") or 1),
+                ry=int(raw.get("ry") or 1),
+                outer_lip=tuple(
+                    (int(point[0]), int(point[1]))
+                    for point in raw.get("outer_lip", [])
+                    if isinstance(point, (list, tuple)) and len(point) == 2
+                ),
+                inner_mouth=tuple(
+                    (int(point[0]), int(point[1]))
+                    for point in raw.get("inner_mouth", [])
+                    if isinstance(point, (list, tuple)) and len(point) == 2
+                ),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    def _load_prepared_frame_sequence_from_disk(
+        self,
+        cache_key: str,
+        session: RealtimeAvatarSession,
+        frame_paths: list[Path],
+        *,
+        cache_dir: Path | None = None,
+    ) -> list[_PreparedFrame] | None:
+        target_cache_dir = cache_dir or self.prepared_cache_dir
+        path = self._prepared_cache_path_for_dir(cache_key, target_cache_dir)
+        if not path.is_file():
+            path = self._legacy_prepared_cache_path_for_dir(cache_key, target_cache_dir)
+        if not path.is_file():
+            return None
+        try:
+            with np.load(path, allow_pickle=False) as data:
+                version = int(np.asarray(data["version"]).item())
+                stored_key_hash = str(np.asarray(data["cache_key_hash"]).item())
+                expected_key_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+                allowed_versions = {_PREPARED_CACHE_VERSION, *_LEGACY_PREPARED_CACHE_VERSIONS}
+                if version not in allowed_versions or stored_key_hash != expected_key_hash:
+                    return None
+                base_frames = (
+                    np.asarray(data["base_frames"], dtype=np.uint8)
+                    if "base_frames" in data
+                    else None
+                )
+                if "face_crops" in data:
+                    face_crops = np.asarray(data["face_crops"], dtype=np.uint8)
+                else:
+                    face_inputs = np.asarray(data["face_inputs"], dtype=np.float32)
+                    face_crops = np.rint(np.clip(face_inputs[..., 3:6] * 255.0, 0.0, 255.0)).astype(np.uint8)
+                coords = np.asarray(data["coords"], dtype=np.int32)
+                geometries_raw = json.loads(str(np.asarray(data["geometries_json"]).item()))
+        except Exception:
+            log.warning("Failed to load Wav2Lip prepared cache: %s", path, exc_info=True)
+            return None
+
+        if base_frames is None:
+            loaded_base_frames = self._base_frames_from_paths(frame_paths, session)
+            if loaded_base_frames is None:
+                return None
+        else:
+            if base_frames.ndim != 4:
+                log.warning("Ignoring invalid Wav2Lip prepared cache base frame shape: %s", path)
+                return None
+            loaded_base_frames = [np.ascontiguousarray(base_frames[index]) for index in range(len(base_frames))]
+
+        if (
+            len(loaded_base_frames) != len(face_crops)
+            or face_crops.ndim != 4
+            or face_crops.shape[-1] != 3
+            or coords.ndim != 2
+            or coords.shape[1] != 4
+            or len(loaded_base_frames) != len(coords)
+            or not isinstance(geometries_raw, list)
+            or len(loaded_base_frames) != len(geometries_raw)
+        ):
+            log.warning("Ignoring invalid Wav2Lip prepared cache shape: %s", path)
+            return None
+
+        prepared: list[_PreparedFrame] = []
+        for index in range(len(loaded_base_frames)):
+            prepared.append(
+                _PreparedFrame(
+                    base_frame=np.ascontiguousarray(loaded_base_frames[index]),
+                    face_crop=np.ascontiguousarray(face_crops[index]),
+                    coords=tuple(int(value) for value in coords[index]),  # type: ignore[arg-type]
+                    geometry=self._geometry_from_jsonable(geometries_raw[index]),
+                )
+            )
+        return prepared
+
+    def _save_prepared_frame_sequence_to_disk(
+        self,
+        cache_key: str,
+        prepared: list[_PreparedFrame],
+        *,
+        cache_dir: Path | None = None,
+    ) -> None:
+        if not prepared:
+            return
+        target_cache_dir = cache_dir or self.prepared_cache_dir
+        path = self._prepared_cache_path_for_dir(cache_key, target_cache_dir)
+        try:
+            target_cache_dir.mkdir(parents=True, exist_ok=True)
+            face_crops = np.stack([frame.face_crop for frame in prepared], axis=0).astype(np.uint8, copy=False)
+            coords = np.asarray([frame.coords for frame in prepared], dtype=np.int32)
+            geometries_json = json.dumps(
+                [self._geometry_to_jsonable(frame.geometry) for frame in prepared],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            temp_path = path.with_suffix(".tmp.npz")
+            np.savez_compressed(
+                temp_path,
+                version=np.asarray(_PREPARED_CACHE_VERSION, dtype=np.int32),
+                cache_key_hash=np.asarray(hashlib.sha256(cache_key.encode("utf-8")).hexdigest()),
+                face_crops=face_crops,
+                coords=coords,
+                geometries_json=np.asarray(geometries_json),
+            )
+            temp_path.replace(path)
+            log.info(
+                "Saved Wav2Lip prepared frame cache: frames=%d path=%s",
+                len(prepared),
+                path,
+            )
+        except Exception:
+            log.warning("Failed to save Wav2Lip prepared cache: %s", path, exc_info=True)
+
     @staticmethod
     def _load_frame_metadata(path: str | None) -> dict[str, dict[str, Any]]:
         if not path:
@@ -420,7 +677,7 @@ class Wav2LipRealtimeRuntime:
         use_easy = postprocess_mode in {"easy_improved", "easy_enhanced"}
         needs_geometry = use_opentalking or use_easy
         metadata = mouth_metadata if mouth_metadata is not None else session.mouth_metadata
-        preprocessed_crop = self._preprocessed_metadata_crop(metadata, frame.shape[:2]) if session.preprocessed else None
+        preprocessed_crop = self._preprocessed_metadata_crop(metadata, frame.shape[:2])
         if preprocessed_crop is not None:
             detector_crop = preprocessed_crop
             crop_source = "preprocessed"
@@ -434,9 +691,6 @@ class Wav2LipRealtimeRuntime:
             use_opentalking_improved=use_opentalking,
         )
         face = cv2.resize(frame[y1:y2, x1:x2].copy(), (input_size, input_size))
-        masked = face.copy()
-        masked[input_size // 2 :, :] = 0
-        face_input = np.concatenate((masked, face), axis=2).astype(np.float32) / 255.0
         geometry = (
             self._geometry_from_metadata(
                 metadata,
@@ -463,7 +717,7 @@ class Wav2LipRealtimeRuntime:
         )
         return _PreparedFrame(
             base_frame=frame,
-            face_input=face_input,
+            face_crop=np.ascontiguousarray(face),
             coords=(y1, y2, x1, x2),
             geometry=geometry,
         )
@@ -475,7 +729,7 @@ class Wav2LipRealtimeRuntime:
     ) -> tuple[int, int, int, int] | None:
         if not isinstance(metadata, dict):
             return None
-        if metadata.get("model_crop_source") != "wav2lip_detector":
+        if metadata.get("model_crop_source") not in {"wav2lip_detector", "asset_tuned"}:
             return None
         raw = metadata.get("model_crop")
         if not isinstance(raw, (list, tuple)) or len(raw) != 4:
@@ -503,12 +757,7 @@ class Wav2LipRealtimeRuntime:
         metadata: dict[str, Any] | None,
         frame_shape: tuple[int, int],
     ) -> tuple[int, int, int, int] | None:
-        crop = cls._metadata_model_crop(metadata, frame_shape)
-        if crop is not None:
-            return crop
-        if isinstance(metadata, dict):
-            return metadata_face_box_to_crop(metadata, frame_shape)
-        return None
+        return cls._metadata_model_crop(metadata, frame_shape)
 
     def _model_bundle(self) -> dict[str, Any]:
         if self._torch_bundle is None:

@@ -101,6 +101,7 @@ class RealtimeAvatarSession:
     reference_mode: ReferenceMode = "image"
     ref_frame_dir: str | None = None
     ref_frame_metadata_path: str | None = None
+    prepared_cache_dir: str | None = None
     template_mode: TemplateMode = "image"
     template_video: str | None = None
     template_frame_dir: str | None = None
@@ -131,6 +132,7 @@ class RealtimeAvatarSession:
         if include_paths:
             metadata["ref_frame_dir"] = self.ref_frame_dir
             metadata["ref_frame_metadata_path"] = self.ref_frame_metadata_path
+            metadata["prepared_cache_dir"] = self.prepared_cache_dir
             metadata["template_video"] = self.template_video
             metadata["template_frame_dir"] = self.template_frame_dir
             metadata["quicktalk_face_cache"] = self.quicktalk_face_cache
@@ -404,6 +406,17 @@ class RealtimeAvatarService:
                 must_be_dir=False,
             )
             ref_frame_metadata_path_str = str(ref_frame_metadata_path)
+        prepared_cache_dir = config.get("prepared_cache_dir")
+        prepared_cache_dir_str = str(prepared_cache_dir).strip() if prepared_cache_dir is not None else None
+        if prepared_cache_dir_str:
+            prepared_cache_dir_path = self._validate_allowed_frame_path(
+                prepared_cache_dir_str,
+                code="bad_prepared_cache_dir",
+                label="prepared_cache_dir",
+                must_be_dir=False,
+                allow_missing_leaf=True,
+            )
+            prepared_cache_dir_str = str(prepared_cache_dir_path)
         template_mode = str(config.get("template_mode") or "image").strip().lower()
         if template_mode not in {"image", "video", "frames"}:
             raise RealtimeAvatarError(
@@ -531,6 +544,7 @@ class RealtimeAvatarService:
             reference_mode=reference_mode,  # type: ignore[arg-type]
             ref_frame_dir=ref_frame_dir_str,
             ref_frame_metadata_path=ref_frame_metadata_path_str,
+            prepared_cache_dir=prepared_cache_dir_str,
             template_mode=template_mode,  # type: ignore[arg-type]
             template_video=template_video_str,
             template_frame_dir=template_frame_dir_str,
@@ -555,12 +569,18 @@ class RealtimeAvatarService:
         code: str,
         label: str,
         must_be_dir: bool,
+        allow_missing_leaf: bool = False,
     ) -> Path:
         path = Path(raw_path).expanduser().resolve()
         if not self._allowed_frame_roots:
             raise RealtimeAvatarError(code, f"{label} requires configured allowed frame roots.")
         if not any(path == root or root in path.parents for root in self._allowed_frame_roots):
             raise RealtimeAvatarError(code, f"{label} is outside allowed frame roots.")
+        if allow_missing_leaf:
+            parent = path.parent
+            if not parent.is_dir():
+                raise RealtimeAvatarError(code, f"{label} parent not found.")
+            return path
         if must_be_dir and not path.is_dir():
             raise RealtimeAvatarError(code, f"{label} not found.")
         if not must_be_dir and not path.is_file():

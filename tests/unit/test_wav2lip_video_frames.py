@@ -4,6 +4,8 @@ import json
 import hashlib
 import os
 from pathlib import Path
+import threading
+import time
 
 import cv2
 import numpy as np
@@ -225,7 +227,7 @@ def test_frame_sequence_preparation_is_reused_across_sessions(tmp_path: Path, mo
         calls.append(frame_index)
         return _PreparedFrame(
             base_frame=frame,
-            face_input=np.zeros((8, 8, 6), dtype=np.float32),
+            face_crop=np.zeros((8, 8, 3), dtype=np.uint8),
             coords=(0, frame.shape[0], 0, frame.shape[1]),
             geometry=None,
         )
@@ -254,6 +256,166 @@ def test_frame_sequence_preparation_is_reused_across_sessions(tmp_path: Path, mo
     assert first.prepared_frames is second.prepared_frames
 
 
+def test_frame_sequence_preparation_is_persisted_to_disk(tmp_path: Path, monkeypatch) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    _write_frame(frames / "frame_00000.jpg", 10)
+    cache_dir = tmp_path / "cache"
+
+    first_runtime = Wav2LipRealtimeRuntime(device="cpu")
+    first_runtime.prepared_cache_dir = cache_dir
+
+    def fake_prepare(session, frame, *, frame_index, mouth_metadata=None):
+        del session, frame_index, mouth_metadata
+        return _PreparedFrame(
+            base_frame=frame,
+            face_crop=np.ones((8, 8, 3), dtype=np.uint8),
+            coords=(1, 2, 3, 4),
+            geometry=None,
+        )
+
+    monkeypatch.setattr(first_runtime, "_prepare_reference_frame", fake_prepare)
+
+    def make_session(session_id: str) -> RealtimeAvatarSession:
+        return RealtimeAvatarSession(
+            session_id=session_id,
+            trace_id="t",
+            model="wav2lip",
+            backend="test",
+            prompt="",
+            image_bytes=b"ref",
+            reference_mode="frames",
+            ref_frame_dir=str(frames),
+            audio=AvatarAudioSpec(),
+            video=AvatarVideoSpec(width=24, height=24),
+            wav2lip_postprocess_mode="opentalking_improved",
+        )
+
+    first = first_runtime._session_state(make_session("s1"))
+
+    second_runtime = Wav2LipRealtimeRuntime(device="cpu")
+    second_runtime.prepared_cache_dir = cache_dir
+    monkeypatch.setattr(
+        second_runtime,
+        "_prepare_reference_frame",
+        lambda *args, **kwargs: pytest.fail("prepared disk cache should avoid frame preparation"),
+    )
+    second = second_runtime._session_state(make_session("s2"))
+
+    assert first.prepared_frames[0].coords == (1, 2, 3, 4)
+    assert second.prepared_frames[0].coords == (1, 2, 3, 4)
+    assert list(cache_dir.glob("v3-*.npz"))
+
+
+def test_frame_sequence_preparation_is_shared_across_concurrent_calls(tmp_path: Path, monkeypatch) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    _write_frame(frames / "frame_00000.jpg", 10)
+
+    runtime = Wav2LipRealtimeRuntime(device="cpu")
+    calls = 0
+
+    def fake_prepare(session, frame, *, frame_index, mouth_metadata=None):
+        nonlocal calls
+        del session, frame_index, mouth_metadata
+        calls += 1
+        time.sleep(0.05)
+        return _PreparedFrame(
+            base_frame=frame,
+            face_crop=np.ones((8, 8, 3), dtype=np.uint8),
+            coords=(1, 2, 3, 4),
+            geometry=None,
+        )
+
+    monkeypatch.setattr(runtime, "_prepare_reference_frame", fake_prepare)
+
+    def make_session(session_id: str) -> RealtimeAvatarSession:
+        return RealtimeAvatarSession(
+            session_id=session_id,
+            trace_id="t",
+            model="wav2lip",
+            backend="test",
+            prompt="",
+            image_bytes=b"ref",
+            reference_mode="frames",
+            ref_frame_dir=str(frames),
+            audio=AvatarAudioSpec(),
+            video=AvatarVideoSpec(width=24, height=24),
+            wav2lip_postprocess_mode="opentalking_improved",
+        )
+
+    results: list[list[_PreparedFrame]] = []
+    threads = [
+        threading.Thread(target=lambda session_id=session_id: results.append(runtime._prepare_frame_sequence(make_session(session_id))))
+        for session_id in ("s1", "s2")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert calls == 1
+    assert len(results) == 2
+    assert results[0] is results[1]
+
+
+def test_prepared_disk_cache_round_trips_mouth_geometry(tmp_path: Path, monkeypatch) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    _write_frame(frames / "frame_00000.jpg", 10)
+    cache_dir = tmp_path / "cache"
+
+    first_runtime = Wav2LipRealtimeRuntime(device="cpu")
+    first_runtime.prepared_cache_dir = cache_dir
+    geometry = first_runtime._fallback_mouth_geometry(np.full((8, 8, 3), 10, dtype=np.uint8))
+
+    monkeypatch.setattr(
+        first_runtime,
+        "_prepare_reference_frame",
+        lambda session, frame, *, frame_index, mouth_metadata=None: _PreparedFrame(
+            base_frame=frame,
+            face_crop=np.ones((8, 8, 3), dtype=np.uint8),
+            coords=(1, 2, 3, 4),
+            geometry=geometry,
+        ),
+    )
+
+    session = RealtimeAvatarSession(
+        session_id="s1",
+        trace_id="t",
+        model="wav2lip",
+        backend="test",
+        prompt="",
+        image_bytes=b"ref",
+        reference_mode="frames",
+        ref_frame_dir=str(frames),
+        audio=AvatarAudioSpec(),
+        video=AvatarVideoSpec(width=24, height=24),
+        wav2lip_postprocess_mode="opentalking_improved",
+    )
+    first_runtime._session_state(session)
+
+    second_runtime = Wav2LipRealtimeRuntime(device="cpu")
+    second_runtime.prepared_cache_dir = cache_dir
+    second = second_runtime._session_state(
+        RealtimeAvatarSession(
+            session_id="s2",
+            trace_id="t",
+            model="wav2lip",
+            backend="test",
+            prompt="",
+            image_bytes=b"ref",
+            reference_mode="frames",
+            ref_frame_dir=str(frames),
+            audio=AvatarAudioSpec(),
+            video=AvatarVideoSpec(width=24, height=24),
+            wav2lip_postprocess_mode="opentalking_improved",
+        )
+    )
+
+    assert second.prepared_frames[0].geometry == geometry
+
+
 def test_frame_sequence_cache_ignores_session_mouth_metadata_when_frame_metadata_exists(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -273,7 +435,7 @@ def test_frame_sequence_cache_ignores_session_mouth_metadata_when_frame_metadata
         calls.append(frame_index)
         return _PreparedFrame(
             base_frame=frame,
-            face_input=np.zeros((8, 8, 6), dtype=np.float32),
+            face_crop=np.zeros((8, 8, 3), dtype=np.uint8),
             coords=(0, frame.shape[0], 0, frame.shape[1]),
             geometry=None,
         )
@@ -409,7 +571,7 @@ def test_preprocessed_frame_metadata_without_trusted_model_crop_uses_detector(tm
     assert state.prepared_frames[0].coords == (0, 24, 0, 24)
 
 
-def test_preprocessed_frame_metadata_with_face_box_skips_detector(tmp_path: Path, monkeypatch) -> None:
+def test_preprocessed_frame_metadata_with_face_box_uses_detector_for_model_crop(tmp_path: Path, monkeypatch) -> None:
     frames = tmp_path / "frames"
     frames.mkdir()
     _write_frame(frames / "frame_00000.jpg", 10)
@@ -430,10 +592,64 @@ def test_preprocessed_frame_metadata_with_face_box_skips_detector(tmp_path: Path
     )
     runtime = Wav2LipRealtimeRuntime(device="cpu")
     monkeypatch.setattr(runtime, "_model_bundle", lambda: {"input_size": 8})
+    detector_calls = 0
+
+    def fake_detect(frame):
+        nonlocal detector_calls
+        detector_calls += 1
+        return (0, frame.shape[0], 0, frame.shape[1])
+
+    monkeypatch.setattr(runtime, "_detect_face_box", fake_detect)
+    monkeypatch.setattr(runtime, "_fallback_mouth_geometry", lambda face: None)
+
+    session = RealtimeAvatarSession(
+        session_id="s",
+        trace_id="t",
+        model="wav2lip",
+        backend="test",
+        prompt="",
+        image_bytes=b"ref",
+        reference_mode="frames",
+        ref_frame_dir=str(frames),
+        ref_frame_metadata_path=str(metadata_path),
+        audio=AvatarAudioSpec(),
+        video=AvatarVideoSpec(width=24, height=24),
+        wav2lip_postprocess_mode="opentalking_improved",
+        preprocessed=True,
+    )
+
+    state = runtime._session_state(session)
+
+    assert detector_calls == 1
+    assert state.prepared_frames[0].coords == (0, 24, 0, 24)
+
+
+def test_preprocessed_frame_metadata_with_asset_tuned_crop_skips_detector(tmp_path: Path, monkeypatch) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    _write_frame(frames / "frame_00000.jpg", 10)
+    metadata_path = tmp_path / "mouth_metadata.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "frames": {
+                    "frame_00000.jpg": {
+                        "source_frame_hash": _sha256(frames / "frame_00000.jpg"),
+                        "model_crop": [0.25, 0.125, 0.75, 0.875],
+                        "model_crop_source": "asset_tuned",
+                        "animation": {"mouth_center": [0.5, 0.5]},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    runtime = Wav2LipRealtimeRuntime(device="cpu")
+    monkeypatch.setattr(runtime, "_model_bundle", lambda: {"input_size": 8})
     monkeypatch.setattr(
         runtime,
         "_detect_face_box",
-        lambda frame: pytest.fail("preprocessed face_box metadata must skip detector"),
+        lambda frame: pytest.fail("asset_tuned model_crop must skip detector"),
     )
     monkeypatch.setattr(runtime, "_fallback_mouth_geometry", lambda face: None)
 
@@ -451,6 +667,44 @@ def test_preprocessed_frame_metadata_with_face_box_skips_detector(tmp_path: Path
         video=AvatarVideoSpec(width=24, height=24),
         wav2lip_postprocess_mode="opentalking_improved",
         preprocessed=True,
+    )
+
+    state = runtime._session_state(session)
+
+    assert state.prepared_frames[0].coords == (3, 21, 6, 18)
+
+
+def test_image_reference_with_asset_tuned_crop_skips_detector(monkeypatch) -> None:
+    frame = np.full((24, 24, 3), 10, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".png", frame)
+    assert ok
+
+    runtime = Wav2LipRealtimeRuntime(device="cpu")
+    monkeypatch.setattr(runtime, "_model_bundle", lambda: {"input_size": 8})
+    monkeypatch.setattr(
+        runtime,
+        "_detect_face_box",
+        lambda frame: pytest.fail("asset_tuned model_crop must skip detector"),
+    )
+    monkeypatch.setattr(runtime, "_fallback_mouth_geometry", lambda face: None)
+
+    session = RealtimeAvatarSession(
+        session_id="s",
+        trace_id="t",
+        model="wav2lip",
+        backend="test",
+        prompt="",
+        image_bytes=encoded.tobytes(),
+        reference_mode="image",
+        mouth_metadata={
+            "model_crop": [0.25, 0.125, 0.75, 0.875],
+            "model_crop_source": "asset_tuned",
+            "animation": {"mouth_center": [0.5, 0.5]},
+        },
+        audio=AvatarAudioSpec(),
+        video=AvatarVideoSpec(width=24, height=24),
+        wav2lip_postprocess_mode="opentalking_improved",
+        preprocessed=False,
     )
 
     state = runtime._session_state(session)
