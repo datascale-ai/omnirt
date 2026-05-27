@@ -67,7 +67,20 @@ pip install -r model_backends/musetalk/requirements-musetalk-ascend.txt
 - **MuseTalk 源码**：推荐执行 `omnirt runtime install musetalk --device npu`，默认克隆到 `${OMNIRT_HOME}/model-repos/MuseTalk`。
 - **权重根目录**：默认 `<omnirt>/models`，对应环境变量 **`OMNIRT_MUSETALK_MODELS_DIR`**。
 - **布局**须满足 MuseTalk v1.5 加载需要（`musetalk/`、`sd-vae-ft-mse/`、`whisper/tiny.pt` 等），详见 [`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md)。
+- **`sd-vae-ft-mse/`** 建议使用 Hugging Face 官方 `stabilityai/sd-vae-ft-mse` 的 Diffusers 格式：`config.json` + `diffusion_pytorch_model.safetensors`。只有 `diffusion_pytorch_model.bin` 时可 fallback，但会产生 unsafe serialization warning。
 - **`whisper/tiny.pt`** 须为 **OpenAI `openai-whisper` 官方** 检查点（约 72MB），勿将 HuggingFace `pytorch_model.bin` 改名顶替。
+
+示例：
+
+```bash
+mkdir -p models/sd-vae-ft-mse
+wget -O models/sd-vae-ft-mse/config.json \
+  https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json
+wget -O models/sd-vae-ft-mse/diffusion_pytorch_model.safetensors \
+  https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.safetensors
+```
+
+若直连 Hugging Face 受限，可将域名替换为 `https://hf-mirror.com`。
 
 ### 5. 推理与常用环境变量（节选）
 
@@ -125,7 +138,8 @@ pip install -r model_backends/musetalk/requirements-musetalk-gpu.txt \
 | 现象 | 常见原因 |
 |------|----------|
 | `libhccl.so` 找不到 | 未 `source` CANN `set_env.sh`，或未通过 `start_musetalk_ws.sh` 加载环境 |
-| MuseTalk v1.5 加载失败 | 权重路径不齐；`whisper/tiny.pt` 非官方 OpenAI 格式（数百字节 XML） |
+| MuseTalk v1.5 加载失败 | 权重路径不齐；`sd-vae-ft-mse/` 缺少 `config.json`；`whisper/tiny.pt` 非官方 OpenAI 格式（数百字节 XML） |
+| VAE 提示 unsafe serialization | `sd-vae-ft-mse/` 只有 `diffusion_pytorch_model.bin`；补齐官方 `diffusion_pytorch_model.safetensors` |
 | `UnpicklingError` / Whisper 加载失败 | PyTorch 与 `openai-whisper` 对旧 checkpoint 的兼容问题；`musetalk_ws_server.py` 已对官方 `tiny.pt` 做加载补丁，请更新到当前仓库版本 |
 | Toolkit 目录 **owner** 与当前用户不一致的 Warning | 多为 root 安装 toolkit；一般不影响运行，必要时请管理员调整属主 |
 | 嘴型与底图错位 | OpenTalking **贴回应使用 infer 裁剪框**；请使用包含 composer 修复的 OpenTalking 版本（参见上游 `composer.py`） |

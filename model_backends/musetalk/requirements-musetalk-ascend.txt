@@ -17,6 +17,8 @@ torch==2.7.1
 torchvision==0.22.1
 torch-npu==2.7.1.post2
 torchaudio==2.7.1
+# MuseTalk upstream preprocessing imports pkg_resources; setuptools 82+ removed it.
+setuptools<82
 
 numpy>=1.22
 scipy>=1.10
