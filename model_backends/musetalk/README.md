@@ -62,7 +62,7 @@ pip install -r model_backends/musetalk/requirements-musetalk-gpu.txt \
 | 相对路径 | 说明 |
 |----------|------|
 | `musetalk/pytorch_model.bin`、`musetalk/musetalk.json` | UNet |
-| `sd-vae-ft-mse/` | VAE（含 `config.json` + `diffusion_pytorch_model.bin` 即可） |
+| `sd-vae-ft-mse/` | VAE（官方 `config.json` + `diffusion_pytorch_model.safetensors`；`diffusion_pytorch_model.bin` 可作为 fallback） |
 | `whisper/tiny.pt` | **OpenAI `openai-whisper` 官方** tiny 检查点（约 72MB），**不要**用 HuggingFace `pytorch_model.bin` 改名顶替 |
 | `dwpose/dw-ll_ucoco_384.pth` | DWPose |
 | `face-parse-bisenet/79999_iter.pth` | BiSeNet；同目录常配 `resnet18-5c106cde.pth`（PyTorch 官方 ResNet18） |
@@ -70,6 +70,18 @@ pip install -r model_backends/musetalk/requirements-musetalk-gpu.txt \
 官方 `tiny.pt` 可用已安装 `openai-whisper` 的 Python 按包内 URL 下载并校验 SHA256；或从
 `https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt`
 下载，SHA256 应为文件名中的 `65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9`。
+
+`sd-vae-ft-mse/` 推荐使用 Hugging Face 官方 `stabilityai/sd-vae-ft-mse` Diffusers 格式文件：
+
+```bash
+mkdir -p models/sd-vae-ft-mse
+wget -O models/sd-vae-ft-mse/config.json \
+  https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json
+wget -O models/sd-vae-ft-mse/diffusion_pytorch_model.safetensors \
+  https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.safetensors
+```
+
+若直连 Hugging Face 受限，可将域名替换为 `https://hf-mirror.com`。只有 `diffusion_pytorch_model.bin` 时 Diffusers 仍可回退加载，但会提示 unsafe serialization；生产部署建议补齐 `.safetensors`。
 
 Face-parse 可从 HF 镜像等获取与 MuseTalk 脚本一致的 `79999_iter.pth`；**目录名**须为 **`face-parse-bisenet`**（与 OpenTalking 一致）。
 

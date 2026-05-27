@@ -67,7 +67,20 @@ Graph compilation may still require **`attrs`**, **`psutil`**, **`PyYAML`**, etc
 - **MuseTalk source:** run `omnirt runtime install musetalk --device npu`; by default it clones to `${OMNIRT_HOME}/model-repos/MuseTalk`.
 - **Root directory:** default `<omnirt>/models`, controlled by **`OMNIRT_MUSETALK_MODELS_DIR`**.
 - Layout must satisfy MuseTalk v1.5 loading (`musetalk/`, `sd-vae-ft-mse/`, `whisper/tiny.pt`, …)—see [`model_backends/musetalk/README.md`](https://github.com/datascale-ai/omnirt/blob/main/model_backends/musetalk/README.md).
+- **`sd-vae-ft-mse/`** should use the official Hugging Face `stabilityai/sd-vae-ft-mse` Diffusers files: `config.json` plus `diffusion_pytorch_model.safetensors`. `diffusion_pytorch_model.bin` can be used as a fallback, but Diffusers will warn about unsafe serialization.
 - **`whisper/tiny.pt`** must be the official **OpenAI `openai-whisper`** checkpoint (~72 MB). Do not rename a Hugging Face `pytorch_model.bin` and expect it to work.
+
+Example:
+
+```bash
+mkdir -p models/sd-vae-ft-mse
+wget -O models/sd-vae-ft-mse/config.json \
+  https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json
+wget -O models/sd-vae-ft-mse/diffusion_pytorch_model.safetensors \
+  https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.safetensors
+```
+
+If direct Hugging Face access is restricted, replace the domain with `https://hf-mirror.com`.
 
 ### 5. Inference variables (selection)
 
@@ -125,7 +138,8 @@ Set **`OMNIRT_MUSETALK_DEVICE=cuda`**, or keep **`auto`** on machines without NP
 | Symptom | Likely cause |
 |---------|----------------|
 | Missing `libhccl.so` | CANN `set_env.sh` not sourced or launcher path mismatch |
-| MuseTalk v1.5 fails to load | Incomplete weights; **`whisper/tiny.pt`** not the official OpenAI file (tiny XML placeholder) |
+| MuseTalk v1.5 fails to load | Incomplete weights; missing `config.json` under `sd-vae-ft-mse/`; **`whisper/tiny.pt`** not the official OpenAI file (tiny XML placeholder) |
+| VAE warns about unsafe serialization | `sd-vae-ft-mse/` only has `diffusion_pytorch_model.bin`; add the official `diffusion_pytorch_model.safetensors` |
 | `UnpicklingError` / Whisper load failure | PyTorch vs `openai-whisper` checkpoint compatibility—`musetalk_ws_server.py` patches loading for official `tiny.pt`; use current tree |
 | Toolkit directory owner warning | Often root-installed toolkit; usually harmless |
 | Misaligned mouth vs background | OpenTalking composer must paste using **infer crop boxes**—use an upstream-fixed `composer.py` |
