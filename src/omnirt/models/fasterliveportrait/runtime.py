@@ -45,6 +45,7 @@ class FasterLivePortraitSessionState:
     source_path: str | None = None
     source_prepared: bool = False
     reference_frame: np.ndarray | None = None
+    driving_frame_index: int = 0
     first_chunk_at: float = field(default_factory=time.monotonic)
 
 
@@ -110,6 +111,13 @@ class FasterLivePortraitRealtimeRuntime:
         if self.load_models:
             return self._render_model_chunk(session, pcm_s16le, state)
         return self._render_placeholder_chunk(session, pcm_s16le, state)
+
+    def render_driving_frame(self, session: RealtimeAvatarSession, frame_bytes: bytes) -> bytes:
+        """Render one video-clone frame driven by a browser camera JPEG/PNG."""
+        state = self._session_state(session)
+        if self.load_models:
+            return self._render_model_driving_frame(session, frame_bytes, state)
+        return self._render_placeholder_driving_frame(session, frame_bytes, state)
 
     def preload_reference(self, session: RealtimeAvatarSession) -> dict[str, object]:
         """Load the model bundle and prepare the reference before live audio arrives."""
@@ -287,6 +295,62 @@ class FasterLivePortraitRealtimeRuntime:
         state.motion_cursor += frame_count
         return encode_jpeg_sequence(frames)
 
+    def _render_placeholder_driving_frame(
+        self,
+        session: RealtimeAvatarSession,
+        frame_bytes: bytes,
+        state: FasterLivePortraitSessionState,
+    ) -> bytes:
+        driving = self._decode_rgb_image(frame_bytes)
+        if driving is None:
+            raise RealtimeAvatarError("bad_frame", "Driving frame must be a valid JPEG or PNG image.")
+        frame_no = state.driving_frame_index
+        state.driving_frame_index += 1
+        state.emitted_frames += 1
+        energy = float(np.std(driving.astype(np.float32)) / 128.0)
+        jpeg = self._placeholder_jpeg(
+            width=max(16, int(session.video.width)),
+            height=max(16, int(session.video.height)),
+            frame_no=frame_no,
+            energy=min(1.0, max(0.0, energy)),
+            head_multiplier=self._float_config(session, "head_motion_multiplier", 0.45),
+            expression_multiplier=self._float_config(session, "expression_multiplier", 1.0),
+        )
+        return encode_jpeg_sequence([jpeg])
+
+    def _render_model_driving_frame(
+        self,
+        session: RealtimeAvatarSession,
+        frame_bytes: bytes,
+        state: FasterLivePortraitSessionState,
+    ) -> bytes:
+        driving_rgb = self._decode_rgb_image(frame_bytes)
+        if driving_rgb is None:
+            raise RealtimeAvatarError("bad_frame", "Driving frame must be a valid JPEG or PNG image.")
+        bundle = self._load_model_bundle()
+        pipeline = bundle["pipeline"]
+        with self._pushd(self.fasterliveportrait_root):
+            self._apply_runtime_config(pipeline, session)
+            self._ensure_source_prepared(pipeline, session, state)
+            driving_bgr = driving_rgb[:, :, ::-1].copy()
+            try:
+                dri_crop, out_crop, out_org, _dri_motion_info = pipeline.run(
+                    driving_bgr,
+                    pipeline.src_imgs[0],
+                    pipeline.src_infos[0],
+                    first_frame=state.driving_frame_index == 0,
+                )
+            except Exception as exc:
+                raise FasterLivePortraitRuntimeError(f"FasterLivePortrait video-clone render failed: {exc}") from exc
+        if dri_crop is None and out_crop is None and out_org is None:
+            raise RealtimeAvatarError("no_driving_face", "No face was detected in the driving frame.")
+        frame = self._select_output_frame(out_crop, out_org, session)
+        if frame is None:
+            raise RealtimeAvatarError("no_driving_face", "No output frame was produced from the driving frame.")
+        state.driving_frame_index += 1
+        state.emitted_frames += 1
+        return encode_jpeg_sequence([self._encode_rgb_jpeg(frame, session)])
+
     def _run_realtime_motion(
         self,
         pipeline: Any,
@@ -362,7 +426,11 @@ class FasterLivePortraitRealtimeRuntime:
         disabled or unavailable, prefer the animated crop so the browser receives
         visible motion instead of repeated source frames.
         """
-        if out_org is not None and self._bool_config(session, "flag_stitching", False):
+        if (
+            out_org is not None
+            and self._bool_config(session, "flag_stitching", False)
+            and self._bool_config(session, "flag_pasteback", True)
+        ):
             return out_org
         return out_crop if out_crop is not None else out_org
 
@@ -648,7 +716,9 @@ class FasterLivePortraitRealtimeRuntime:
             "driving_multiplier",
             "cfg_scale",
             "flag_stitching",
+            "flag_pasteback",
             "flag_relative_motion",
+            "flag_crop_driving_video",
             "flag_normalize_lip",
             "flag_lip_retargeting",
             "lip_retargeting_multiplier",
@@ -797,6 +867,13 @@ class FasterLivePortraitRealtimeRuntime:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=self.jpeg_quality)
         return buffer.getvalue()
+
+    def _decode_rgb_image(self, frame_bytes: bytes) -> np.ndarray | None:
+        try:
+            image = Image.open(io.BytesIO(frame_bytes)).convert("RGB")
+        except Exception:
+            return None
+        return np.asarray(image, dtype=np.uint8)
 
     def _emit_frames(self, session: RealtimeAvatarSession) -> int:
         raw = session.runtime_config.get("emit_frames_per_chunk")

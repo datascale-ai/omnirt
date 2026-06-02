@@ -218,4 +218,5 @@ PLAN.md
 # OmniRT runtime artifacts: venvs, cloned model repos, state, checkpoints.
 # Project-maintained patches live under model_backends/ and remain trackable.
 .omnirt/
+.run-video-clone/
 kernel_meta/

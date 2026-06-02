@@ -30,6 +30,9 @@ def _avatar_model_ws_urls_from_env() -> dict[str, str]:
         raw = os.environ.get(f"OMNIRT_AVATAR_{model.upper()}_WS_URL", "").strip()
         if raw:
             mapping[model] = raw
+    video_clone_raw = os.environ.get("OMNIRT_AVATAR_FASTLIVEPORTRAIT_VIDEO_CLONE_WS_URL", "").strip()
+    if video_clone_raw:
+        mapping["fasterliveportrait_video_clone"] = video_clone_raw
     return mapping
 
 

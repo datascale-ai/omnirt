@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 
-from omnirt.server.realtime_avatar import RealtimeAvatarError
+from omnirt.server.realtime_avatar import MAGIC_FRAME, MAGIC_VIDEO, RealtimeAvatarError
 
 
 router = APIRouter()
@@ -34,6 +34,16 @@ async def _push_audio_chunk_async(
 ) -> tuple[bytes, dict[str, object]]:
     async with _avatar_runtime_lock(websocket):
         return await asyncio.to_thread(service.push_audio_chunk, session_id, payload)
+
+
+async def _push_video_frame_async(
+    websocket: WebSocket,
+    service: Any,
+    session_id: str,
+    payload: bytes,
+) -> tuple[bytes, dict[str, object]]:
+    async with _avatar_runtime_lock(websocket):
+        return await asyncio.to_thread(service.push_video_frame, session_id, payload)
 
 
 async def _preload_reference_async(
@@ -172,6 +182,7 @@ def _fasterliveportrait_config_from_payload(payload: dict[str, Any]) -> dict[str
         "lookahead_ms",
         "emit_frames_per_chunk",
         "disable_frame_interpolation",
+        "flag_crop_driving_video",
     ):
         if payload.get(key) is not None:
             config[key] = payload.get(key)
@@ -326,6 +337,19 @@ async def list_audio2video_models(request: Request) -> dict[str, object]:
         },
         {
             "id": FASTERLIVEPORTRAIT_MODEL_ID,
+            "connected": fasterliveportrait_connected,
+            "reason": (
+                "proxy"
+                if fasterliveportrait_proxy
+                else (
+                    "fasterliveportrait_runtime"
+                    if fasterliveportrait_connected
+                    else "runtime_not_enabled"
+                )
+            ),
+        },
+        {
+            "id": "fasterliveportrait_video_clone",
             "connected": fasterliveportrait_connected,
             "reason": (
                 "proxy"
@@ -595,6 +619,146 @@ async def fasterliveportrait_compatible_avatar(websocket: WebSocket):
         await _proxy_websocket(websocket, proxy_url)
         return
     await _flashtalk_compatible_loop(websocket, model=FASTERLIVEPORTRAIT_MODEL_ID)
+
+
+async def _fasterliveportrait_video_clone_loop(websocket: WebSocket) -> None:
+    await websocket.accept()
+    service = websocket.app.state.realtime_avatar_service
+    session_id: str | None = None
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if "text" in message and message["text"] is not None:
+                try:
+                    payload = json.loads(message["text"])
+                except json.JSONDecodeError:
+                    await websocket.send_json({"type": "error", "code": "bad_json", "message": "Invalid JSON"})
+                    continue
+                msg_type = payload.get("type")
+                if msg_type == "init":
+                    if session_id is not None:
+                        service.close_session(session_id)
+                        session_id = None
+                    try:
+                        config = {
+                            "seed": int(payload.get("seed", 9999)),
+                            **dict(websocket.app.state.default_request_config),
+                            "flag_stitching": True,
+                            "flag_pasteback": True,
+                            "head_only_pasteback": False,
+                            **_fasterliveportrait_config_from_payload(payload),
+                        }
+                        session = service.create_session(
+                            model=FASTERLIVEPORTRAIT_MODEL_ID,
+                            backend=websocket.app.state.default_backend,
+                            image_bytes=_decode_b64_image(payload.get("ref_image")),
+                            prompt=str(payload.get("prompt") or ""),
+                            config=config,
+                        )
+                        await _preload_existing_session_async(websocket, service, session.session_id)
+                    except RealtimeAvatarError as exc:
+                        await websocket.send_json(_error_payload(exc))
+                        continue
+                    except Exception as exc:
+                        await websocket.send_json(_runtime_error_payload(exc))
+                        continue
+                    session_id = session.session_id
+                    await websocket.send_json(
+                        {
+                            "type": "init_ok",
+                            "protocol": "video-clone",
+                            "model": session.model,
+                            "frame_magic": MAGIC_FRAME.decode("ascii"),
+                            "video_magic": MAGIC_VIDEO.decode("ascii"),
+                            "fps": session.video.fps,
+                            "height": session.video.height,
+                            "width": session.video.width,
+                            "runtime_config": dict(session.runtime_config),
+                        }
+                    )
+                elif msg_type == "close":
+                    if session_id is not None:
+                        service.close_session(session_id)
+                        session_id = None
+                    await websocket.send_json({"type": "close_ok"})
+                elif msg_type == "config_update":
+                    if session_id is None:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "code": "session_required",
+                                "message": "No active session. Send 'init' first.",
+                            }
+                        )
+                        continue
+                    raw_config = payload.get("config") or {}
+                    if not isinstance(raw_config, dict):
+                        await websocket.send_json({"type": "error", "code": "bad_config", "message": "config must be an object"})
+                        continue
+                    try:
+                        updated = await _update_runtime_config_async(
+                            websocket,
+                            service,
+                            session_id,
+                            raw_config,
+                        )
+                    except RealtimeAvatarError as exc:
+                        await websocket.send_json(_error_payload(exc))
+                        continue
+                    await websocket.send_json({"type": "config_ok", "updated": updated})
+                elif msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+                else:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "code": "unsupported_message",
+                            "message": f"Unknown message type: {msg_type}",
+                        }
+                    )
+            elif "bytes" in message and message["bytes"] is not None:
+                if session_id is None:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "code": "session_required",
+                            "message": "No active session. Send 'init' first.",
+                        }
+                    )
+                    continue
+                try:
+                    video_payload, _metrics = await _push_video_frame_async(
+                        websocket,
+                        service,
+                        session_id,
+                        message["bytes"],
+                    )
+                except RealtimeAvatarError as exc:
+                    await websocket.send_json(_error_payload(exc))
+                    continue
+                except Exception as exc:
+                    await websocket.send_json(_runtime_error_payload(exc))
+                    continue
+                await websocket.send_bytes(video_payload)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if session_id is not None:
+            service.close_session(session_id)
+
+
+@router.websocket("/v1/video2video/fasterliveportrait")
+@router.websocket("/v1/avatar/video-clone/fasterliveportrait")
+async def fasterliveportrait_video_clone(websocket: WebSocket):
+    """FasterLivePortrait video-clone WS: source avatar + driving camera frames."""
+
+    proxy_url = _avatar_model_ws_urls(websocket).get("fasterliveportrait_video_clone")
+    if proxy_url:
+        await _proxy_websocket(websocket, proxy_url)
+        return
+    await _fasterliveportrait_video_clone_loop(websocket)
 
 
 @router.websocket("/v1/avatar/realtime")

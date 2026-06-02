@@ -22,12 +22,14 @@ from omnirt.server import create_app  # noqa: E402
 from omnirt.server.realtime_avatar import (  # noqa: E402
     AvatarVideoSpec,
     MAGIC_AUDIO,
+    MAGIC_FRAME,
     MAGIC_VIDEO,
     RealtimeAvatarService,
     FakeRealtimeAvatarRuntime,
     RealtimeAvatarError,
     decode_jpeg_sequence,
     encode_jpeg_sequence,
+    split_frame_payload,
     _scale_video_to_max_long_edge,
 )  # noqa: E402
 
@@ -45,6 +47,10 @@ def _image_b64() -> str:
 
 def _audio_payload(chunk_samples: int) -> bytes:
     return MAGIC_AUDIO + (b"\0\0" * chunk_samples)
+
+
+def _frame_payload(frame: bytes | None = None) -> bytes:
+    return MAGIC_FRAME + (frame if frame is not None else _png_bytes((48, 48)))
 
 
 def _png_bytes(source: tuple[int, int] | np.ndarray) -> bytes:
@@ -70,6 +76,108 @@ def test_video_jpeg_sequence_rejects_malformed_frame_length() -> None:
         decode_jpeg_sequence(payload)
 
     assert exc.value.code == "bad_video_chunk"
+
+
+def test_frame_payload_round_trip() -> None:
+    jpeg = _png_bytes((32, 32))
+
+    assert split_frame_payload(MAGIC_FRAME + jpeg) == jpeg
+
+
+def test_frame_payload_rejects_bad_magic() -> None:
+    with pytest.raises(RealtimeAvatarError) as exc:
+        split_frame_payload(b"AUDI" + b"not-a-frame")
+
+    assert exc.value.code == "bad_frame_magic"
+
+
+def test_fasterliveportrait_video_clone_ws_init_frame_and_close() -> None:
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(
+        runtime=FasterLivePortraitRealtimeRuntime(load_models=False)
+    )
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/video2video/fasterliveportrait") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": base64.b64encode(_png_bytes((64, 64))).decode("ascii"),
+                "width": 96,
+                "height": 96,
+                "fps": 12,
+                "flag_crop_driving_video": True,
+                "animation_region": "all",
+                "driving_multiplier": 1.1,
+                "expression_multiplier": 1.2,
+                "head_motion_multiplier": 0.8,
+            }
+        )
+        init = ws.receive_json()
+        assert init["type"] == "init_ok"
+        assert init["model"] == FASTLIVEPORTRAIT_MODEL_ID
+        assert init["protocol"] == "video-clone"
+        assert init["frame_magic"] == "FRAM"
+        assert init["video_magic"] == "VIDX"
+        assert init["fps"] == 12
+
+        ws.send_bytes(_frame_payload())
+        video = ws.receive_bytes()
+        assert video[:4] == MAGIC_VIDEO
+        frames = decode_jpeg_sequence(video)
+        assert len(frames) == 1
+
+        session_id = next(iter(app.state.realtime_avatar_service._sessions))
+        session = app.state.realtime_avatar_service._sessions[session_id]
+        assert session.runtime_config["flag_crop_driving_video"] is True
+        assert session.runtime_config["flag_stitching"] is True
+        assert session.runtime_config["flag_pasteback"] is True
+        assert session.runtime_config["head_only_pasteback"] is False
+        assert session.runtime_config["driving_multiplier"] == 1.1
+        assert session.runtime_config["expression_multiplier"] == 1.2
+
+        ws.send_json({"type": "close"})
+        assert ws.receive_json()["type"] == "close_ok"
+        assert app.state.realtime_avatar_service._sessions == {}
+
+
+def test_video_clone_ws_requires_frame_magic() -> None:
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(
+        runtime=FasterLivePortraitRealtimeRuntime(load_models=False)
+    )
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/avatar/video-clone/fasterliveportrait") as ws:
+        ws.send_json({"type": "init", "ref_image": base64.b64encode(_png_bytes((64, 64))).decode("ascii")})
+        assert ws.receive_json()["type"] == "init_ok"
+        ws.send_bytes(MAGIC_AUDIO + b"not-a-jpeg")
+        error = ws.receive_json()
+        assert error["type"] == "error"
+        assert error["code"] == "bad_frame_magic"
+
+
+def test_audio2video_models_reports_fasterliveportrait_video_clone_runtime() -> None:
+    class FakeRouter:
+        runtime_kind = "router"
+        wav2lip = None
+        quicktalk = None
+        fasterliveportrait = object()
+
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(runtime=FakeRouter())
+    client = TestClient(app)
+
+    response = client.get("/v1/audio2video/models")
+
+    assert response.status_code == 200
+    payload = response.json()
+    statuses = {item["id"]: item for item in payload["statuses"]}
+    assert statuses["fasterliveportrait_video_clone"] == {
+        "id": "fasterliveportrait_video_clone",
+        "connected": True,
+        "reason": "fasterliveportrait_runtime",
+    }
 
 
 def test_wav2lip_scaled_video_dimensions_are_h264_safe() -> None:
@@ -234,6 +342,141 @@ def test_fasterliveportrait_runtime_emits_configured_frame_count() -> None:
     assert metrics["chunk_index"] == 1
     assert len(decode_jpeg_sequence(payload)) == 12
     assert runtime.session_state(session.session_id).emitted_frames == 12
+
+
+def test_fasterliveportrait_video_clone_prefers_full_frame_pasteback_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=_png_bytes((48, 72)),
+        config={"width": 48, "height": 72, "flag_stitching": True, "flag_pasteback": True},
+    )
+    state = runtime._session_state(session)
+    update_args: dict[str, object] = {}
+
+    class FakePipeline:
+        src_imgs = [np.zeros((72, 48, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        source_path = None
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            update_args.update(args)
+
+        def run(self, image, img_src, src_info, **kwargs):
+            driving_crop = np.zeros((32, 32, 3), dtype=np.uint8)
+            animated_crop = np.full((32, 32, 3), (240, 20, 20), dtype=np.uint8)
+            pasted_full_frame = np.full((72, 48, 3), (20, 220, 20), dtype=np.uint8)
+            return driving_crop, animated_crop, pasted_full_frame, ({}, None, None)
+
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"pipeline": FakePipeline()})
+
+    payload = runtime._render_model_driving_frame(session, _png_bytes((64, 64)), state)
+    frame = np.asarray(Image.open(io.BytesIO(decode_jpeg_sequence(payload)[0])).convert("RGB"))
+
+    assert update_args["flag_stitching"] is True
+    assert update_args["flag_pasteback"] is True
+    assert frame.shape == (72, 48, 3)
+    assert frame[:, :, 1].mean() > 180
+    assert frame[:, :, 0].mean() < 80
+
+
+def test_fasterliveportrait_runtime_config_update_accepts_reference_controls() -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=_png_bytes((32, 32)),
+        config={"width": 32, "height": 32},
+    )
+
+    updated = service.update_runtime_config(
+        session.session_id,
+        {
+            "flag_stitching": True,
+            "flag_pasteback": True,
+            "flag_relative_motion": False,
+            "flag_normalize_lip": False,
+            "flag_lip_retargeting": True,
+            "head_only_pasteback": False,
+            "cfg_scale": 1.2,
+            "width": 999,
+        },
+    )
+
+    assert updated == {
+        "flag_stitching": True,
+        "flag_pasteback": True,
+        "flag_relative_motion": False,
+        "flag_normalize_lip": False,
+        "flag_lip_retargeting": True,
+        "head_only_pasteback": False,
+        "cfg_scale": 1.2,
+    }
+    assert session.runtime_config["flag_pasteback"] is True
+    assert session.runtime_config["flag_relative_motion"] is False
+    assert session.video.width == 32
+
+
+def test_fasterliveportrait_video_clone_prefers_animated_crop_when_stitching_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = FasterLivePortraitRealtimeRuntime(load_models=False)
+    service = RealtimeAvatarService(runtime=runtime)
+    session = service.create_session(
+        model=FASTLIVEPORTRAIT_MODEL_ID,
+        backend="cpu-stub",
+        image_bytes=_png_bytes((32, 32)),
+        config={"width": 32, "height": 32, "flag_stitching": False},
+    )
+    state = runtime._session_state(session)
+
+    class FakePipeline:
+        src_imgs = [np.zeros((32, 32, 3), dtype=np.uint8)]
+        src_infos = ["src"]
+        source_path = None
+        run_kwargs = None
+
+        def init_vars(self):
+            pass
+
+        def prepare_source(self, source_path, **kwargs):
+            self.source_path = source_path
+            return True
+
+        def update_cfg(self, args):
+            pass
+
+        def run(self, image, img_src, src_info, **kwargs):
+            self.run_kwargs = dict(kwargs)
+            if "realtime" in kwargs:
+                raise TypeError("FasterLivePortraitPipeline._run() got multiple values for argument 'realtime'")
+            driving_crop = np.zeros((32, 32, 3), dtype=np.uint8)
+            animated_crop = np.full((32, 32, 3), (240, 20, 20), dtype=np.uint8)
+            static_pasteback = np.full((32, 32, 3), (20, 20, 240), dtype=np.uint8)
+            return driving_crop, animated_crop, static_pasteback, ({}, None, None)
+
+    fake_pipeline = FakePipeline()
+    monkeypatch.setattr(runtime, "_load_model_bundle", lambda: {"pipeline": fake_pipeline})
+
+    payload = runtime._render_model_driving_frame(session, _png_bytes((48, 48)), state)
+    frame = np.asarray(Image.open(io.BytesIO(decode_jpeg_sequence(payload)[0])).convert("RGB"))
+
+    assert fake_pipeline.run_kwargs == {"first_frame": True}
+    assert frame[:, :, 0].mean() > 200
+    assert frame[:, :, 2].mean() < 80
+    assert state.driving_frame_index == 1
 
 
 def test_fasterliveportrait_model_render_uses_realtime_run_path(monkeypatch: pytest.MonkeyPatch) -> None:

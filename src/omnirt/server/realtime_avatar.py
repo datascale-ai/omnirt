@@ -19,6 +19,7 @@ from omnirt.core.types import GenerateRequest
 
 
 MAGIC_AUDIO = b"AUDI"
+MAGIC_FRAME = b"FRAM"
 MAGIC_VIDEO = b"VIDX"
 
 RUNTIME_UPDATE_CONFIG_KEYS = {
@@ -34,6 +35,13 @@ RUNTIME_UPDATE_CONFIG_KEYS = {
     "mouth_corner_multiplier",
     "cheek_jaw_multiplier",
     "driving_multiplier",
+    "flag_crop_driving_video",
+    "flag_stitching",
+    "flag_pasteback",
+    "flag_relative_motion",
+    "flag_normalize_lip",
+    "flag_lip_retargeting",
+    "head_only_pasteback",
 }
 
 AudioFormat = Literal["pcm_s16le"]
@@ -182,6 +190,15 @@ def split_audio_payload(payload: bytes, expected_pcm_bytes: int) -> bytes:
             f"Expected {expected_pcm_bytes} bytes of pcm_s16le audio, got {len(pcm)}.",
         )
     return pcm
+
+
+def split_frame_payload(payload: bytes) -> bytes:
+    if len(payload) < 4 or payload[:4] != MAGIC_FRAME:
+        raise RealtimeAvatarError("bad_frame_magic", "Binary frame payload must start with FRAM magic.")
+    frame = payload[4:]
+    if not frame:
+        raise RealtimeAvatarError("bad_frame", "Frame payload must contain image bytes.")
+    return frame
 
 
 def _as_bool(value: object, *, default: bool = False) -> bool:
@@ -506,6 +523,7 @@ class RealtimeAvatarService:
             "cfg_scale",
             "cfg_cond",
             "flag_stitching",
+            "flag_pasteback",
             "flag_relative_motion",
             "flag_normalize_lip",
             "flag_lip_retargeting",
@@ -528,6 +546,7 @@ class RealtimeAvatarService:
             "lip_retargeting_max",
             "lip_retargeting_noise_floor",
             "driving_multiplier",
+            "flag_crop_driving_video",
             "head_only_pasteback",
             "source_path",
         }
@@ -594,6 +613,28 @@ class RealtimeAvatarService:
         pcm = split_audio_payload(payload, session.audio.chunk_bytes)
         started = time.monotonic()
         video_payload = self.runtime.render_chunk(session, pcm)
+        elapsed_ms = round((time.monotonic() - started) * 1000.0, 3)
+        session.chunk_index += 1
+        return video_payload, {
+            "type": "metrics",
+            "chunk_index": session.chunk_index,
+            "infer_ms": elapsed_ms,
+            "encode_ms": 0,
+        }
+
+    def push_video_frame(self, session_id: str, payload: bytes) -> tuple[bytes, dict[str, object]]:
+        session = self._get_session(session_id)
+        if session.cancelled:
+            raise RealtimeAvatarError("session_cancelled", "The avatar session has been cancelled.")
+        frame = split_frame_payload(payload)
+        render_frame = getattr(self.runtime, "render_driving_frame", None)
+        if not callable(render_frame):
+            raise RealtimeAvatarError(
+                "runtime_not_ready",
+                "The selected runtime does not support video-clone frame driving.",
+            )
+        started = time.monotonic()
+        video_payload = render_frame(session, frame)
         elapsed_ms = round((time.monotonic() - started) * 1000.0, 3)
         session.chunk_index += 1
         return video_payload, {

@@ -1095,6 +1095,16 @@ class AvatarRuntimeRouter:
             return self.fasterliveportrait.render_chunk(session, pcm_s16le)
         return self.fallback.render_chunk(session, pcm_s16le)
 
+    def render_driving_frame(self, session: RealtimeAvatarSession, frame_bytes: bytes) -> bytes:
+        if session.model == "fasterliveportrait" and self.fasterliveportrait is not None:
+            render = getattr(self.fasterliveportrait, "render_driving_frame", None)
+            if callable(render):
+                return render(session, frame_bytes)
+        render = getattr(self.fallback, "render_driving_frame", None)
+        if callable(render):
+            return render(session, frame_bytes)
+        raise Wav2LipRuntimeError(f"Video clone is not supported for model: {session.model}")
+
     def preload_reference(self, session: RealtimeAvatarSession) -> dict[str, object]:
         if session.model == "fasterliveportrait" and self.fasterliveportrait is not None:
             preload = getattr(self.fasterliveportrait, "preload_reference", None)
