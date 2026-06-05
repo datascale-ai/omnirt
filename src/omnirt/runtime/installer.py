@@ -8,6 +8,7 @@ from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import time
 
 from omnirt.runtime.manifest import RuntimeManifest
 from omnirt.runtime.paths import project_root
@@ -135,13 +136,9 @@ class RuntimeInstaller:
         elif self.manifest.python_path.is_file():
             commands.append(["skip", "venv", str(self.manifest.venv_dir), "already exists"])
         else:
-            commands.append(["python3", "-m", "venv", str(self.manifest.venv_dir)])
-        commands.extend(
-            [
-                self._bootstrap_pip_command(),
-                self._planned_install_requirements_command(),
-            ]
-        )
+            commands.append(self._create_venv_command())
+        commands.append(self._bootstrap_pip_command())
+        commands.extend(self._planned_install_requirements_commands())
         if self.manifest.checkpoint_url:
             commands.append(
                 self._plan_clone_or_update(
@@ -183,18 +180,92 @@ class RuntimeInstaller:
             return "FlashTalk checkpoint"
         return f"{self.manifest.name} checkpoint"
 
+    def _musetalk_torch_packages(self) -> list[str]:
+        if self.manifest.name != "musetalk" or self.manifest.device != "cuda":
+            return []
+        packages: list[str] = []
+        for line in self.manifest.requirements_file.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("torch==", "torchvision==", "torchaudio==")):
+                packages.append(stripped)
+        return packages
+
+    def _musetalk_non_torch_requirements_file(self) -> Path | None:
+        if self.manifest.name != "musetalk" or self.manifest.device != "cuda":
+            return None
+        target = self.manifest.runtime_dir / "requirements-musetalk-gpu-no-torch.txt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        lines = []
+        for line in self.manifest.requirements_file.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("torch==", "torchvision==", "torchaudio==")):
+                continue
+            lines.append(line)
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return target
+
     def _install_requirements_command(self) -> list[str]:
         command = [
             str(self.manifest.python_path),
             "-m",
             "pip",
             "install",
+            "--timeout",
+            "120",
+            "--retries",
+            "5",
             "-i",
             self.manifest.pip_index_url,
         ]
         if self.manifest.pip_extra_index_url:
             command.extend(["--extra-index-url", self.manifest.pip_extra_index_url])
         command.extend(["-r", str(self.manifest.requirements_file)])
+        return command
+
+    def _musetalk_torch_install_command(self) -> list[str] | None:
+        packages = self._musetalk_torch_packages()
+        if not packages:
+            return None
+        command = [
+            str(self.manifest.python_path),
+            "-m",
+            "pip",
+            "install",
+            "--timeout",
+            "120",
+            "--retries",
+            "5",
+            "-i",
+            self.manifest.pip_index_url,
+        ]
+        if self.manifest.name == "musetalk":
+            command.append("--no-deps")
+        if self.manifest.pip_extra_index_url:
+            command.extend(["--extra-index-url", self.manifest.pip_extra_index_url])
+        command.extend(packages)
+        return command
+
+    def _musetalk_non_torch_install_command(self) -> list[str] | None:
+        requirements_file = self._musetalk_non_torch_requirements_file()
+        if requirements_file is None:
+            return None
+        command = [
+            str(self.manifest.python_path),
+            "-m",
+            "pip",
+            "install",
+            "--timeout",
+            "120",
+            "--retries",
+            "5",
+            "-i",
+            self.manifest.pip_index_url,
+        ]
+        if self.manifest.pip_extra_index_url:
+            command.extend(["--extra-index-url", self.manifest.pip_extra_index_url])
+        if self.manifest.name == "musetalk":
+            command.append("--no-build-isolation")
+        command.extend(["-r", str(requirements_file)])
         return command
 
     def _bootstrap_pip_command(self) -> list[str]:
@@ -213,19 +284,39 @@ class RuntimeInstaller:
         return command
 
     def _install_requirements(self) -> None:
-        uv = shutil.which("uv")
-        if uv:
-            self._run(self._uv_install_requirements_command(uv))
-            return
-        self._run(self._install_requirements_command())
+        for command in self._planned_install_requirements_commands():
+            self._run(command, retries=2)
 
     def _planned_install_requirements_command(self) -> list[str]:
+        return self._planned_install_requirements_commands()[-1]
+
+    def _planned_install_requirements_commands(self) -> list[list[str]]:
         uv = shutil.which("uv")
         if uv:
-            return self._uv_install_requirements_command(uv)
-        return self._install_requirements_command()
+            return self._uv_install_requirements_commands(uv)
+        torch_command = self._musetalk_torch_install_command()
+        non_torch_command = self._musetalk_non_torch_install_command()
+        if torch_command is not None and non_torch_command is not None:
+            return [torch_command, non_torch_command]
+        return [self._install_requirements_command()]
 
-    def _uv_install_requirements_command(self, uv: str) -> list[str]:
+    def _uv_install_requirements_commands(self, uv: str) -> list[list[str]]:
+        torch_command = self._musetalk_torch_install_command()
+        requirements_file = self._musetalk_non_torch_requirements_file()
+        if torch_command is None or requirements_file is None:
+            return [self._uv_install_requirements_command(uv)]
+        non_torch_command = self._musetalk_non_torch_install_command()
+        if non_torch_command is None:
+            return [torch_command]
+        return [torch_command, non_torch_command]
+
+    def _uv_install_requirements_command(
+        self,
+        uv: str,
+        *,
+        requirements_file: Path | None = None,
+        no_build_isolation_chumpy: bool = True,
+    ) -> list[str]:
         command = [
             uv,
             "pip",
@@ -239,7 +330,10 @@ class RuntimeInstaller:
         ]
         if self.manifest.pip_extra_index_url:
             command.extend(["--extra-index-url", self.manifest.pip_extra_index_url])
-        command.extend(["-r", str(self.manifest.requirements_file)])
+        if self.manifest.name == "musetalk" and no_build_isolation_chumpy:
+            command.extend(["--no-build-isolation-package", "chumpy"])
+        if requirements_file is not None:
+            command.extend(["-r", str(requirements_file)])
         return command
 
     def _prepare_venv(self, *, recreate: bool) -> None:
@@ -248,7 +342,16 @@ class RuntimeInstaller:
         if self.manifest.python_path.is_file():
             self.commands.append(["skip", "venv", str(self.manifest.venv_dir), "already exists"])
             return
-        self._run(["python3", "-m", "venv", str(self.manifest.venv_dir)])
+        self._run(self._create_venv_command())
+
+    def _create_venv_command(self) -> list[str]:
+        uv = shutil.which("uv")
+        if uv:
+            return [uv, "venv", "--seed", "--python", self.manifest.python_version, str(self.manifest.venv_dir)]
+        versioned_python = shutil.which(f"python{self.manifest.python_version}")
+        if versioned_python:
+            return [versioned_python, "-m", "venv", str(self.manifest.venv_dir)]
+        return ["python3", "-m", "venv", str(self.manifest.venv_dir)]
 
     def _prepare_checkpoints(self, *, update: bool) -> None:
         if self.manifest.checkpoint_url:
@@ -371,9 +474,41 @@ class RuntimeInstaller:
             return ["error", label, str(directory), "path exists but is not usable"]
         return ["git", "clone", url, str(directory)]
 
-    def _run(self, command: list[str], *, env: dict[str, str] | None = None, allow_failure: bool = False) -> None:
+    def _runtime_install_timeout(self) -> int | None:
+        raw = os.environ.get("OMNIRT_RUNTIME_INSTALL_TIMEOUT", "1800").strip()
+        if not raw:
+            return None
+        try:
+            timeout = int(raw)
+        except ValueError as exc:
+            raise RuntimeError("OMNIRT_RUNTIME_INSTALL_TIMEOUT must be an integer number of seconds") from exc
+        if timeout <= 0:
+            return None
+        return timeout
+
+    def _run_once(self, command: list[str], *, env: dict[str, str] | None) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(command, env=env, check=False, timeout=self._runtime_install_timeout())
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(command, 124)
+
+    def _run(
+        self,
+        command: list[str],
+        *,
+        env: dict[str, str] | None = None,
+        allow_failure: bool = False,
+        retries: int = 0,
+    ) -> None:
         self.commands.append(command)
-        result = subprocess.run(command, env=env, check=False)
+        attempts = retries + 1
+        result = subprocess.CompletedProcess(command, 1)
+        for attempt in range(attempts):
+            result = self._run_once(command, env=env)
+            if result.returncode == 0 or allow_failure:
+                break
+            if attempt < attempts - 1:
+                time.sleep(5 * (attempt + 1))
         if result.returncode != 0 and not allow_failure:
             quoted = " ".join(shlex.quote(part) for part in command)
             raise RuntimeError(f"command failed ({result.returncode}): {quoted}")

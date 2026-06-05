@@ -18,9 +18,8 @@ install:
   requirements_file: ${OMNIRT_ROOT}/model_backends/musetalk/requirements-musetalk-gpu.txt
   repo_marker_dir: musetalk
   pip_index_url: https://pypi.tuna.tsinghua.edu.cn/simple
-  pip_extra_index_url: https://download.pytorch.org/whl/cu124
+  pip_extra_index_url: https://download.pytorch.org/whl/cu118
   hf_endpoint: https://hf-mirror.com
 
 launch:
   server_path: ${OMNIRT_ROOT}/model_backends/musetalk/musetalk_ws_server.py
-

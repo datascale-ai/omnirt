@@ -23,6 +23,7 @@ def test_load_flashtalk_runtime_manifest_uses_project_home_by_default(monkeypatc
 
 def test_load_musetalk_cuda_runtime_manifest(monkeypatch) -> None:
     monkeypatch.delenv("OMNIRT_HOME", raising=False)
+    monkeypatch.delenv("OMNIRT_MUSETALK_REPO", raising=False)
 
     manifest = load_manifest("musetalk", "cuda")
 
@@ -32,7 +33,8 @@ def test_load_musetalk_cuda_runtime_manifest(monkeypatch) -> None:
     assert manifest.repo_marker_dir == "musetalk"
     assert manifest.checkpoint_url is None
     assert manifest.wav2vec_repo_id is None
-    assert manifest.repo_dir == project_root() / ".omnirt" / "model-repos" / "MuseTalk"
+    assert manifest.python_version == "3.10"
+    assert manifest.repo_dir == (project_root() / ".omnirt" / "model-repos" / "MuseTalk").resolve()
     assert manifest.server_path == Path("model_backends/musetalk/musetalk_ws_server.py").resolve()
 
 
@@ -105,6 +107,102 @@ def test_musetalk_plan_only_manages_repo_and_venv(monkeypatch, tmp_path: Path) -
     assert not any("wav2vec" in command for command in commands for command in command)
 
 
+
+def test_musetalk_plan_installs_torch_before_other_requirements_with_uv(monkeypatch, tmp_path: Path) -> None:
+    from omnirt.runtime.installer import RuntimeInstaller
+
+    monkeypatch.setenv("OMNIRT_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    manifest = load_manifest("musetalk", "cuda")
+
+    commands = RuntimeInstaller(manifest).plan_commands(update=True)
+    assert ["/usr/bin/uv", "venv", "--seed", "--python", "3.10", str(manifest.venv_dir)] in commands
+    pip_installs = [
+        command
+        for command in commands
+        if command[:4] == [str(manifest.python_path), "-m", "pip", "install"]
+    ]
+    uv_installs = [command for command in commands if command[:3] == ["/usr/bin/uv", "pip", "install"]]
+
+    assert len(pip_installs) == 3
+    assert pip_installs[1][:6] == [str(manifest.python_path), "-m", "pip", "install", "--timeout", "120"]
+    assert "--no-deps" in pip_installs[1]
+    assert "torch==2.0.1+cu118" in pip_installs[1]
+    assert "torchvision==0.15.2+cu118" in pip_installs[1]
+    assert "torchaudio==2.0.2+cu118" in pip_installs[1]
+    assert "-r" not in pip_installs[1]
+    assert "-r" in pip_installs[2]
+    assert "--no-build-isolation" in pip_installs[2]
+    assert not uv_installs
+
+
+def test_musetalk_plan_falls_back_to_pip_when_uv_is_missing(monkeypatch, tmp_path: Path) -> None:
+    from omnirt.runtime.installer import RuntimeInstaller
+
+    monkeypatch.setenv("OMNIRT_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    manifest = load_manifest("musetalk", "cuda")
+
+    commands = RuntimeInstaller(manifest).plan_commands(update=True)
+    pip_installs = [
+        command
+        for command in commands
+        if command[:4] == [str(manifest.python_path), "-m", "pip", "install"]
+    ]
+
+    assert len(pip_installs) == 3
+    assert "--no-deps" in pip_installs[1]
+    assert "torch==2.0.1+cu118" in pip_installs[1]
+    assert "torchvision==0.15.2+cu118" in pip_installs[1]
+    assert "torchaudio==2.0.2+cu118" in pip_installs[1]
+    assert "-r" in pip_installs[2]
+    assert "--no-build-isolation" in pip_installs[2]
+
+
+def test_install_requirements_retries_transient_failures(monkeypatch, tmp_path: Path) -> None:
+    import subprocess
+
+    from omnirt.runtime.installer import RuntimeInstaller
+
+    monkeypatch.setenv("OMNIRT_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    manifest = load_manifest("musetalk", "cuda")
+    calls: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1 if len(calls) == 1 else 0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    RuntimeInstaller(manifest)._install_requirements()
+
+    assert calls[0] == calls[1]
+
+
+def test_run_uses_configurable_install_timeout(monkeypatch, tmp_path: Path) -> None:
+    import subprocess
+
+    from omnirt.runtime.installer import RuntimeInstaller
+
+    monkeypatch.setenv("OMNIRT_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("OMNIRT_RUNTIME_INSTALL_TIMEOUT", "7")
+    manifest = load_manifest("musetalk", "cuda")
+    seen: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        seen["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    RuntimeInstaller(manifest)._run(["python", "-m", "pip", "install", "torch"])
+
+    assert seen["timeout"] == 7
+
+
 def test_plan_recreate_venv_keeps_model_resources(monkeypatch, tmp_path: Path) -> None:
     from omnirt.runtime.installer import RuntimeInstaller
 
@@ -138,7 +236,7 @@ def test_recreate_venv_does_not_delete_model_resources(monkeypatch, tmp_path: Pa
 
     assert not (manifest.venv_dir / "old").exists()
     assert model_file.exists()
-    assert ["python3", "-m", "venv", str(manifest.venv_dir)] in installer.commands
+    assert str(manifest.venv_dir) in installer.commands[0]
 
 
 def test_patch_soulx_t5_import_default_device(monkeypatch, tmp_path: Path) -> None:
