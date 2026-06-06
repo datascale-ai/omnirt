@@ -48,10 +48,10 @@ pip install -r model_backends/musetalk/requirements-musetalk-ascend.txt
 
 ```bash
 pip install -r model_backends/musetalk/requirements-musetalk-gpu.txt \
-  --extra-index-url https://download.pytorch.org/whl/cu124
+  --extra-index-url https://download.pytorch.org/whl/cu118
 ```
 
-将 `cu124` 换成与你的驱动匹配的 PyTorch CUDA 变体。
+CUDA runtime 当前跟随 MuseTalk 官方 1.5 依赖组合：Python 3.10、PyTorch 2.0.1 + cu118、diffusers 0.30.2、transformers 4.39.2、accelerate 0.28.0。不要在这个 runtime 里直接升级到新的 PyTorch / diffusers / transformers；较新版本可能导入 `torch.xpu` 或 `torch.float8_e4m3fn`，与 torch 2.0.1 不兼容。
 
 ---
 
