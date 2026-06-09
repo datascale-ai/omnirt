@@ -437,6 +437,8 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                     if session_id is not None:
                         service.close_session(session_id)
                         session_id = None
+                    preload_result: dict[str, object] | None = None
+                    session = None
                     try:
                         config = {
                             "seed": int(payload.get("seed", 9999)),
@@ -472,9 +474,13 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             prompt=str(payload.get("prompt") or ""),
                             config=config,
                         )
-                        if model == FASTERLIVEPORTRAIT_MODEL_ID:
-                            await _preload_existing_session_async(websocket, service, session.session_id)
+                        session_id = session.session_id
+                        if model in {"quicktalk", FASTERLIVEPORTRAIT_MODEL_ID}:
+                            preload_result = await _preload_existing_session_async(websocket, service, session.session_id)
                     except RealtimeAvatarError as exc:
+                        if session_id is not None:
+                            service.close_session(session_id)
+                            session_id = None
                         await websocket.send_json({"type": "error", "message": str(exc), "code": exc.code})
                         continue
                     except Exception as exc:
@@ -483,7 +489,6 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             session_id = None
                         await websocket.send_json(_runtime_error_payload(exc))
                         continue
-                    session_id = session.session_id
                     await websocket.send_json(
                         {
                             "type": "init_ok",
@@ -500,6 +505,7 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             "template_mode": session.template_mode,
                             "preprocessed": session.preprocessed,
                             "lookahead_chunks": session.lookahead_chunks,
+                            "preload": preload_result,
                         }
                     )
                 elif msg_type == "close":

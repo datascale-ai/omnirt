@@ -2197,6 +2197,85 @@ def test_quicktalk_preload_endpoint_uses_runtime_cache(tmp_path: Path) -> None:
     assert quicktalk_runtime.calls[0].quicktalk_face_cache == str(cache)
 
 
+def test_quicktalk_ws_init_preloads_runtime(tmp_path: Path) -> None:
+    class FakeQuickTalkRuntime:
+        def __init__(self) -> None:
+            self.calls: list[object] = []
+
+        def preload_reference(self, session):
+            self.calls.append(session)
+            return {
+                "type": "preload_result",
+                "frames": 25,
+                "elapsed_ms": 10.0,
+                "cache_hit": False,
+            }
+
+    quicktalk_runtime = FakeQuickTalkRuntime()
+    app = create_app(default_backend="cpu-stub")
+    app.state.realtime_avatar_service = RealtimeAvatarService(
+        runtime=AvatarRuntimeRouter(
+            fallback=FakeRealtimeAvatarRuntime(),
+            quicktalk=quicktalk_runtime,
+        ),
+        allowed_frame_roots=[tmp_path],
+    )
+    client = TestClient(app)
+
+    with client.websocket_connect("/v1/audio2video/quicktalk") as ws:
+        ws.send_json(
+            {
+                "type": "init",
+                "ref_image": _image_b64(),
+                "width": 512,
+                "height": 512,
+            }
+        )
+        init = ws.receive_json()
+
+    assert init["type"] == "init_ok"
+    assert init["model"] == "quicktalk"
+    assert init["preload"]["type"] == "preload_result"
+    assert init["preload"]["cache_hit"] is False
+    assert len(quicktalk_runtime.calls) == 1
+
+
+def test_quicktalk_startup_preload_uses_configured_template(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from omnirt.models.quicktalk import runtime as quicktalk_runtime
+
+    calls: list[object] = []
+
+    class FakeQuickTalkRuntime:
+        def preload_reference(self, session):
+            calls.append(session)
+            return {
+                "type": "preload_result",
+                "frames": 25,
+                "elapsed_ms": 1.0,
+                "cache_hit": False,
+            }
+
+    template = tmp_path / "template.mp4"
+    template.write_bytes(b"template")
+    monkeypatch.setenv("OMNIRT_QUICKTALK_RUNTIME", "1")
+    monkeypatch.setenv("OMNIRT_ALLOWED_FRAME_ROOTS", str(tmp_path))
+    monkeypatch.setenv("OMNIRT_QUICKTALK_PRELOAD_TEMPLATE_VIDEO", str(template))
+    monkeypatch.setenv("OMNIRT_QUICKTALK_PRELOAD_WIDTH", "512")
+    monkeypatch.setenv("OMNIRT_QUICKTALK_PRELOAD_HEIGHT", "512")
+    monkeypatch.setattr(quicktalk_runtime, "QuickTalkRealtimeRuntime", FakeQuickTalkRuntime)
+
+    create_app(default_backend="cpu-stub")
+
+    assert len(calls) == 1
+    assert calls[0].model == "quicktalk"
+    assert calls[0].template_mode == "video"
+    assert calls[0].template_video == str(template.resolve())
+    assert calls[0].video.width == 512
+    assert calls[0].video.height == 512
+
 
 def test_quicktalk_runtime_evicts_old_workers_when_cache_limit_is_exceeded(
     tmp_path: Path,

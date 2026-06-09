@@ -56,3 +56,16 @@ def test_quicktalk_runtime_imports_without_cuda_extra(monkeypatch) -> None:
 
     assert runtime_v2.QuickTalkRebuild is not None
     assert runtime_worker.RealtimeV3Worker is not None
+
+
+def test_quicktalk_ascend_extra_keeps_converter_dependencies_separate() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+
+    quicktalk_deps = pyproject["project"]["optional-dependencies"]["quicktalk-ascend"]
+    normalized = [dep.split("[", 1)[0].split(">", 1)[0].split("=", 1)[0] for dep in quicktalk_deps]
+
+    assert "torch" in normalized
+    assert "kornia" in normalized
+    assert "onnxruntime" in normalized
+    assert "onnx" not in normalized
+    assert "onnx2torch" not in normalized

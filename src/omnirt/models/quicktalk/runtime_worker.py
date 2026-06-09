@@ -10,6 +10,8 @@ features incrementally and consume frames from ``generate_frames_from_reps``.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import subprocess
 import tempfile
@@ -82,6 +84,8 @@ class FastRestoreContext:
 
 
 class RealtimeV3Worker:
+    _AUDIO_FEATURE_CACHE_VERSION = 1
+
     def __init__(
         self,
         asset_root: Path,
@@ -124,7 +128,7 @@ class RealtimeV3Worker:
         if not self.frames:
             raise RuntimeError(f"No template frames read from {template_video}")
         self.face_det_results = self._load_or_build_template_cache(max_template_seconds)
-        self.restore_contexts = self._build_fast_restore_contexts()
+        self.restore_contexts = self._load_or_build_restore_contexts(max_template_seconds)
         self.frame_index = 0
         self.hn = np.zeros((2, 1, 576), dtype=np.float32)
         self.cn = np.zeros((2, 1, 576), dtype=np.float32)
@@ -209,6 +213,127 @@ class RealtimeV3Worker:
         print(f"v3_template_cache=miss face_detect_seconds={time.perf_counter() - start:.3f} frames={len(results)}", flush=True)
         return results
 
+    def _restore_context_cache_path(self, max_template_seconds: float | None) -> Path | None:
+        if self.v2.face_cache_dir is None:
+            return None
+        try:
+            stat = self.template_video.stat()
+            read_limit = max_template_seconds if max_template_seconds is not None else len(self.frames) / self.fps
+            payload = {
+                "version": 1,
+                "path": str(self.template_video.resolve()),
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+                "n_frames": len(self.frames),
+                "fps": round(float(self.fps), 6),
+                "read_limit": round(float(read_limit), 6),
+                "resolution": self.v2.resolution,
+                "aux_root": str(self.v2.aux_root.resolve()),
+                "scale_h": round(float(self.v2.scale_h), 6),
+                "scale_w": round(float(self.v2.scale_w), 6),
+                "neck_fade_start": self.neck_fade_start,
+                "neck_fade_end": self.neck_fade_end,
+            }
+        except OSError:
+            return None
+        key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:24]
+        return self.v2.face_cache_dir / f"restore_{key}.npz"
+
+    def _tensor_from_cache(self, value: np.ndarray, *, dtype: torch.dtype) -> torch.Tensor:
+        return torch.from_numpy(value).to(device=self.v2.device, dtype=dtype)
+
+    def _load_restore_context_cache(self, cache_path: Path) -> list[FastRestoreContext] | None:
+        if not cache_path.exists():
+            return None
+        start = time.perf_counter()
+        try:
+            data = np.load(str(cache_path), allow_pickle=False)
+            metadata = json.loads(str(data["metadata"].item()))
+            count = int(metadata["count"])
+            rois = metadata["rois"]
+            coords = metadata["coords"]
+            contexts: list[FastRestoreContext] = []
+            output_dtype = self.v2.dtype
+            for index in range(count):
+                contexts.append(
+                    FastRestoreContext(
+                        frame=data[f"frame_{index}"].copy(),
+                        face=data[f"face_{index}"].copy(),
+                        face_input=data[f"face_input_{index}"].astype(np.float32, copy=False),
+                        coords=[int(v) for v in coords[index]],
+                        affine=data[f"affine_{index}"].astype(np.float32, copy=False),
+                        roi=tuple(int(v) for v in rois[index]),  # type: ignore[arg-type]
+                        inv_affine_roi=self._tensor_from_cache(
+                            data[f"inv_affine_roi_{index}"].astype(np.float32, copy=False),
+                            dtype=output_dtype,
+                        ),
+                        frame_roi_t=self._tensor_from_cache(
+                            data[f"frame_roi_t_{index}"],
+                            dtype=output_dtype,
+                        ),
+                        hard_mask_roi_3d=self._tensor_from_cache(
+                            data[f"hard_mask_roi_3d_{index}"].astype(np.float32, copy=False),
+                            dtype=output_dtype,
+                        ),
+                        soft_mask_roi_3d=self._tensor_from_cache(
+                            data[f"soft_mask_roi_3d_{index}"].astype(np.float32, copy=False),
+                            dtype=output_dtype,
+                        ),
+                    )
+                )
+        except Exception as exc:
+            print(f"v3_restore_context_cache=bad path={cache_path} reason={exc}", flush=True)
+            return None
+        if len(contexts) != len(self.frames):
+            print(
+                f"v3_restore_context_cache=stale path={cache_path} frames={len(contexts)} expected={len(self.frames)}",
+                flush=True,
+            )
+            return None
+        print(
+            f"v3_restore_context_cache=hit frames={len(contexts)} "
+            f"load_seconds={time.perf_counter() - start:.3f} path={cache_path}",
+            flush=True,
+        )
+        return contexts
+
+    def _save_restore_context_cache(self, cache_path: Path, contexts: Sequence[FastRestoreContext]) -> None:
+        try:
+            maybe_mkdir(cache_path.parent)
+            metadata = {
+                "count": len(contexts),
+                "rois": [list(context.roi) for context in contexts],
+                "coords": [list(context.coords) for context in contexts],
+            }
+            arrays: dict[str, np.ndarray] = {
+                "metadata": np.asarray(json.dumps(metadata, sort_keys=True)),
+            }
+            for index, context in enumerate(contexts):
+                arrays[f"frame_{index}"] = np.asarray(context.frame)
+                arrays[f"face_{index}"] = np.asarray(context.face)
+                arrays[f"face_input_{index}"] = np.asarray(context.face_input, dtype=np.float32)
+                arrays[f"affine_{index}"] = np.asarray(context.affine, dtype=np.float32)
+                arrays[f"inv_affine_roi_{index}"] = context.inv_affine_roi.detach().cpu().numpy().astype(np.float32)
+                arrays[f"frame_roi_t_{index}"] = context.frame_roi_t.detach().cpu().numpy()
+                arrays[f"hard_mask_roi_3d_{index}"] = context.hard_mask_roi_3d.detach().cpu().numpy().astype(np.float32)
+                arrays[f"soft_mask_roi_3d_{index}"] = context.soft_mask_roi_3d.detach().cpu().numpy().astype(np.float32)
+            tmp_path = cache_path.with_suffix(".tmp.npz")
+            np.savez_compressed(str(tmp_path), **arrays)
+            tmp_path.replace(cache_path)
+            print(f"v3_restore_context_cache=write frames={len(contexts)} path={cache_path}", flush=True)
+        except Exception as exc:
+            print(f"v3_restore_context_cache=write_failed path={cache_path} reason={exc}", flush=True)
+
+    def _load_or_build_restore_contexts(self, max_template_seconds: float | None) -> list[FastRestoreContext]:
+        cache_path = self._restore_context_cache_path(max_template_seconds)
+        cached = self._load_restore_context_cache(cache_path) if cache_path is not None else None
+        if cached is not None:
+            return cached
+        contexts = self._build_fast_restore_contexts()
+        if cache_path is not None:
+            self._save_restore_context_cache(cache_path, contexts)
+        return contexts
+
     def _build_fast_restore_contexts(self) -> list[FastRestoreContext]:
         start = time.perf_counter()
         contexts: list[FastRestoreContext] = []
@@ -281,6 +406,122 @@ class RealtimeV3Worker:
         print(f"v3_restore_context_seconds={time.perf_counter() - start:.3f} frames={len(contexts)}", flush=True)
         return contexts
 
+    def _hubert_cache_identity(self) -> dict[str, object]:
+        files = []
+        for name in ("config.json", "preprocessor_config.json", "pytorch_model.bin", "model.safetensors"):
+            path = self.v2.hubert_path / name
+            if not path.exists():
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            files.append({"name": name, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+        return {
+            "path": str(self.v2.hubert_path.resolve()),
+            "files": files,
+            "device_type": self.v2.hubert_device.type,
+        }
+
+    def _audio_feature_cache_path(self, prefix: str, payload: dict[str, object]) -> Path | None:
+        if self.v2.face_cache_dir is None:
+            return None
+        key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:24]
+        return self.v2.face_cache_dir / f"{prefix}_{key}.npz"
+
+    def _load_audio_feature_cache(self, cache_path: Path, *, kind: str) -> tuple[list[np.ndarray], float] | None:
+        if not cache_path.exists():
+            return None
+        start = time.perf_counter()
+        try:
+            data = np.load(str(cache_path), allow_pickle=False)
+            metadata = json.loads(str(data["metadata"].item()))
+            if int(metadata.get("version", -1)) != self._AUDIO_FEATURE_CACHE_VERSION:
+                return None
+            reps_arr = data["reps"].astype(np.float32, copy=False)
+            if reps_arr.ndim != 3 or reps_arr.shape[1:] != (10, 1024):
+                return None
+            reps = [np.ascontiguousarray(reps_arr[index]) for index in range(reps_arr.shape[0])]
+        except Exception as exc:
+            print(f"v3_audio_feature_cache=bad kind={kind} path={cache_path} reason={exc}", flush=True)
+            return None
+        elapsed = time.perf_counter() - start
+        print(
+            f"v3_audio_feature_cache=hit kind={kind} frames={len(reps)} "
+            f"load_seconds={elapsed:.3f} path={cache_path}",
+            flush=True,
+        )
+        return reps, elapsed
+
+    def _save_audio_feature_cache(self, cache_path: Path, reps: Sequence[np.ndarray], *, kind: str) -> None:
+        if not reps:
+            return
+        try:
+            maybe_mkdir(cache_path.parent)
+            metadata = {
+                "version": self._AUDIO_FEATURE_CACHE_VERSION,
+                "kind": kind,
+                "frames": len(reps),
+            }
+            reps_arr = np.stack([np.asarray(rep, dtype=np.float32) for rep in reps], axis=0)
+            tmp_path = cache_path.with_suffix(".tmp.npz")
+            np.savez_compressed(
+                str(tmp_path),
+                metadata=np.asarray(json.dumps(metadata, sort_keys=True)),
+                reps=reps_arr,
+            )
+            tmp_path.replace(cache_path)
+            print(f"v3_audio_feature_cache=write kind={kind} frames={len(reps)} path={cache_path}", flush=True)
+        except Exception as exc:
+            print(f"v3_audio_feature_cache=write_failed kind={kind} path={cache_path} reason={exc}", flush=True)
+
+    def _wav_feature_cache_path(self, audio_path: Path) -> tuple[Path | None, int, int]:
+        with wave.open(str(audio_path), "rb") as wav:
+            audio_frames = int(wav.getnframes())
+            sample_rate = int(wav.getframerate())
+            sample_width = int(wav.getsampwidth())
+            channels = int(wav.getnchannels())
+        if sample_rate <= 0:
+            raise ValueError(f"Invalid WAV sample rate: {sample_rate}")
+        try:
+            stat = audio_path.stat()
+            payload = {
+                "version": self._AUDIO_FEATURE_CACHE_VERSION,
+                "kind": "wav",
+                "path": str(audio_path.resolve()),
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+                "audio_frames": audio_frames,
+                "sample_rate": sample_rate,
+                "sample_width": sample_width,
+                "channels": channels,
+                "fps": round(float(self.fps), 6),
+                "sync_offset": self.v2.sync_offset,
+                "hubert": self._hubert_cache_identity(),
+            }
+        except OSError:
+            return None, audio_frames, sample_rate
+        return self._audio_feature_cache_path("audio_wav", payload), audio_frames, sample_rate
+
+    def _pcm_feature_cache_path(self, pcm: np.ndarray, sample_rate: int) -> tuple[Path | None, np.ndarray]:
+        sample_rate = int(sample_rate)
+        if sample_rate <= 0:
+            raise ValueError(f"Invalid sample_rate: {sample_rate}")
+        pcm_arr = np.ascontiguousarray(np.asarray(pcm).reshape(-1))
+        pcm_hash = hashlib.sha256(pcm_arr.view(np.uint8)).hexdigest()
+        payload = {
+            "version": self._AUDIO_FEATURE_CACHE_VERSION,
+            "kind": "pcm",
+            "content_sha256": pcm_hash,
+            "dtype": str(pcm_arr.dtype),
+            "samples": int(pcm_arr.shape[0]),
+            "sample_rate": sample_rate,
+            "fps": round(float(self.fps), 6),
+            "sync_offset": self.v2.sync_offset,
+            "hubert": self._hubert_cache_identity(),
+        }
+        return self._audio_feature_cache_path("audio_pcm", payload), pcm_arr
+
     def _apply_neck_fade(self, soft_mask_roi_3d: torch.Tensor) -> torch.Tensor:
         if self.neck_fade_start is None or self.neck_fade_end is None:
             return soft_mask_roi_3d
@@ -300,27 +541,40 @@ class RealtimeV3Worker:
 
     def prepare_wav_features(self, audio_path: Path) -> tuple[list[np.ndarray], float]:
         start = time.perf_counter()
+        cache_path, audio_frames, sample_rate = self._wav_feature_cache_path(audio_path)
+        cached = self._load_audio_feature_cache(cache_path, kind="wav") if cache_path is not None else None
+        if cached is not None:
+            return cached
         repst = self.v2.extract_representations(audio_path)
-        with wave.open(str(audio_path), "rb") as wav:
-            audio_duration = float(wav.getnframes()) / float(wav.getframerate())
+        audio_duration = audio_frames / float(sample_rate)
         n_frames = max(1, int(audio_duration * self.fps))
         reps = self.v2.build_rep_chunks(repst, n_frames, self.fps)
-        return reps, time.perf_counter() - start
+        elapsed = time.perf_counter() - start
+        if cache_path is not None:
+            self._save_audio_feature_cache(cache_path, reps, kind="wav")
+        print(f"v3_audio_feature_cache=miss kind=wav frames={len(reps)} build_seconds={elapsed:.3f}", flush=True)
+        return reps, elapsed
 
     def prepare_pcm_features(
         self, pcm: np.ndarray, sample_rate: int
     ) -> tuple[list[np.ndarray], float]:
         """Same as ``prepare_wav_features`` but takes raw PCM, skipping tempfile I/O."""
         start = time.perf_counter()
-        repst = self.v2.extract_representations_pcm(pcm, sample_rate)
-        sample_count = int(np.asarray(pcm).reshape(-1).shape[0])
+        cache_path, pcm_arr = self._pcm_feature_cache_path(pcm, sample_rate)
+        cached = self._load_audio_feature_cache(cache_path, kind="pcm") if cache_path is not None else None
+        if cached is not None:
+            return cached
+        repst = self.v2.extract_representations_pcm(pcm_arr, sample_rate)
+        sample_count = int(pcm_arr.shape[0])
         sample_rate = int(sample_rate)
-        if sample_rate <= 0:
-            raise ValueError(f"Invalid sample_rate: {sample_rate}")
         audio_duration = sample_count / float(sample_rate)
         n_frames = max(1, int(audio_duration * self.fps))
         reps = self.v2.build_rep_chunks(repst, n_frames, self.fps)
-        return reps, time.perf_counter() - start
+        elapsed = time.perf_counter() - start
+        if cache_path is not None:
+            self._save_audio_feature_cache(cache_path, reps, kind="pcm")
+        print(f"v3_audio_feature_cache=miss kind=pcm frames={len(reps)} build_seconds={elapsed:.3f}", flush=True)
+        return reps, elapsed
 
     @staticmethod
     def _streaming_lookahead_chunks() -> int:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -40,6 +41,33 @@ def _avatar_model_ws_urls_from_env() -> dict[str, str]:
 
 def _runtime_enabled(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on", "opentalking"}
+
+
+def _quicktalk_startup_preload_config(default_request_config: dict[str, object]) -> dict[str, object] | None:
+    template_video = os.environ.get("OMNIRT_QUICKTALK_PRELOAD_TEMPLATE_VIDEO", "").strip()
+    template_frame_dir = os.environ.get("OMNIRT_QUICKTALK_PRELOAD_TEMPLATE_FRAME_DIR", "").strip()
+    if not template_video and not template_frame_dir:
+        return None
+
+    config: dict[str, object] = dict(default_request_config)
+    if template_video:
+        config.update({"template_mode": "video", "template_video": template_video})
+    else:
+        config.update({"template_mode": "frames", "template_frame_dir": template_frame_dir})
+
+    face_cache = os.environ.get("OMNIRT_QUICKTALK_PRELOAD_FACE_CACHE", "").strip()
+    if face_cache:
+        config["quicktalk_face_cache"] = face_cache
+    for key, env_key in (
+        ("width", "OMNIRT_QUICKTALK_PRELOAD_WIDTH"),
+        ("height", "OMNIRT_QUICKTALK_PRELOAD_HEIGHT"),
+        ("slice_len", "OMNIRT_QUICKTALK_PRELOAD_SLICE_LEN"),
+        ("sample_rate", "OMNIRT_QUICKTALK_PRELOAD_SAMPLE_RATE"),
+    ):
+        raw = os.environ.get(env_key, "").strip()
+        if raw:
+            config[key] = int(raw)
+    return config
 
 
 def _create_realtime_avatar_service(
@@ -82,7 +110,7 @@ def _create_realtime_avatar_service(
 
         fasterliveportrait_runtime = FasterLivePortraitRealtimeRuntime(load_models=True)
 
-    return RealtimeAvatarService(
+    service = RealtimeAvatarService(
         runtime=AvatarRuntimeRouter(
             fallback=FakeRealtimeAvatarRuntime(),
             wav2lip=Wav2LipRealtimeRuntime() if wav2lip_enabled else None,
@@ -91,6 +119,22 @@ def _create_realtime_avatar_service(
         ),
         allowed_frame_roots=allowed_frame_roots,
     )
+    if quicktalk_runtime is not None:
+        preload_config = _quicktalk_startup_preload_config(default_request_config)
+        if preload_config is not None:
+            if "template_video" in preload_config:
+                path = Path(str(preload_config["template_video"])).expanduser().resolve()
+            else:
+                path = Path(str(preload_config["template_frame_dir"])).expanduser().resolve()
+            allowed_roots = [Path(root).expanduser().resolve() for root in allowed_frame_roots]
+            if not any(path == root or root in path.parents for root in allowed_roots):
+                raise RuntimeError("OMNIRT_QUICKTALK_PRELOAD_* path must be under OMNIRT_ALLOWED_FRAME_ROOTS.")
+            service.preload_reference(
+                model="quicktalk",
+                backend=default_backend,
+                config=preload_config,
+            )
+    return service
 
 
 def create_app(

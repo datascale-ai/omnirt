@@ -10,8 +10,10 @@ from __future__ import annotations
 import io
 import hashlib
 import os
+import threading
 import time
 from collections import OrderedDict
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,43 @@ from omnirt.server.realtime_avatar import RealtimeAvatarSession, encode_jpeg_seq
 
 class QuickTalkRuntimeError(RuntimeError):
     """Raised when QuickTalk cannot initialize or render."""
+
+
+def _is_accelerator_available(kind: str) -> bool:
+    try:
+        torch = import_module("torch")
+    except Exception:
+        return False
+    if kind == "npu":
+        try:
+            import_module("torch_npu")
+        except Exception:
+            return False
+        npu = getattr(torch, "npu", None)
+        is_available = getattr(npu, "is_available", None) if npu is not None else None
+        return bool(is_available()) if callable(is_available) else False
+    if kind == "cuda":
+        cuda = getattr(torch, "cuda", None)
+        is_available = getattr(cuda, "is_available", None) if cuda is not None else None
+        return bool(is_available()) if callable(is_available) else False
+    return False
+
+
+def resolve_quicktalk_device(raw: str | None) -> str:
+    """Resolve QuickTalk's serving device.
+
+    ``auto`` keeps CUDA as the common developer default while allowing Ascend
+    hosts with ``torch_npu`` to start without hard-coded CUDA assumptions.
+    """
+
+    device = (raw or "").strip().lower()
+    if device and device != "auto":
+        return raw or "cuda:0"
+    if _is_accelerator_available("npu"):
+        return "npu:0"
+    if _is_accelerator_available("cuda"):
+        return "cuda:0"
+    return "cpu"
 
 
 class QuickTalkRealtimeRuntime:
@@ -45,8 +84,10 @@ class QuickTalkRealtimeRuntime:
             self.model_root,
             checkpoint or os.environ.get("OMNIRT_QUICKTALK_CHECKPOINT") or None,
         )
-        self.device = device or os.environ.get("OMNIRT_QUICKTALK_DEVICE", "cuda:0")
-        self.hubert_device = hubert_device or os.environ.get("OMNIRT_QUICKTALK_HUBERT_DEVICE") or self.device
+        self.device = resolve_quicktalk_device(device or os.environ.get("OMNIRT_QUICKTALK_DEVICE") or "auto")
+        self.hubert_device = resolve_quicktalk_device(
+            hubert_device or os.environ.get("OMNIRT_QUICKTALK_HUBERT_DEVICE") or self.device
+        )
         self.template_cache_dir = Path(
             template_cache_dir
             or os.environ.get("OMNIRT_QUICKTALK_TEMPLATE_CACHE_DIR")
@@ -62,6 +103,7 @@ class QuickTalkRealtimeRuntime:
         self.worker_cache_max = self._positive_int(os.environ.get("OMNIRT_QUICKTALK_WORKER_CACHE_MAX", "1"), 1)
         self._workers: OrderedDict[str, Any] = OrderedDict()
         self._states: dict[str, Any] = {}
+        self._worker_lock = threading.RLock()
 
     @staticmethod
     def _optional_float(raw: str | None) -> float | None:
@@ -233,6 +275,10 @@ class QuickTalkRealtimeRuntime:
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            npu = getattr(torch, "npu", None)
+            empty_cache = getattr(npu, "empty_cache", None) if npu is not None else None
+            if callable(empty_cache):
+                empty_cache()
         except Exception:
             return
 
@@ -242,35 +288,36 @@ class QuickTalkRealtimeRuntime:
             self._close_worker(old_worker)
 
     def _worker_for_with_cache_status(self, session: RealtimeAvatarSession) -> tuple[Any, bool]:
-        template_video = self._template_video_for(session)
-        face_cache_file = Path(session.quicktalk_face_cache) if session.quicktalk_face_cache else None
-        key = self._worker_key(template_video, face_cache_file)
-        worker = self._workers.get(key)
-        if worker is not None:
-            self._workers.move_to_end(key)
-            return worker, True
+        with self._worker_lock:
+            template_video = self._template_video_for(session)
+            face_cache_file = Path(session.quicktalk_face_cache) if session.quicktalk_face_cache else None
+            key = self._worker_key(template_video, face_cache_file)
+            worker = self._workers.get(key)
+            if worker is not None:
+                self._workers.move_to_end(key)
+                return worker, True
 
-        self.template_cache_dir.mkdir(parents=True, exist_ok=True)
-        worker = self._worker_class()(
-            asset_root=self.model_root,
-            template_video=template_video,
-            face_cache_dir=self.model_root / ".face_cache_v3",
-            face_cache_file=face_cache_file,
-            batch_size=self.batch_size,
-            device=self.device,
-            output_transform="bgr",
-            scale_h=self.scale_h,
-            scale_w=self.scale_w,
-            resolution=self.resolution,
-            max_template_seconds=self.max_template_seconds,
-            neck_fade_start=self.neck_fade_start,
-            neck_fade_end=self.neck_fade_end,
-            hubert_device=self.hubert_device,
-            checkpoint=self.checkpoint,
-        )
-        self._workers[key] = worker
-        self._enforce_worker_cache_limit()
-        return worker, False
+            self.template_cache_dir.mkdir(parents=True, exist_ok=True)
+            worker = self._worker_class()(
+                asset_root=self.model_root,
+                template_video=template_video,
+                face_cache_dir=self.model_root / ".face_cache_v3",
+                face_cache_file=face_cache_file,
+                batch_size=self.batch_size,
+                device=self.device,
+                output_transform="bgr",
+                scale_h=self.scale_h,
+                scale_w=self.scale_w,
+                resolution=self.resolution,
+                max_template_seconds=self.max_template_seconds,
+                neck_fade_start=self.neck_fade_start,
+                neck_fade_end=self.neck_fade_end,
+                hubert_device=self.hubert_device,
+                checkpoint=self.checkpoint,
+            )
+            self._workers[key] = worker
+            self._enforce_worker_cache_limit()
+            return worker, False
 
     def _worker_for(self, session: RealtimeAvatarSession):
         worker, _cache_hit = self._worker_for_with_cache_status(session)
@@ -278,10 +325,11 @@ class QuickTalkRealtimeRuntime:
 
     def render_chunk(self, session: RealtimeAvatarSession, pcm_s16le: bytes) -> bytes:
         worker = self._worker_for(session)
-        state = self._states.get(session.session_id)
-        if state is None:
-            state = worker.make_state()
-            self._states[session.session_id] = state
+        with self._worker_lock:
+            state = self._states.get(session.session_id)
+            if state is None:
+                state = worker.make_state()
+                self._states[session.session_id] = state
         frames = self._render_frames(worker, state, session, pcm_s16le)
         return encode_jpeg_sequence(frames)
 
@@ -330,8 +378,10 @@ class QuickTalkRealtimeRuntime:
 
         started = time.monotonic()
         worker, cache_hit = self._worker_for_with_cache_status(session)
-        state = worker.make_state()
-        self._states[session.session_id] = state
+        with self._worker_lock:
+            state_cache_hit = session.session_id in self._states
+            state = worker.make_state()
+            self._states[session.session_id] = state
         restore_contexts = getattr(worker, "restore_contexts", None)
         frames = len(restore_contexts) if restore_contexts is not None else None
         warmup_started = time.monotonic()
@@ -356,6 +406,8 @@ class QuickTalkRealtimeRuntime:
             "warmup_ms": warmup_ms,
             "warmup_chunks": warmup_chunks,
             "warmup_frames": len(warmup_frames),
+            "state_cache_hit": state_cache_hit,
+            "resident_workers": len(self._workers),
         }
 
     @staticmethod
@@ -368,4 +420,5 @@ class QuickTalkRealtimeRuntime:
         return encoded.tobytes()
 
     def close_session(self, session_id: str) -> None:
-        self._states.pop(session_id, None)
+        with self._worker_lock:
+            self._states.pop(session_id, None)

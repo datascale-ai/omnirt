@@ -67,6 +67,25 @@ def _load_hubert_classes() -> tuple[Any, Any]:
     return Wav2Vec2FeatureExtractor, HubertModel
 
 
+def ensure_torch_npu_for_device(device: torch.device | str) -> None:
+    """Load torch_npu when QuickTalk is explicitly placed on an Ascend NPU."""
+
+    raw = str(device).strip().lower()
+    if not raw.startswith("npu"):
+        return
+    try:
+        import torch_npu  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError("QuickTalk NPU runtime requires torch_npu to be installed.") from exc
+
+
+def accelerator_dtype(device: torch.device | str) -> torch.dtype:
+    raw = str(device).strip().lower()
+    if raw.startswith(("cuda", "npu")):
+        return torch.float16
+    return torch.float32
+
+
 def run_cmd(cmd: Sequence[str]) -> None:
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if proc.returncode != 0:
@@ -131,6 +150,7 @@ class AlignRestore:
         device: torch.device | str = "cpu",
         dtype: torch.dtype = torch.float16,
     ) -> None:
+        ensure_torch_npu_for_device(device)
         if align_points != 3:
             raise NotImplementedError("Only 3-point alignment is reconstructed")
         self.upscale_factor = 1
@@ -287,6 +307,7 @@ class AlignRestore:
 
 class FaceDetector:
     def __init__(self, model_root: Path, device: torch.device | str, det_size: int = INSIGHTFACE_DETECT_SIZE) -> None:
+        ensure_torch_npu_for_device(device)
         self.device = torch.device(device)
         providers = ["CUDAExecutionProvider"] if self.device.type == "cuda" else ["CPUExecutionProvider"]
         FaceAnalysis = _load_face_analysis()
@@ -391,8 +412,9 @@ class QuickTalkRebuild:
         self.resolution = resolution
         self.video_padding_seconds = max(0.0, float(video_padding_seconds))
         self.face_cache_dir = face_cache_dir
+        ensure_torch_npu_for_device(device)
         self.device = torch.device(device)
-        self.dtype = torch.float16 if self.device.type == "cuda" else torch.float32
+        self.dtype = accelerator_dtype(self.device)
         self.output_transform = output_transform
         self.debug_dir = debug_dir
         self.debug_frames = debug_frames
@@ -403,13 +425,15 @@ class QuickTalkRebuild:
 
         # HuBERT can run on a separate device from the torch checkpoint and
         # restore path. By default it follows the main device.
-        self.hubert_device = (
-            torch.device(hubert_device) if hubert_device else self.device
-        )
+        if hubert_device:
+            ensure_torch_npu_for_device(hubert_device)
+            self.hubert_device = torch.device(hubert_device)
+        else:
+            self.hubert_device = self.device
         Wav2Vec2FeatureExtractor, HubertModel = _load_hubert_classes()
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(str(self.hubert_path))
         self.hubert_model = HubertModel.from_pretrained(str(self.hubert_path)).to(self.hubert_device)
-        if self.hubert_device.type == "cuda":
+        if self.hubert_device.type in {"cuda", "npu"}:
             self.hubert_model = self.hubert_model.half()
         self.hubert_model.eval()
         if self.debug_dir is not None:
@@ -592,7 +616,7 @@ class QuickTalkRebuild:
         if wav.size < min_samples:
             wav = np.pad(wav, (0, min_samples - wav.size), mode="constant")
         inputs = self.feature_extractor(wav, sampling_rate=sr, return_tensors="pt").input_values.to(self.hubert_device)
-        if self.hubert_device.type == "cuda":
+        if self.hubert_device.type in {"cuda", "npu"}:
             inputs = inputs.half()
         outputs = self.hubert_model(inputs)
         return outputs.last_hidden_state.permute(0, 2, 1).detach().cpu().numpy()
