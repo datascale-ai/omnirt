@@ -121,6 +121,7 @@ class RealtimeAvatarSession:
     mouth_metadata: dict[str, Any] = field(default_factory=dict)
     runtime_config: dict[str, Any] = field(default_factory=dict)
     chunk_index: int = 0
+    lookahead_chunks: int = 0
     cancelled: bool = False
     created_at: float = field(default_factory=time.monotonic)
 
@@ -134,6 +135,7 @@ class RealtimeAvatarSession:
             "template_mode": self.template_mode,
             "wav2lip_postprocess_mode": self.wav2lip_postprocess_mode,
             "preprocessed": self.preprocessed,
+            "lookahead_chunks": self.lookahead_chunks,
             "mouth_metadata": self.mouth_metadata,
             "runtime_config": dict(self.runtime_config),
         }
@@ -148,8 +150,6 @@ class RealtimeAvatarSession:
 
 
 def encode_jpeg_sequence(jpeg_frames: List[bytes]) -> bytes:
-    if not jpeg_frames:
-        raise RealtimeAvatarError("empty_video_chunk", "At least one JPEG frame is required.")
     payload = bytearray(MAGIC_VIDEO)
     payload.extend(struct.pack("<I", len(jpeg_frames)))
     for frame in jpeg_frames:
@@ -162,8 +162,8 @@ def decode_jpeg_sequence(payload: bytes) -> List[bytes]:
     if len(payload) < 8 or payload[:4] != MAGIC_VIDEO:
         raise RealtimeAvatarError("bad_video_chunk", "Video payload must start with VIDX magic.")
     frame_count = struct.unpack("<I", payload[4:8])[0]
-    if frame_count <= 0:
-        raise RealtimeAvatarError("bad_video_chunk", "Video payload must contain at least one frame.")
+    if frame_count < 0:
+        raise RealtimeAvatarError("bad_video_chunk", "Video payload contains an invalid frame count.")
     offset = 8
     frames: List[bytes] = []
     for _ in range(frame_count):
@@ -236,6 +236,27 @@ def _quicktalk_max_long_edge() -> int:
         return max(0, int(raw))
     except ValueError:
         return 0
+
+
+def _quicktalk_realtime_chunk_ms() -> float:
+    raw = os.environ.get("OMNIRT_QUICKTALK_REALTIME_CHUNK_MS", "160").strip()
+    try:
+        return max(40.0, float(raw))
+    except ValueError:
+        return 160.0
+
+
+def _quicktalk_default_slice_len(sample_rate: int, fps: int) -> int:
+    chunk_ms = _quicktalk_realtime_chunk_ms()
+    return max(1, int(round(float(fps) * chunk_ms / 1000.0)))
+
+
+def _quicktalk_streaming_lookahead_chunks() -> int:
+    raw = os.environ.get("OMNIRT_QUICKTALK_STREAMING_LOOKAHEAD_CHUNKS", "1").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 1
 
 
 def _scale_video_to_max_long_edge(video: "AvatarVideoSpec", max_long_edge: int) -> "AvatarVideoSpec":
@@ -484,9 +505,13 @@ class RealtimeAvatarService:
             )
             quicktalk_face_cache_str = str(quicktalk_face_cache_path)
         sample_rate = int(config.get("sample_rate", 16000))
-        emit_frames = int(config.get("emit_frames_per_chunk", config.get("slice_len", 28)))
+        requested_fps = int(config.get("fps", 25))
+        default_slice_len = 28
+        if model == "quicktalk" and config.get("slice_len") is None and config.get("chunk_samples") is None:
+            default_slice_len = _quicktalk_default_slice_len(sample_rate, 25)
+        emit_frames = int(config.get("emit_frames_per_chunk", config.get("slice_len", default_slice_len)))
         video = AvatarVideoSpec(
-            fps=int(config.get("fps", 25)),
+            fps=requested_fps,
             width=int(config.get("width", 416)),
             height=int(config.get("height", 704)),
             frame_count=int(config.get("frame_num", 29)),
@@ -577,6 +602,7 @@ class RealtimeAvatarService:
             preprocessed=preprocessed,
             mouth_metadata=mouth_metadata,
             runtime_config=runtime_config,
+            lookahead_chunks=_quicktalk_streaming_lookahead_chunks() if model == "quicktalk" else 0,
         )
         self._sessions[session.session_id] = session
         return session
@@ -682,6 +708,9 @@ class RealtimeAvatarService:
     def cancel_session(self, session_id: str) -> None:
         session = self._get_session(session_id)
         session.cancelled = True
+        close_session = getattr(self.runtime, "close_session", None)
+        if callable(close_session):
+            close_session(session_id)
 
     def close_session(self, session_id: str) -> None:
         close_session = getattr(self.runtime, "close_session", None)

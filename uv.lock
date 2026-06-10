@@ -2873,13 +2873,11 @@ name = "omnirt"
 version = "0.1.0a0"
 source = { editable = "." }
 dependencies = [
-    { name = "grpcio" },
     { name = "imageio" },
     { name = "imageio-ffmpeg" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pillow" },
-    { name = "protobuf" },
     { name = "pyyaml" },
 ]
 
@@ -2928,6 +2926,11 @@ fasterliveportrait = [
     { name = "tqdm" },
     { name = "transformers" },
 ]
+indextts = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "uvicorn", extra = ["standard"] },
+]
 quicktalk-converter = [
     { name = "onnx" },
     { name = "onnx2torch" },
@@ -2960,6 +2963,8 @@ runtime = [
 ]
 server = [
     { name = "fastapi" },
+    { name = "grpcio" },
+    { name = "protobuf" },
     { name = "pydantic" },
     { name = "python-multipart" },
     { name = "sse-starlette" },
@@ -2978,11 +2983,12 @@ wav2lip-cuda = [
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "diffusers", marker = "extra == 'runtime'", specifier = ">=0.37.1" },
+    { name = "fastapi", marker = "extra == 'indextts'", specifier = ">=0.110" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.110" },
     { name = "ffmpeg-python", marker = "extra == 'fasterliveportrait'", specifier = ">=0.2" },
     { name = "funasr", marker = "extra == 'asr'", specifier = ">=1.2" },
     { name = "gradio", marker = "extra == 'fasterliveportrait'", specifier = ">=5.0" },
-    { name = "grpcio", specifier = ">=1.60" },
+    { name = "grpcio", marker = "extra == 'server'", specifier = ">=1.60" },
     { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.60" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26" },
     { name = "huggingface-hub", marker = "extra == 'fasterliveportrait'", specifier = ">=0.20" },
@@ -3017,7 +3023,8 @@ requires-dist = [
     { name = "opencv-python-headless", marker = "extra == 'runtime'", specifier = ">=4.8" },
     { name = "opencv-python-headless", marker = "extra == 'wav2lip-cuda'", specifier = ">=4.8" },
     { name = "pillow", specifier = ">=10.0" },
-    { name = "protobuf", specifier = ">=5.26" },
+    { name = "protobuf", marker = "extra == 'server'", specifier = ">=5.26" },
+    { name = "pydantic", marker = "extra == 'indextts'", specifier = ">=2.5" },
     { name = "pydantic", marker = "extra == 'server'", specifier = ">=2.5" },
     { name = "pymdown-extensions", marker = "extra == 'docs'", specifier = ">=10.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -3046,9 +3053,10 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'fasterliveportrait'", specifier = ">=4.51" },
     { name = "transformers", marker = "extra == 'quicktalk-cuda'", specifier = ">=4.51" },
     { name = "transformers", marker = "extra == 'runtime'", specifier = ">=4.51" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'indextts'", specifier = ">=0.27" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.27" },
 ]
-provides-extras = ["dev", "docs", "runtime", "asr", "wav2lip-cuda", "quicktalk-cuda", "quicktalk-converter", "fasterliveportrait", "server"]
+provides-extras = ["dev", "docs", "runtime", "asr", "wav2lip-cuda", "quicktalk-cuda", "quicktalk-converter", "indextts", "fasterliveportrait", "server"]
 
 [[package]]
 name = "onnx"

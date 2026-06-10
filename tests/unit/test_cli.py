@@ -29,6 +29,16 @@ def test_build_parser_accepts_serve_avatar_ws_command() -> None:
     assert args.compat == "flashtalk"
 
 
+
+
+def test_build_parser_accepts_serve_text2audio_command() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["serve-text2audio", "--host", "127.0.0.1", "--port", "9012"])
+
+    assert args.command == "serve-text2audio"
+    assert args.host == "127.0.0.1"
+    assert args.port == 9012
+
 def test_request_from_args_builds_text2image_request() -> None:
     parser = build_parser()
     args = parser.parse_args(

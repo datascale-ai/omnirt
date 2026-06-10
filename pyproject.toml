@@ -19,8 +19,6 @@ dependencies = [
   "numpy>=1.24",
   "PyYAML>=6.0",
   "Pillow>=10.0",
-  "grpcio>=1.60",
-  "protobuf>=5.26",
 ]
 
 [project.optional-dependencies]
@@ -77,6 +75,11 @@ quicktalk-converter = [
   "onnx2torch>=1.5",
   "onnxruntime>=1.18",
 ]
+indextts = [
+  "fastapi>=0.110",
+  "pydantic>=2.5",
+  "uvicorn[standard]>=0.27",
+]
 fasterliveportrait = [
   "ffmpeg-python>=0.2",
   "gradio>=5.0",
@@ -101,6 +104,8 @@ fasterliveportrait = [
 ]
 
 server = [
+  "grpcio>=1.60",
+  "protobuf>=5.26",
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
   "pydantic>=2.5",

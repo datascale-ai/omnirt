@@ -28,3 +28,31 @@ def test_quicktalk_serving_extra_keeps_converter_dependencies_separate() -> None
     assert any(dep.startswith("onnx>=") for dep in converter_deps)
     assert any(dep.startswith("onnx2torch>=") for dep in converter_deps)
     assert any(dep.startswith("onnxruntime") for dep in converter_deps)
+
+
+def test_quicktalk_runtime_imports_without_cuda_extra(monkeypatch) -> None:
+    import builtins
+    import importlib
+    import sys
+
+    blocked = {"insightface", "kornia", "transformers"}
+    real_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name.split(".", 1)[0] in blocked:
+            raise ModuleNotFoundError(name)
+        return real_import(name, *args, **kwargs)
+
+    for module_name in [
+        "omnirt.models.quicktalk.runtime_v2",
+        "omnirt.models.quicktalk.runtime_worker",
+    ]:
+        sys.modules.pop(module_name, None)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    runtime_v2 = importlib.import_module("omnirt.models.quicktalk.runtime_v2")
+    runtime_worker = importlib.import_module("omnirt.models.quicktalk.runtime_worker")
+
+    assert runtime_v2.QuickTalkRebuild is not None
+    assert runtime_worker.RealtimeV3Worker is not None

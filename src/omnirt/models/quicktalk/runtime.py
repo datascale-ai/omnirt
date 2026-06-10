@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import hashlib
 import os
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -281,14 +282,48 @@ class QuickTalkRealtimeRuntime:
         if state is None:
             state = worker.make_state()
             self._states[session.session_id] = state
-        pcm = np.frombuffer(pcm_s16le, dtype=np.int16).copy()
-        reps, _feature_seconds = worker.prepare_pcm_features(pcm, session.audio.sample_rate)
-        frames = []
-        for frame in worker.generate_frames_from_reps(reps, state=state):
-            frames.append(self._encode_jpeg_bgr(frame))
-        if not frames:
-            raise QuickTalkRuntimeError("QuickTalk produced no frames for audio chunk.")
+        frames = self._render_frames(worker, state, session, pcm_s16le)
         return encode_jpeg_sequence(frames)
+
+    def _render_frames(
+        self,
+        worker: Any,
+        state: Any,
+        session: RealtimeAvatarSession,
+        pcm_s16le: bytes,
+    ) -> list[bytes]:
+        total_started = time.perf_counter()
+        pcm = np.frombuffer(pcm_s16le, dtype=np.int16).copy()
+        prepare_streaming = getattr(worker, "prepare_streaming_pcm_features", None)
+        feature_started = time.perf_counter()
+        if callable(prepare_streaming):
+            reps, _feature_seconds = prepare_streaming(pcm, session.audio.sample_rate, state=state)
+        else:
+            reps, _feature_seconds = worker.prepare_pcm_features(pcm, session.audio.sample_rate)
+        feature_elapsed = time.perf_counter() - feature_started
+
+        generate_started = time.perf_counter()
+        generated_frames = list(worker.generate_frames_from_reps(reps, state=state)) if reps else []
+        generate_elapsed = time.perf_counter() - generate_started
+
+        encode_started = time.perf_counter()
+        frames = []
+        for frame in generated_frames:
+            frames.append(self._encode_jpeg_bgr(frame))
+        encode_elapsed = time.perf_counter() - encode_started
+        total_elapsed = time.perf_counter() - total_started
+        if total_elapsed >= 0.2 or session.chunk_index == 0:
+            print(
+                "quicktalk_render_chunk "
+                f"session={session.session_id} chunk={session.chunk_index} "
+                f"samples={pcm.size} reps={len(reps)} frames={len(frames)} "
+                f"feature_ms={feature_elapsed * 1000.0:.1f} "
+                f"generate_ms={generate_elapsed * 1000.0:.1f} "
+                f"encode_ms={encode_elapsed * 1000.0:.1f} "
+                f"total_ms={total_elapsed * 1000.0:.1f}",
+                flush=True,
+            )
+        return frames
 
     def preload_reference(self, session: RealtimeAvatarSession) -> dict[str, object]:
         import time
@@ -299,12 +334,28 @@ class QuickTalkRealtimeRuntime:
         self._states[session.session_id] = state
         restore_contexts = getattr(worker, "restore_contexts", None)
         frames = len(restore_contexts) if restore_contexts is not None else None
+        warmup_started = time.monotonic()
+        warmup_payload = b"\0\0" * max(1, int(session.audio.chunk_samples))
+        warmup_chunks = max(1, int(getattr(session, "lookahead_chunks", 0) or 0) + 1)
+        warmup_frames: list[bytes] = []
+        for _ in range(warmup_chunks):
+            warmup_frames = self._render_frames(worker, state, session, warmup_payload)
+        warmup_ms = round((time.monotonic() - warmup_started) * 1000.0, 3)
+        reset = getattr(state, "reset", None)
+        if callable(reset):
+            reset()
+        else:
+            state = worker.make_state()
+            self._states[session.session_id] = state
         return {
             "type": "preload_result",
             "frames": frames,
             "elapsed_ms": round((time.monotonic() - started) * 1000.0, 3),
             "cache_hit": cache_hit,
             "cache_source": "worker",
+            "warmup_ms": warmup_ms,
+            "warmup_chunks": warmup_chunks,
+            "warmup_frames": len(warmup_frames),
         }
 
     @staticmethod

@@ -10,23 +10,21 @@ features incrementally and consume frames from ``generate_frames_from_reps``.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import tempfile
 import time
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Sequence
 
 import cv2
-import kornia
 import numpy as np
 import torch
 import torch.nn.functional as F
-from kornia.filters import gaussian_blur2d
-from kornia.geometry.transform import invert_affine_transform, warp_affine
 
-from .runtime_v2 import QuickTalkRebuild, ensure_ffmpeg, maybe_mkdir, run_cmd
+from .runtime_v2 import QuickTalkRebuild, _load_kornia_ops, ensure_ffmpeg, maybe_mkdir, run_cmd
 
 
 @dataclass
@@ -56,9 +54,13 @@ class RealtimeV3SessionState:
     frame_index: int = 0
     hn: np.ndarray | None = None
     cn: np.ndarray | None = None
+    pcm_history: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int16))
+    pending_pcm: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int16))
 
     def reset(self) -> None:
         self.frame_index = 0
+        self.pcm_history = np.zeros(0, dtype=np.int16)
+        self.pending_pcm = np.zeros(0, dtype=np.int16)
         if self.hn is not None:
             self.hn.fill(0)
         if self.cn is not None:
@@ -214,6 +216,7 @@ class RealtimeV3Worker:
         device = self.v2.device
         restore_dtype = restorer.dtype
         output_dtype = self.v2.dtype
+        kornia, gaussian_blur2d, invert_affine_transform, warp_affine = _load_kornia_ops()
         for frame, (face, coords, affine) in zip(self.frames, self.face_det_results):
             h, w = frame.shape[:2]
             face_rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
@@ -319,6 +322,74 @@ class RealtimeV3Worker:
         reps = self.v2.build_rep_chunks(repst, n_frames, self.fps)
         return reps, time.perf_counter() - start
 
+    @staticmethod
+    def _streaming_lookahead_chunks() -> int:
+        raw = os.environ.get("OMNIRT_QUICKTALK_STREAMING_LOOKAHEAD_CHUNKS", "1")
+        try:
+            return max(0, int(str(raw).strip()))
+        except ValueError:
+            return 1
+
+    @staticmethod
+    def _streaming_frame_count(pcm: np.ndarray, sample_rate: int, fps: float) -> int:
+        sample_count = int(np.asarray(pcm).reshape(-1).size)
+        return max(1, int((sample_count / float(sample_rate)) * float(fps)))
+
+    def prepare_streaming_pcm_features(
+        self,
+        pcm: np.ndarray,
+        sample_rate: int,
+        *,
+        state: RealtimeV3SessionState,
+    ) -> tuple[list[np.ndarray], float]:
+        """Build current-frame reps with rolling history and optional future context."""
+        pcm_arr = np.asarray(pcm, dtype=np.int16).reshape(-1)
+        sample_rate = int(sample_rate)
+        if sample_rate <= 0:
+            raise ValueError(f"Invalid sample_rate: {sample_rate}")
+        history = np.asarray(getattr(state, "pcm_history", np.zeros(0, dtype=np.int16)), dtype=np.int16).reshape(-1)
+        pending = np.asarray(getattr(state, "pending_pcm", np.zeros(0, dtype=np.int16)), dtype=np.int16).reshape(-1)
+        lookahead_chunks = self._streaming_lookahead_chunks()
+        if lookahead_chunks > 0 and pending.size == 0:
+            state.pending_pcm = pcm_arr.copy()
+            return [], 0.0
+
+        target = pending if lookahead_chunks > 0 else pcm_arr
+        future = pcm_arr if lookahead_chunks > 0 else np.zeros(0, dtype=np.int16)
+        parts = [part for part in (history, target, future) if part.size]
+        combined = np.concatenate(parts).astype(np.int16, copy=False) if parts else np.zeros(0, dtype=np.int16)
+        reps, elapsed = self.prepare_pcm_features(combined, sample_rate)
+
+        history_frames = self._streaming_frame_count(history, sample_rate, self.fps) if history.size else 0
+        target_frames = self._streaming_frame_count(target, sample_rate, self.fps)
+        if history_frames:
+            reps = reps[history_frames:]
+        reps = reps[:target_frames]
+
+        context_ms = float(os.environ.get("OMNIRT_QUICKTALK_STREAMING_CONTEXT_MS", "640"))
+        max_history_samples = max(0, int(round(sample_rate * max(0.0, context_ms) / 1000.0)))
+        history_source = np.concatenate((history, target)).astype(np.int16, copy=False) if history.size else target
+        if max_history_samples > 0 and history_source.size > max_history_samples:
+            state.pcm_history = history_source[-max_history_samples:].copy()
+        else:
+            state.pcm_history = history_source.copy()
+        state.pending_pcm = future.copy()
+        return reps, elapsed
+
+    def flush_streaming_pcm_features(
+        self,
+        sample_rate: int,
+        *,
+        state: RealtimeV3SessionState,
+    ) -> tuple[list[np.ndarray], float]:
+        pending = np.asarray(getattr(state, "pending_pcm", np.zeros(0, dtype=np.int16)), dtype=np.int16).reshape(-1)
+        if pending.size == 0:
+            return [], 0.0
+        silence = np.zeros_like(pending)
+        reps, elapsed = self.prepare_streaming_pcm_features(silence, sample_rate, state=state)
+        state.pending_pcm = np.zeros(0, dtype=np.int16)
+        return reps, elapsed
+
     def _template_item(self, state: RealtimeV3SessionState | None = None) -> FastRestoreContext:
         n = len(self.restore_contexts)
         if state is not None:
@@ -340,6 +411,7 @@ class RealtimeV3Worker:
         restorer = self.v2.image_processor.restorer
         # 调用方已保证 ``patch_t`` 在目标 device + dtype 上，这里不再 ``.to``
         # 触发额外搬运，仅 unsqueeze 一次即可（GPU 操作）。
+        _, _, _, warp_affine = _load_kornia_ops()
         face_t = patch_t.unsqueeze(0)
         inv_face = warp_affine(
             face_t,

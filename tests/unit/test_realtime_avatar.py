@@ -69,6 +69,13 @@ def test_video_jpeg_sequence_round_trip() -> None:
     assert decode_jpeg_sequence(payload) == [b"jpeg-1", b"jpeg-2"]
 
 
+def test_video_jpeg_sequence_allows_empty_priming_chunk() -> None:
+    payload = encode_jpeg_sequence([])
+
+    assert payload[:4] == MAGIC_VIDEO
+    assert decode_jpeg_sequence(payload) == []
+
+
 def test_video_jpeg_sequence_rejects_malformed_frame_length() -> None:
     payload = MAGIC_VIDEO + struct.pack("<I", 1) + struct.pack("<I", 99) + b"tiny"
 
@@ -1603,6 +1610,26 @@ def test_native_realtime_avatar_ws_flow() -> None:
         assert ws.receive_json()["type"] == "session.closed"
 
 
+def test_realtime_avatar_cancel_releases_runtime_session_state() -> None:
+    closed: list[str] = []
+
+    class RuntimeWithState(FakeRealtimeAvatarRuntime):
+        def close_session(self, session_id: str) -> None:
+            closed.append(session_id)
+
+    service = RealtimeAvatarService(runtime=RuntimeWithState())
+    session = service.create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((32, 32)),
+        config={"chunk_samples": 16, "width": 32, "height": 32},
+    )
+
+    service.cancel_session(session.session_id)
+
+    assert closed == [session.session_id]
+    assert service._sessions[session.session_id].cancelled is True
+
+
 def test_wav2lip_init_accepts_postprocess_mode_and_metadata() -> None:
     client = TestClient(create_app(default_backend="cpu-stub"))
     metadata = {
@@ -1784,6 +1811,55 @@ def test_quicktalk_video_dimensions_respect_max_long_edge(monkeypatch: pytest.Mo
     assert init["fps"] == 25
 
 
+def test_quicktalk_defaults_to_low_latency_streaming_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OMNIRT_QUICKTALK_REALTIME_CHUNK_MS", "160")
+    monkeypatch.delenv("OMNIRT_QUICKTALK_STREAMING_LOOKAHEAD_CHUNKS", raising=False)
+    service = RealtimeAvatarService()
+
+    session = service.create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((64, 64)),
+        config={"width": 64, "height": 64},
+    )
+
+    assert session.video.fps == 25
+    assert session.video.slice_len == 4
+    assert session.audio.chunk_samples == 2560
+    assert session.lookahead_chunks == 1
+
+
+def test_quicktalk_can_disable_streaming_lookahead_for_latency_experiments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OMNIRT_QUICKTALK_REALTIME_CHUNK_MS", "160")
+    monkeypatch.setenv("OMNIRT_QUICKTALK_STREAMING_LOOKAHEAD_CHUNKS", "0")
+    service = RealtimeAvatarService()
+
+    session = service.create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((64, 64)),
+        config={"width": 64, "height": 64},
+    )
+
+    assert session.video.slice_len == 4
+    assert session.audio.chunk_samples == 2560
+    assert session.lookahead_chunks == 0
+
+
+def test_quicktalk_explicit_slice_len_keeps_legacy_chunk_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OMNIRT_QUICKTALK_REALTIME_CHUNK_MS", "160")
+    service = RealtimeAvatarService()
+
+    session = service.create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((64, 64)),
+        config={"width": 64, "height": 64, "slice_len": 28},
+    )
+
+    assert session.video.slice_len == 28
+    assert session.audio.chunk_samples == 17920
+
+
 def test_quicktalk_init_accepts_asset_face_cache_path(tmp_path: Path) -> None:
     cache_path = tmp_path / "quicktalk" / "face_cache_v3_900.npz"
     cache_path.parent.mkdir()
@@ -1855,6 +1931,179 @@ def test_quicktalk_static_template_video_uses_session_dimensions(tmp_path: Path)
         assert int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 512
     finally:
         cap.release()
+
+
+def test_quicktalk_runtime_uses_streaming_pcm_feature_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from omnirt.models.quicktalk import runtime as quicktalk_runtime
+
+    class FakeState:
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+
+    class FakeWorker:
+        def make_state(self) -> FakeState:
+            return FakeState()
+
+        def prepare_streaming_pcm_features(self, pcm, sample_rate, *, state):
+            state.calls.append(int(pcm.size))
+            return [np.zeros((10, 1024), dtype=np.float32)], 0.0
+
+        def generate_frames_from_reps(self, reps, state=None):
+            yield np.zeros((16, 16, 3), dtype=np.uint8)
+
+    runtime = quicktalk_runtime.QuickTalkRealtimeRuntime(
+        model_root=tmp_path / "model",
+        checkpoint=tmp_path / "quicktalk.pth",
+        template_cache_dir=tmp_path / "templates",
+    )
+    monkeypatch.setattr(runtime, "_worker_for", lambda session: FakeWorker())
+    session = RealtimeAvatarService().create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((64, 64)),
+        config={"chunk_samples": 2560, "slice_len": 4, "width": 64, "height": 64},
+    )
+
+    payload = b"\0\0" * session.audio.chunk_samples
+    runtime.render_chunk(session, payload)
+    runtime.render_chunk(session, payload)
+
+    state = runtime._states[session.session_id]
+    assert state.calls == [2560, 2560]
+
+
+def test_quicktalk_streaming_features_delay_until_lookahead_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
+    from omnirt.models.quicktalk.runtime_worker import RealtimeV3SessionState, RealtimeV3Worker
+
+    monkeypatch.setenv("OMNIRT_QUICKTALK_STREAMING_CONTEXT_MS", "100")
+    monkeypatch.setenv("OMNIRT_QUICKTALK_STREAMING_LOOKAHEAD_CHUNKS", "1")
+
+    worker = object.__new__(RealtimeV3Worker)
+    worker.fps = 25
+    seen: list[tuple[int, int]] = []
+
+    def fake_prepare_pcm_features(pcm, sample_rate):
+        arr = np.asarray(pcm, dtype=np.int16).reshape(-1)
+        seen.append((int(arr[0]) if arr.size else -1, int(arr[-1]) if arr.size else -1))
+        frames = max(1, int(arr.size / sample_rate * worker.fps))
+        return [np.full((10, 1024), idx, dtype=np.float32) for idx in range(frames)], 0.0
+
+    worker.prepare_pcm_features = fake_prepare_pcm_features  # type: ignore[method-assign]
+    state = RealtimeV3SessionState()
+    first = np.full(1600, 1, dtype=np.int16)
+    second = np.full(1600, 2, dtype=np.int16)
+    third = np.full(1600, 3, dtype=np.int16)
+
+    reps0, _ = worker.prepare_streaming_pcm_features(first, 16000, state=state)
+    reps1, _ = worker.prepare_streaming_pcm_features(second, 16000, state=state)
+    reps2, _ = worker.prepare_streaming_pcm_features(third, 16000, state=state)
+    flush, _ = worker.flush_streaming_pcm_features(16000, state=state)
+
+    assert reps0 == []
+    assert len(reps1) == 2
+    assert len(reps2) == 2
+    assert len(flush) == 2
+    assert seen == [(1, 2), (1, 3), (2, 0)]
+    assert state.pcm_history.size == 1600
+    assert state.pending_pcm.size == 0
+
+
+def test_quicktalk_streaming_features_match_full_audio_frame_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from omnirt.models.quicktalk.runtime_worker import RealtimeV3SessionState, RealtimeV3Worker
+
+    monkeypatch.setenv("OMNIRT_QUICKTALK_STREAMING_CONTEXT_MS", "500")
+    monkeypatch.setenv("OMNIRT_QUICKTALK_STREAMING_LOOKAHEAD_CHUNKS", "1")
+
+    worker = object.__new__(RealtimeV3Worker)
+    worker.fps = 25
+
+    def fake_prepare_pcm_features(pcm, sample_rate):
+        arr = np.asarray(pcm, dtype=np.int16).reshape(-1)
+        frames = max(1, int(arr.size / sample_rate * worker.fps))
+        # Encode the frame's first sample into the rep so the test can verify
+        # that streaming returns the same temporal frame windows as full audio.
+        reps = []
+        for frame_idx in range(frames):
+            start = int(frame_idx * sample_rate / worker.fps)
+            reps.append(np.full((10, 1024), int(arr[min(start, arr.size - 1)]), dtype=np.float32))
+        return reps, 0.0
+
+    worker.prepare_pcm_features = fake_prepare_pcm_features  # type: ignore[method-assign]
+    state = RealtimeV3SessionState()
+    chunks = [
+        np.full(2560, value, dtype=np.int16)
+        for value in (10, 20, 30, 40)
+    ]
+
+    stream_reps: list[np.ndarray] = []
+    for chunk in chunks:
+        reps, _ = worker.prepare_streaming_pcm_features(chunk, 16000, state=state)
+        stream_reps.extend(reps)
+    flush, _ = worker.flush_streaming_pcm_features(16000, state=state)
+    stream_reps.extend(flush)
+
+    full_reps, _ = worker.prepare_pcm_features(np.concatenate(chunks), 16000)
+
+    assert [int(rep[0, 0]) for rep in stream_reps[: len(full_reps)]] == [
+        int(rep[0, 0]) for rep in full_reps
+    ]
+
+
+def test_quicktalk_runtime_preload_warms_streaming_chunk(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMNIRT_QUICKTALK_STREAMING_LOOKAHEAD_CHUNKS", raising=False)
+    from omnirt.models.quicktalk import runtime as quicktalk_runtime
+
+    class FakeState:
+        pass
+
+    class FakeWorker:
+        restore_contexts = [object()]
+
+        def __init__(self) -> None:
+            self.state = FakeState()
+            self.streaming_calls: list[int] = []
+            self.generate_states: list[object] = []
+
+        def make_state(self) -> FakeState:
+            return self.state
+
+        def prepare_streaming_pcm_features(self, pcm, sample_rate, *, state):
+            self.streaming_calls.append(int(np.asarray(pcm).size))
+            assert sample_rate == 16000
+            assert state is self.state
+            return [np.zeros((10, 1024), dtype=np.float32)], 0.0
+
+        def generate_frames_from_reps(self, reps, state=None):
+            self.generate_states.append(state)
+            yield np.zeros((16, 16, 3), dtype=np.uint8)
+
+    worker = FakeWorker()
+    runtime = quicktalk_runtime.QuickTalkRealtimeRuntime(
+        model_root=tmp_path / "model",
+        checkpoint=tmp_path / "quicktalk.pth",
+        template_cache_dir=tmp_path / "templates",
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_worker_for_with_cache_status",
+        lambda session: (worker, False),
+    )
+    session = RealtimeAvatarService().create_session(
+        model="quicktalk",
+        image_bytes=_png_bytes((64, 64)),
+        config={"chunk_samples": 2560, "slice_len": 4, "width": 64, "height": 64},
+    )
+
+    result = runtime.preload_reference(session)
+
+    assert worker.streaming_calls == [2560, 2560]
+    assert worker.generate_states == [worker.state, worker.state]
+    assert result["warmup_chunks"] == 2
+    assert result["warmup_frames"] == 1
 
 
 def test_quicktalk_runtime_passes_asset_face_cache_to_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1966,6 +2215,12 @@ def test_quicktalk_runtime_evicts_old_workers_when_cache_limit_is_exceeded(
         def make_state(self) -> object:
             return object()
 
+        def prepare_streaming_pcm_features(self, pcm, sample_rate, *, state):
+            return [np.zeros((10, 1024), dtype=np.float32)], 0.0
+
+        def generate_frames_from_reps(self, reps, state=None):
+            yield np.zeros((16, 16, 3), dtype=np.uint8)
+
         def close(self) -> None:
             closed.append(self.template_video.name)
 
@@ -2027,6 +2282,12 @@ def test_quicktalk_runtime_preload_reports_worker_cache_hit(
 
         def make_state(self) -> object:
             return object()
+
+        def prepare_streaming_pcm_features(self, pcm, sample_rate, *, state):
+            return [np.zeros((10, 1024), dtype=np.float32)], 0.0
+
+        def generate_frames_from_reps(self, reps, state=None):
+            yield np.zeros((16, 16, 3), dtype=np.uint8)
 
     monkeypatch.setattr(
         quicktalk_runtime.QuickTalkRealtimeRuntime,
