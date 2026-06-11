@@ -61,3 +61,13 @@ def test_registered_modular_model_families_expose_execution_mode() -> None:
     assert get_model("flux-dev", task="text2image").execution_mode == "modular"
     assert get_model("flux2.dev", task="text2image").execution_mode == "modular"
     assert get_model("wan2.2-t2v-14b", task="text2video").execution_mode == "modular"
+
+
+def test_indextts_is_registered_as_text2audio_model() -> None:
+    ensure_registered()
+    spec = get_model("indextts", task="text2audio")
+
+    assert spec.capabilities.tier == "adjacent"
+    assert spec.capabilities.realtime is True
+    assert spec.capabilities.artifact_kind == "audio"
+    assert "quick_streaming_tokens" in spec.capabilities.supported_config

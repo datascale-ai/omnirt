@@ -1,5 +1,7 @@
 """OmniRT public package interface."""
 
+import importlib
+
 from omnirt import core
 from omnirt import models
 from omnirt import requests
@@ -19,6 +21,7 @@ from omnirt.core.types import (
 )
 
 _LAZY_API_NAMES = {"describe_model", "generate", "list_available_models", "pipeline", "validate"}
+_LAZY_SUBMODULE_NAMES = {"server"}
 
 
 def __getattr__(name: str):
@@ -26,6 +29,10 @@ def __getattr__(name: str):
         from omnirt import api
 
         value = getattr(api, name)
+        globals()[name] = value
+        return value
+    if name in _LAZY_SUBMODULE_NAMES:
+        value = importlib.import_module(f"omnirt.{name}")
         globals()[name] = value
         return value
     raise AttributeError(f"module 'omnirt' has no attribute {name!r}")
@@ -52,4 +59,5 @@ __all__ = [
     "core",
     "models",
     "requests",
+    "server",
 ]

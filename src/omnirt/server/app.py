@@ -16,7 +16,9 @@ from omnirt.server.routes.generate import router as generate_router
 from omnirt.server.routes.health import router as health_router
 from omnirt.server.routes.jobs import router as jobs_router
 from omnirt.server.routes.openai import router as openai_router
+from omnirt.server.routes.text2audio import router as text2audio_router
 from omnirt.telemetry import OtlpExporter, PrometheusMetrics, TraceRecorder
+from omnirt.models.indextts import create_indextts_runtime_from_env
 
 
 def _allowed_frame_roots_from_env() -> list[str]:
@@ -151,10 +153,12 @@ def create_app(
         default_backend=default_backend,
         default_request_config=app.state.default_request_config,
     )
+    app.state.indextts_runtime = create_indextts_runtime_from_env() if _runtime_enabled("OMNIRT_INDEXTTS_RUNTIME") else None
     app.add_middleware(ApiKeyMiddleware, api_keys=load_api_keys(api_key_file))
     app.include_router(health_router)
     app.include_router(generate_router)
     app.include_router(jobs_router)
     app.include_router(avatar_router)
+    app.include_router(text2audio_router)
     app.include_router(openai_router)
     return app

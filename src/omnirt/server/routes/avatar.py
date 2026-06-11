@@ -499,6 +499,7 @@ async def _flashtalk_compatible_loop(websocket: WebSocket, *, model: str) -> Non
                             "reference_mode": session.reference_mode,
                             "template_mode": session.template_mode,
                             "preprocessed": session.preprocessed,
+                            "lookahead_chunks": session.lookahead_chunks,
                         }
                     )
                 elif msg_type == "close":

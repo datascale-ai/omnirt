@@ -17,25 +17,54 @@ import shutil
 import subprocess
 import tempfile
 import time
+import wave
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Any, Iterable, List, Sequence, Tuple
 
 import cv2
-import kornia
 import numpy as np
 import torch
 import torch.nn.functional as F
-from insightface.app import FaceAnalysis
-from kornia.filters import gaussian_blur2d
-from kornia.geometry.transform import invert_affine_transform, warp_affine
-from transformers import HubertModel, Wav2Vec2FeatureExtractor
-import wave
 
 from .converter import resolve_quicktalk_runtime_paths
 
 
 INSIGHTFACE_DETECT_SIZE = 640
+_QUICKTALK_CUDA_EXTRA_ERROR = (
+    "QuickTalk CUDA runtime dependencies are not installed. "
+    "Install them with `pip install omnirt[quicktalk-cuda]`."
+)
+
+
+@lru_cache(maxsize=1)
+def _load_kornia_ops() -> tuple[Any, Any, Any, Any]:
+    try:
+        import kornia
+        from kornia.filters import gaussian_blur2d
+        from kornia.geometry.transform import invert_affine_transform, warp_affine
+    except ImportError as exc:
+        raise RuntimeError(_QUICKTALK_CUDA_EXTRA_ERROR) from exc
+    return kornia, gaussian_blur2d, invert_affine_transform, warp_affine
+
+
+@lru_cache(maxsize=1)
+def _load_face_analysis() -> Any:
+    try:
+        from insightface.app import FaceAnalysis
+    except ImportError as exc:
+        raise RuntimeError(_QUICKTALK_CUDA_EXTRA_ERROR) from exc
+    return FaceAnalysis
+
+
+@lru_cache(maxsize=1)
+def _load_hubert_classes() -> tuple[Any, Any]:
+    try:
+        from transformers import HubertModel, Wav2Vec2FeatureExtractor
+    except ImportError as exc:
+        raise RuntimeError(_QUICKTALK_CUDA_EXTRA_ERROR) from exc
+    return Wav2Vec2FeatureExtractor, HubertModel
 
 
 def run_cmd(cmd: Sequence[str]) -> None:
@@ -123,6 +152,7 @@ class AlignRestore:
             p_bias=self.p_bias,
         )
 
+        _, _, _, warp_affine = _load_kornia_ops()
         img_t = torch.from_numpy(img).to(device=self.device, dtype=self.dtype)
         img_t = img_t.permute(2, 0, 1).unsqueeze(0)
         affine_t = torch.from_numpy(affine_matrix).to(device=self.device, dtype=self.dtype).unsqueeze(0)
@@ -200,6 +230,7 @@ class AlignRestore:
     ) -> np.ndarray:
         h, w, _ = input_img.shape
 
+        kornia, gaussian_blur2d, invert_affine_transform, warp_affine = _load_kornia_ops()
         input_t = torch.from_numpy(input_img).to(device=self.device, dtype=self.dtype).permute(2, 0, 1)
         if isinstance(face, np.ndarray):
             face_t = torch.from_numpy(face)
@@ -258,6 +289,7 @@ class FaceDetector:
     def __init__(self, model_root: Path, device: torch.device | str, det_size: int = INSIGHTFACE_DETECT_SIZE) -> None:
         self.device = torch.device(device)
         providers = ["CUDAExecutionProvider"] if self.device.type == "cuda" else ["CPUExecutionProvider"]
+        FaceAnalysis = _load_face_analysis()
         self.app = FaceAnalysis(
             root=str(model_root),
             allowed_modules=["detection", "landmark_2d_106"],
@@ -374,6 +406,7 @@ class QuickTalkRebuild:
         self.hubert_device = (
             torch.device(hubert_device) if hubert_device else self.device
         )
+        Wav2Vec2FeatureExtractor, HubertModel = _load_hubert_classes()
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(str(self.hubert_path))
         self.hubert_model = HubertModel.from_pretrained(str(self.hubert_path)).to(self.hubert_device)
         if self.hubert_device.type == "cuda":
@@ -670,10 +703,7 @@ class QuickTalkRebuild:
             face_det_results = self.face_detect_frames(frames)
         n_frames = len(frames)
         for i, rep in enumerate(reps):
-            if i // n_frames % 2 == 0:
-                idx = i % n_frames
-            else:
-                idx = n_frames - 1 - (i % n_frames)
+            idx = i % n_frames
 
             frame_to_save = frames[idx].copy()
             face, coords, affine_matrix = face_det_results[idx]

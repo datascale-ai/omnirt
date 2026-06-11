@@ -337,6 +337,13 @@ def build_parser() -> argparse.ArgumentParser:
     bench_parser.add_argument("--output", help="Optional JSON output path.")
     bench_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON to stdout.")
 
+    text2audio_parser = subparsers.add_parser(
+        "serve-text2audio",
+        help="Run the text-to-audio HTTP service without loading the full generation engine.",
+    )
+    text2audio_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
+    text2audio_parser.add_argument("--port", type=int, default=9012, help="TCP port to bind.")
+
     worker_parser = subparsers.add_parser("worker", help="Run the OmniRT gRPC worker server.")
     worker_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
     worker_parser.add_argument("--port", type=int, default=50061, help="TCP port to bind.")
@@ -1171,6 +1178,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             allowed_model_tiers=args.model_tier,
         )
         uvicorn.run(app, host=args.host, port=args.port)
+        return 0
+
+    if args.command == "serve-text2audio":
+        try:
+            import uvicorn
+        except ImportError:
+            print(
+                "error: uvicorn is required for `omnirt serve-text2audio`. Install `omnirt[server]` or provide uvicorn.",
+                file=sys.stderr,
+            )
+            return 2
+        from omnirt.server.text2audio_app import create_text2audio_app
+
+        uvicorn.run(create_text2audio_app(), host=args.host, port=args.port)
         return 0
 
     if args.command == "worker":
