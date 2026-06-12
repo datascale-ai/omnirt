@@ -132,8 +132,14 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model-path", help="Override the default model source.")
     parser.add_argument("--server-addr", help="Triton server address for external service-backed models.")
     parser.add_argument("--server-port", type=int, help="Triton gRPC server port for external service-backed models.")
+    parser.add_argument("--server-url", help="HTTP server URL for external service-backed models.")
+    parser.add_argument("--timeout", type=float, help="HTTP request timeout in seconds for external service-backed models.")
     parser.add_argument("--sample-rate", type=int, help="Output audio sample rate for text2audio models.")
     parser.add_argument("--request-id", help="Stable external request id for deterministic service probes.")
+    parser.add_argument("--temperature", type=float, help="Sampling temperature for models that expose it.")
+    parser.add_argument("--top-k", type=int, help="Top-k sampling value for models that expose it.")
+    parser.add_argument("--top-p", type=float, help="Top-p sampling value for models that expose it.")
+    parser.add_argument("--repetition-penalty", type=float, help="Repetition penalty for models that expose it.")
     parser.add_argument("--language", help="ASR language hint for audio2text models, for example auto, zh, en.")
     parser.add_argument("--batch-size-s", type=int, help="Approximate ASR batch window in seconds.")
     parser.add_argument("--motion-bucket-id", type=int, help="Alias for SVD frame bucket / motion bucket id.")
@@ -669,8 +675,14 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "output_dir",
         "server_addr",
         "server_port",
+        "server_url",
+        "timeout",
         "sample_rate",
         "request_id",
+        "temperature",
+        "top_k",
+        "top_p",
+        "repetition_penalty",
         "language",
         "batch_size_s",
         "frame_bucket",

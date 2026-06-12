@@ -2873,6 +2873,7 @@ name = "omnirt"
 version = "0.1.0a0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "imageio" },
     { name = "imageio-ffmpeg" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11'" },
@@ -3003,6 +3004,7 @@ requires-dist = [
     { name = "gradio", marker = "extra == 'fasterliveportrait'", specifier = ">=5.0" },
     { name = "grpcio", marker = "extra == 'server'", specifier = ">=1.60" },
     { name = "grpcio-tools", marker = "extra == 'dev'", specifier = ">=1.60" },
+    { name = "httpx", specifier = ">=0.26" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26" },
     { name = "huggingface-hub", marker = "extra == 'fasterliveportrait'", specifier = ">=0.20" },
     { name = "huggingface-hub", marker = "extra == 'runtime'", specifier = ">=0.20" },

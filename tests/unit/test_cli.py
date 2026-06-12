@@ -95,6 +95,54 @@ def test_request_from_args_builds_audio2text_request() -> None:
     assert request.config["batch_size_s"] == 30
 
 
+def test_request_from_args_builds_soulx_podcast_text2audio_request() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--task",
+            "text2audio",
+            "--model",
+            "soulx-podcast-1.7b",
+            "--prompt",
+            "欢迎收听 OmniRT 播客。",
+            "--audio",
+            "reference.wav",
+            "--reference-text",
+            "参考音色文本。",
+            "--server-url",
+            "http://127.0.0.1:18080",
+            "--timeout",
+            "30",
+            "--seed",
+            "42",
+            "--temperature",
+            "0.7",
+            "--top-k",
+            "40",
+            "--top-p",
+            "0.9",
+            "--repetition-penalty",
+            "1.1",
+        ]
+    )
+
+    request = request_from_args(args, parser)
+
+    assert request.task == "text2audio"
+    assert request.model == "soulx-podcast-1.7b"
+    assert request.inputs["prompt"] == "欢迎收听 OmniRT 播客。"
+    assert request.inputs["audio"] == "reference.wav"
+    assert request.inputs["reference_text"] == "参考音色文本。"
+    assert request.config["server_url"] == "http://127.0.0.1:18080"
+    assert request.config["timeout"] == 30.0
+    assert request.config["seed"] == 42
+    assert request.config["temperature"] == 0.7
+    assert request.config["top_k"] == 40
+    assert request.config["top_p"] == 0.9
+    assert request.config["repetition_penalty"] == 1.1
+
+
 def test_main_emits_json(tmp_path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "request.yaml"
     config_path.write_text(

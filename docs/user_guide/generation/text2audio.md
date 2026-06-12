@@ -1,6 +1,9 @@
 # 文本到音频
 
-给定目标文本和一段参考音频，生成 `.wav` 语音。OmniRT 当前通过 `cosyvoice3-triton-trtllm` 接入 CosyVoice3 官方 Triton/TensorRT-LLM 路线，适合复用已经部署好的 Triton 服务。
+给定目标文本和一段参考音频，生成 `.wav` 语音。OmniRT 当前提供两条外部服务路线：
+
+- `cosyvoice3-triton-trtllm`：接入 CosyVoice3 官方 Triton/TensorRT-LLM 服务。
+- `soulx-podcast-1.7b`：接入 SoulX-Podcast 官方 FastAPI 服务，适合长文本、播客和多说话人语音生成。
 
 ## 最小示例
 
@@ -55,6 +58,71 @@
       seed: 42
     ```
 
+## SoulX-Podcast
+
+`soulx-podcast-1.7b` 不在 OmniRT 进程内加载权重，而是调用已经启动的 SoulX-Podcast API。标准单说话人模式复用 `text2audio` 的通用输入：
+
+| OmniRT 字段 | SoulX-Podcast 字段 | 说明 |
+|---|---|---|
+| `inputs.prompt` | `dialogue_text` | 要合成的目标文本 |
+| `inputs.audio` | `prompt_audio` | 参考音频 |
+| `inputs.reference_text` | `prompt_texts` | 参考音频对应文本 |
+
+=== "CLI"
+
+    ```bash
+    omnirt generate \
+      --task text2audio \
+      --model soulx-podcast-1.7b \
+      --prompt "欢迎收听 OmniRT 播客，这是一段 SoulX-Podcast 适配测试。" \
+      --audio inputs/reference.wav \
+      --reference-text "这是一段参考音色文本。" \
+      --backend cuda \
+      --server-url http://127.0.0.1:18080 \
+      --seed 42
+    ```
+
+=== "YAML"
+
+    ```yaml
+    task: text2audio
+    model: soulx-podcast-1.7b
+    backend: cuda
+    inputs:
+      prompt: 欢迎收听 OmniRT 播客，这是一段 SoulX-Podcast 适配测试。
+      audio: inputs/reference.wav
+      reference_text: 这是一段参考音色文本。
+    config:
+      server_url: http://127.0.0.1:18080
+      seed: 42
+      temperature: 0.7
+      top_k: 40
+      top_p: 0.9
+      repetition_penalty: 1.1
+    ```
+
+多说话人播客建议使用 YAML，通过 `prompt_audios` 和 `prompt_texts` 显式传入列表；两者长度必须一致：
+
+```yaml
+task: text2audio
+model: soulx-podcast-1.7b
+backend: cuda
+inputs:
+  prompt: |
+    [S1] 欢迎来到 OmniRT 播客。
+    [S2] 今天我们聊聊实时数字人的语音生成。
+  audio: inputs/speaker_a.wav
+config:
+  server_url: http://127.0.0.1:18080
+  prompt_audios:
+    - inputs/speaker_a.wav
+    - inputs/speaker_b.wav
+  prompt_texts:
+    - 一号说话人的参考文本。
+    - 二号说话人的参考文本。
+  seed: 42
+```
+
 ## 关键参数
 
 | 参数 | 类型 | 默认 | 说明 |
@@ -67,6 +135,10 @@
 | `model_name` | `str` | `cosyvoice3` | Triton model repository 里的模型名 |
 | `sample_rate` | `int` | `24000` | 输出 wav 采样率 |
 | `seed` | `int` | 无 | 作为 Triton request parameter 透传，服务端 BLS 需要消费它后才会让采样完全可复现 |
+| `server_url` | `str` | `http://127.0.0.1:18080` | SoulX-Podcast HTTP API 地址，也可用 `OMNIRT_SOULX_PODCAST_API_URL` 指定 |
+| `timeout` | `float` | `300` | SoulX-Podcast HTTP 请求超时秒数 |
+| `temperature` / `top_k` / `top_p` / `repetition_penalty` | number | 服务端默认 | SoulX-Podcast 采样参数 |
+| `prompt_audios` / `prompt_texts` | `list[str]` | 单说话人回退 | SoulX-Podcast 多说话人参考音频和文本列表 |
 
 ## IndexTTS-2 常驻服务
 
@@ -131,8 +203,27 @@ curl -sS -X POST http://127.0.0.1:9012/v1/text2audio/indextts \
 
 完整记录见 [CosyVoice Benchmark](../../developer_guide/cosyvoice_benchmark.md)。
 
+### SoulX-Podcast API
+
+220 机器上的 base 模型验证路径为 `/home/video/SoulX-Podcast`，权重目录为 `pretrained_models/SoulX-Podcast-1.7B`，API 端口为 `18080`。启动示例：
+
+```bash
+cd /home/video/SoulX-Podcast
+source .venv/bin/activate
+python run_api.py \
+  --model pretrained_models/SoulX-Podcast-1.7B \
+  --host 0.0.0.0 \
+  --port 18080 \
+  --engine hf \
+  --max-tasks 1
+```
+
+健康检查应返回 `model_loaded=true` 和 `gpu_available=true`。如果 220 上 GPU 被占满，优先停止 `animator-worker-*` Docker 容器释放资源，不要直接 kill 随机 GPU 进程。
+
 ## 常见问题
 
 - **本机没有 Triton 服务**：这个模型包装的是外部官方服务，先启动 CosyVoice3 `runtime/triton_trtllm`，再运行 OmniRT。
 - **`tritonclient` 或 `soundfile` 缺失**：安装 CosyVoice/Triton 客户端依赖后再运行。
 - **固定 `seed` 仍有漂移**：确认 Triton BLS 里的 OpenAI/TensorRT-LLM 请求已经读取并传递 `seed`；仅客户端传参不足以改变服务端采样。
+- **SoulX-Podcast API 不可达**：先检查 `/health`，再确认 `server_url` 或 `OMNIRT_SOULX_PODCAST_API_URL` 是否指向正在运行的 API。
+- **多说话人报长度错误**：`prompt_audios` 和 `prompt_texts` 必须一一对应；单说话人场景不要传这两个列表，直接使用 `audio` 和 `reference_text` 即可。

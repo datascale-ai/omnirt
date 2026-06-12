@@ -64,6 +64,7 @@ _BUILTIN_MODEL_IDS = {
     "soulx-flashtalk-14b",
     "soulx-liveact-14b",
     "soulx-flashhead-1.3b",
+    "soulx-podcast-1.7b",
     "cosyvoice3-triton-trtllm",
     "indextts",
     "sensevoice-small",
@@ -89,6 +90,7 @@ _BUILTIN_MODEL_VARIANTS = {
     ("qwen-image-edit", "edit"),
     ("qwen-image-edit-plus", "edit"),
     ("qwen-image-layered", "edit"),
+    ("soulx-podcast-1.7b", "text2audio"),
     ("cosyvoice3-triton-trtllm", "text2audio"),
     ("indextts", "text2audio"),
     ("sensevoice-small", "audio2text"),
@@ -141,6 +143,7 @@ def ensure_registered() -> None:
     from omnirt.models.flashtalk import pipeline as _flashtalk_pipeline  # noqa: F401
     from omnirt.models.liveact import pipeline as _liveact_pipeline  # noqa: F401
     from omnirt.models.flashhead import pipeline as _flashhead_pipeline  # noqa: F401
+    from omnirt.models.soulx_podcast import pipeline as _soulx_podcast_pipeline  # noqa: F401
     from omnirt.models.cosyvoice import pipeline as _cosyvoice_pipeline  # noqa: F401
     from omnirt.models.indextts import pipeline as _indextts_pipeline  # noqa: F401
     from omnirt.models.sensevoice import pipeline as _sensevoice_pipeline  # noqa: F401
@@ -245,6 +248,12 @@ def ensure_registered() -> None:
         registered_ids = set(list_models())
         if not {"soulx-flashhead-1.3b"}.issubset(registered_ids):
             importlib.reload(_flashhead_pipeline)
+            registered_ids = set(list_models())
+    if not {"soulx-podcast-1.7b"}.issubset(registered_ids):
+        _re_register_module_classes(_soulx_podcast_pipeline)
+        registered_ids = set(list_models())
+        if not {"soulx-podcast-1.7b"}.issubset(registered_ids):
+            importlib.reload(_soulx_podcast_pipeline)
             registered_ids = set(list_models())
     if not {"cosyvoice3-triton-trtllm"}.issubset(registered_ids):
         _re_register_module_classes(_cosyvoice_pipeline)
