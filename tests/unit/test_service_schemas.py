@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+
+pydantic = pytest.importorskip("pydantic")
 from pydantic import ValidationError
 
 from omnirt.server.schemas import RealtimeAvatarEvent, Text2AudioSynthesizeRequest

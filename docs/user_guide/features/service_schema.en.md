@@ -66,7 +66,7 @@ Two stable runtime-side interfaces are available:
 - `omnirt models --manifest`: emits a `Model Capability Manifest` declaring task, I/O, streaming, resident mode, service adapter, and backend support status.
 - `omnirt profile validate <path>`: validates a `Runtime Profile` describing multi-model service composition, ports, resources, warmup, max concurrency, and fallbacks.
 
-See [examples/profiles/realtime-avatar-local.yaml](../../../examples/profiles/realtime-avatar-local.yaml). Profiles can be reused by OpenTalking, Dify / agent services, custom frontends, or CLI launch scripts.
+See `examples/profiles/realtime-avatar-local.yaml`. Profiles can be reused by OpenTalking, Dify / agent services, custom frontends, or CLI launch scripts.
 
 ## Sync response
 

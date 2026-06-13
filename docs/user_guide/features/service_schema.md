@@ -66,7 +66,7 @@ OmniRT 原生请求与 `GenerateRequest` 对齐：
 - `omnirt models --manifest`：输出 `Model Capability Manifest`，用于声明模型任务、输入输出、streaming、resident、service adapter 和后端支持状态。
 - `omnirt profile validate <path>`：校验 `Runtime Profile`，用于描述多模型服务组合、端口、资源、预热、最大并发和降级模型。
 
-示例 profile 见 [examples/profiles/realtime-avatar-local.yaml](../../../examples/profiles/realtime-avatar-local.yaml)。这类配置可以被 OpenTalking、Dify / Agent 服务、自研前端或 CLI 启动脚本复用。
+示例 profile 见 `examples/profiles/realtime-avatar-local.yaml`。这类配置可以被 OpenTalking、Dify / Agent 服务、自研前端或 CLI 启动脚本复用。
 
 ## 同步响应
 

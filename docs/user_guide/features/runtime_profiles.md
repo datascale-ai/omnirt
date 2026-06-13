@@ -38,7 +38,7 @@ Manifest 字段：
 
 ## Runtime Profile
 
-示例见 [examples/profiles/realtime-avatar-local.yaml](../../../examples/profiles/realtime-avatar-local.yaml)。
+示例见 `examples/profiles/realtime-avatar-local.yaml`。
 
 校验：
 
@@ -81,8 +81,8 @@ TTS 模型优先走 service-backed adapter，而不是强制塞进离线 `omnirt
 
 ## Integration Recipes
 
-- [OpenTalking](../../../examples/integrations/opentalking)
-- [通用 Agent 服务](../../../examples/integrations/agent-service)
-- [CLI / HTTP Demo](../../../examples/integrations/http-cli-demo)
+- `examples/integrations/opentalking`
+- `examples/integrations/agent-service`
+- `examples/integrations/http-cli-demo`
 
 OpenTalking 是重点参考接入方之一，但不是 OmniRT 的唯一目标用户。

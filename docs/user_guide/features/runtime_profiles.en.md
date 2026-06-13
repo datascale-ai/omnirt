@@ -31,7 +31,7 @@ Key fields:
 
 ## Runtime Profile
 
-See [examples/profiles/realtime-avatar-local.yaml](../../../examples/profiles/realtime-avatar-local.yaml).
+See `examples/profiles/realtime-avatar-local.yaml`.
 
 ```bash
 omnirt profile validate examples/profiles/realtime-avatar-local.yaml
@@ -70,8 +70,8 @@ IndexTTS supports this generic route and keeps `/v1/text2audio/indextts` for com
 
 ## Integration Recipes
 
-- [OpenTalking](../../../examples/integrations/opentalking)
-- [Generic Agent Service](../../../examples/integrations/agent-service)
-- [CLI / HTTP Demo](../../../examples/integrations/http-cli-demo)
+- `examples/integrations/opentalking`
+- `examples/integrations/agent-service`
+- `examples/integrations/http-cli-demo`
 
 OpenTalking is an important validation client, but not the only target user of OmniRT.
