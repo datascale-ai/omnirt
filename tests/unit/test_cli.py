@@ -39,6 +39,17 @@ def test_build_parser_accepts_serve_text2audio_command() -> None:
     assert args.host == "127.0.0.1"
     assert args.port == 9012
 
+
+def test_build_parser_accepts_profile_validate_command() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["profile", "validate", "runtime.yaml", "--json"])
+
+    assert args.command == "profile"
+    assert args.profile_command == "validate"
+    assert args.path == "runtime.yaml"
+    assert args.json is True
+
+
 def test_request_from_args_builds_text2image_request() -> None:
     parser = build_parser()
     args = parser.parse_args(
@@ -194,6 +205,30 @@ def test_main_supports_direct_cli_arguments(monkeypatch, capsys) -> None:
 
     assert exit_code == 0
     assert json.loads(stdout)["metadata"]["task"] == "text2image"
+
+
+def test_main_profile_validate_emits_normalized_json(tmp_path, capsys) -> None:
+    profile_path = tmp_path / "runtime.yaml"
+    profile_path.write_text(
+        """
+name: dev
+models:
+  - id: indextts
+    task: text2audio
+    backend: cuda
+    service: text2audio.service.v1
+    port: 9012
+""",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["profile", "validate", str(profile_path), "--json"])
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    payload = json.loads(stdout)
+    assert payload["name"] == "dev"
+    assert payload["models"][0]["service"] == "text2audio.service.v1"
 
 
 def test_request_from_args_builds_image2video_request() -> None:

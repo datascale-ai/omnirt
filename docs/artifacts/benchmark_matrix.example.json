@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-13T00:00:00Z",
+  "profile": "realtime-avatar-local",
+  "hardware": {
+    "cuda": "to-be-measured",
+    "ascend": "Ascend 910B or 910B2",
+    "cpu_stub": "contract validation only"
+  },
+  "scenarios": [
+    {
+      "name": "core_text2audio_first_packet",
+      "model": "indextts",
+      "task": "text2audio",
+      "backend": "cuda",
+      "metrics": {
+        "first_audio_packet_ms": null,
+        "total_latency_ms": null,
+        "peak_vram_gb": null,
+        "throughput_rps": null,
+        "failure_rate": null
+      }
+    },
+    {
+      "name": "core_realtime_avatar_first_chunk",
+      "model": "quicktalk",
+      "task": "audio2video",
+      "backend": "ascend",
+      "metrics": {
+        "ttff_ms": null,
+        "first_video_chunk_ms": null,
+        "total_latency_ms": null,
+        "peak_vram_gb": null,
+        "failure_rate": null
+      }
+    }
+  ]
+}

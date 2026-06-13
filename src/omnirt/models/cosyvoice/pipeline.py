@@ -60,6 +60,10 @@ class CosyVoiceTritonConfig:
         maturity="beta",
         tier="core",
         supports_batching=False,
+        streaming=True,
+        resident=True,
+        service_adapter="text2audio.service.v1",
+        backend_status={"cuda": "supported", "ascend": "planned", "cpu-stub": "validation-only"},
         chain_role="voice-generation",
         summary="CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route.",
         example=(

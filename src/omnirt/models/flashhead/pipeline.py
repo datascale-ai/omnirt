@@ -111,6 +111,9 @@ class FlashHeadLaunchConfig:
         chain_role="avatar-render",
         realtime=False,
         tier="core",
+        streaming=False,
+        resident=True,
+        backend_status={"ascend": "supported", "cuda": "planned", "cpu-stub": "validation-only"},
         summary="SoulX-FlashHead low-latency talking-head generation via image plus audio.",
         example=(
             "OMNIRT_FLASHHEAD_REPO_PATH=/path/to/SoulX-FlashHead "

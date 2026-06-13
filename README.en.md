@@ -1,7 +1,7 @@
 # OmniRT
 
 <p align="center">
-  <strong>Multimodal inference runtime for digital-human pipelines</strong>
+  <strong>Open inference runtime for realtime digital humans and multimodal agents</strong>
 </p>
 
 <p align="center">
@@ -21,7 +21,9 @@
 
 ---
 
-OmniRT is an open multimodal inference runtime for digital-human pipelines. It focuses on realtime avatar conversation, audio-driven avatar video, voice generation, avatar asset creation, idle video assets, and post-processing, with a unified request contract, realtime inference protocols, resident workers, CUDA / Ascend deployment, and integration foundations for OpenTalking-style frontends.
+OmniRT is an open multimodal inference runtime for realtime digital humans and multimodal agents. It focuses on model execution, protocols, performance, deployment, health checks, benchmark artifacts, and capability declarations, with a unified request contract, realtime inference protocols, resident workers, CUDA / Ascend deployment, and integration foundations for OpenTalking, agent services, and custom frontends.
+
+OmniRT is not an OpenTalking-only backend and it does not own business scenario packages such as government service, livestreaming, or customer support. OpenTalking is one important validation client. Persona packages, knowledge bases, customer pages, and business workflows belong in upper-layer systems; OmniRT core should expose Runtime Profiles, Model Capability Manifests, Benchmark Scenarios, and Integration Recipes.
 
 OmniRT is no longer trying to be a broad model zoo. General image and video models that are already integrated remain available in the registry, but future maintenance effort is centered on the digital-human path: **TTS → audio-driven avatar → realtime serving → avatar assets / idle video → post-processing**.
 
@@ -29,6 +31,8 @@ OmniRT is no longer trying to be a broad model zoo. General image and video mode
 
 - **Digital-human first** — talking avatars, TTS, avatar assets, idle video, and post-processing are the core scope
 - **Unified contract** — `GenerateRequest`, `GenerateResult`, `RunReport` cover batch generation surfaces
+- **Capability manifests** — `omnirt models --manifest` declares model task, I/O, streaming, resident, and backend status
+- **Runtime profiles** — `omnirt profile validate` checks model composition, ports, VRAM budget, warmup, concurrency, and fallback config
 - **Realtime avatar protocols** — FlashTalk-compatible WebSocket for OpenTalking compatibility, plus OmniRT Native Realtime Avatar WebSocket for new integrations
 - **Cross-backend** — the same request validates and runs on `cuda` / `ascend` / `cpu-stub`
 - **Three entry points** — Python API, CLI (`omnirt generate / validate / models`), FastAPI server
@@ -118,6 +122,12 @@ Full reference (typed request helpers, `pipeline(...)` wrapper, `RunReport` fiel
 # List every registered model
 omnirt models
 
+# Emit a model capability manifest
+omnirt models indextts --manifest
+
+# Validate a multi-model Runtime Profile
+omnirt profile validate examples/profiles/realtime-avatar-local.yaml
+
 # Show metadata for one model (min_vram_gb, recommended presets, …)
 omnirt models flux2.dev
 
@@ -136,6 +146,7 @@ The authoritative list is generated from the live registry. The fastest way to s
 
 ```bash
 omnirt models
+omnirt models --tier core --manifest
 ```
 
 A complete generated snapshot is at [docs/user_guide/models/supported_models.en.md](./docs/user_guide/models/supported_models.en.md); digital-human priorities and validation status live in [support_status.en.md](./docs/user_guide/models/support_status.en.md).
@@ -171,6 +182,7 @@ Real end-to-end generation still depends on the target hardware stack, runtime l
 - `sdxl-base-1.0` and `svd-xt` remain adjacent baselines for avatar assets and idle video material
 - Editing models such as `flux-fill`, `flux-kontext`, `qwen-image-edit`, and `qwen-image-edit-plus` have smoke-test entry points and are maintained as adjacent asset capabilities
 - `soulx-flashtalk-14b` can serve OpenTalking-style realtime avatar clients through the [FlashTalk-compatible WebSocket](./docs/user_guide/serving/flashtalk_ws.en.md) path
+- Integration recipes live under [examples/integrations](./examples/integrations), with OpenTalking as one recipe rather than the only narrative center
 - Other general image and video models stay in the registry, but they are no longer the validation priority
 - The broader roadmap lives in [docs/user_guide/models/roadmap.en.md](./docs/user_guide/models/roadmap.en.md)
 

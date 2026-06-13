@@ -1,47 +1,118 @@
 # Model Support Roadmap
 
-This document defines the recommended digital-human roadmap for `omnirt` based on the current implemented baseline and the next support waves that should follow.
+This document defines OmniRT's next six-month evolution plan. The updated positioning is: **an open inference runtime for realtime digital humans and multimodal agents**.
 
-OmniRT is no longer optimizing for broad image / video model count. Existing integrations remain available in the registry, but the roadmap now prioritizes the digital-human vertical:
+OmniRT is not an OpenTalking-only backend and it is not a business scenario package platform. OpenTalking is one important validation client. Government service, livestreaming, customer support, Persona packages, knowledge bases, and customer pages belong in upper-layer products. OmniRT core owns model execution, protocols, performance, deployment, health checks, benchmarks, and capability declarations.
 
-- voice generation, voice reuse, and voice understanding
-- audio-driven avatar video
-- realtime serving and resident workers
-- avatar assets and idle video material
-- digital-human post-processing
-- reproducible CUDA / Ascend deployment
+## Runtime-side concepts
+
+- `Runtime Profile`: model composition, backend, resources, warmup, concurrency, and fallback config.
+- `Model Capability Manifest`: task, inputs, outputs, streaming, hardware backend, cold-start and hot-path traits.
+- `Benchmark Scenario`: standard load-test shape for TTFF, first packet, total latency, VRAM, concurrency, and stability.
+- `Integration Recipe`: examples for OpenTalking, agent frameworks, and custom frontends.
+
+These concepts replace business scenario packages inside OmniRT core. Business deliveries can reference OmniRT profiles, manifests, benchmarks, and recipes, but should not place business pages or customer workflows in OmniRT core.
 
 Status note:
 
-- Last reviewed: 2026-05-11
-- This is a recommended OmniRT roadmap, not an upstream framework commitment
-
-Current implementation note:
-
-- OmniRT currently ships `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-turbo`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `svd`, `svd-xt`, `flux-dev`, `flux-schnell`, `flux2.dev` / `flux2-dev`, `glm-image`, `hunyuan-image-2.1`, `omnigen`, `qwen-image`, `sana-1.6b`, `ovis-image`, `hidream-i1`, `cogvideox-2b`, `cogvideox-5b`, `kandinsky5-t2v`, `kandinsky5-i2v`, `wan2.1-t2v-14b`, `wan2.1-i2v-14b`, `wan2.2-t2v-14b`, `wan2.2-i2v-14b`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `hunyuan-video-1.5-i2v`, `helios-t2v`, `helios-i2v`, `sana-video`, `ltx-video`, `ltx2-i2v`, `soulx-flashtalk-14b`, and `soulx-flashhead-1.3b`
-- This means the codebase already has a broad model-zoo surface, but future work should not expand merely to look comprehensive
-- The roadmap below treats FlashTalk / FlashHead / LiveAct / CosyVoice / SenseVoice as Core, and SDXL / Flux2 / Qwen-Image / SVD / Wan as adjacent digital-human asset capabilities
-- For multi-task families, the current registry uses task-specific suffixes where needed, for example `helios-t2v` / `helios-i2v` and `hunyuan-video-1.5-t2v` / `hunyuan-video-1.5-i2v`
+- Last reviewed: 2026-06-13
+- Planning window: 6 months
+- Goal: move from a collection of model adapters to a deployable, observable, benchmarkable multimodal runtime that multiple upper-layer systems can integrate.
 
 ## Current snapshot
 
-The authoritative list of implemented models is generated from the live registry: [Supported Models](supported_models.md). This document focuses on priorities and outstanding work.
+The authoritative implemented model list is generated from the live registry: [Supported Models](supported_models.md). This document focuses on priorities and outstanding work.
 
-The highest priority is not adding more general models. It is completing a deployable digital-human loop:
+The codebase already has a broad model-zoo surface: SD / Flux / Qwen / SVD / Wan general image and video models, plus FlashTalk / FlashHead / LiveAct / CosyVoice / SoulX-Podcast / IndexTTS / SenseVoice for the digital-human path. Future work should not expand just to look comprehensive.
 
-- stable streaming TTS and reusable speaker profiles for `cosyvoice3-triton-trtllm`
-- resident workers, hot-path benchmarks, and realtime serving for `soulx-flashtalk-14b`
-- resident paths and deployment docs for `soulx-flashhead-1.3b` / `soulx-liveact-14b`
-- ASR / speech understanding: first entrypoint is `sensevoice-small`; Whisper / Paraformer remain follow-up candidates
-- a minimal recommended set for avatar assets and idle video material
+Model tiers converge as follows:
+
+- Core: TTS, ASR, audio2video, realtime avatar, resident workers.
+- Adjacent: avatar assets, idle video, backgrounds, post-processing.
+- Experimental: general image / video models remain in the registry but are not the headline promise.
 
 ## Planning principles
 
-1. Prioritize models and services that directly serve digital-human products.
-2. Core models must have real-hardware smoke, benchmarks, and deployment docs; registration alone is not mainline support.
-3. Adjacent models continue only when they support avatar assets, backgrounds, idle video, editing, or post-processing.
-4. Experimental models keep registry entries and basic tests, but no longer require CUDA / Ascend dual-backend validation.
-5. Avoid turning OmniRT into a thin Diffusers / ComfyUI clone; the value should be runtime, resident serving, observability, and deployment for digital-human systems.
+1. OmniRT owns runtime capabilities: model execution, protocols, performance, deployment, health checks, benchmarks, and capability declarations.
+2. Core models require capability manifests, unit tests, real-hardware smoke, benchmarks, and deployment docs. Registration alone is not mainline support.
+3. TTS, ASR, audio2video, realtime avatar, and post-processing should converge on service-backed adapters with resident processes, streaming output, health checks, and hot reuse.
+4. OpenTalking content should live under `examples/integrations/opentalking` or docs examples, not as the only OmniRT narrative.
+5. An OpenAI Realtime-like adapter can be a compatibility candidate, but it should not replace OmniRT Native Realtime Avatar.
+
+## Six-month roadmap
+
+### Phase 1: Positioning and capability inventory, 0-1 month
+
+Deliverables:
+
+- Update README, roadmap, and support-status docs to state that OmniRT is an open runtime, not an OpenTalking-only backend.
+- Add capability manifests for Core models, including task type, I/O, streaming, resident mode, and CUDA / Ascend status.
+- Replace business scenario wording with benchmark scenario / integration recipe / runtime profile.
+- Add `omnirt models --manifest` and `omnirt profile validate` to the CLI.
+
+Current implementation:
+
+- `ModelCapabilities` now has `streaming`, `resident`, `service_adapter`, and `backend_status`.
+- `Model Capability Manifest` and `Runtime Profile` parsing, validation, and CLI output are available.
+- Example profile: `examples/profiles/realtime-avatar-local.yaml`.
+
+### Phase 2: Realtime path and service-backed adapters, 1-3 months
+
+Deliverables:
+
+- Finish the TTS service-backed adapter spec: IndexTTS / CosyVoice / SoulX-Podcast converge on `text2audio.service.v1`.
+- Define streaming PCM, WAV artifacts, speaker profiles, prompt audio, and reference text inputs.
+- Add generic `/models`, `/health`, `/metrics`, and `/warmup` service surfaces.
+- Expose FlashTalk / QuickTalk / Wav2Lip / FasterLivePortrait through one realtime avatar WebSocket protocol.
+- Keep the FlashTalk-compatible protocol while advancing OmniRT Native Realtime Avatar.
+- Cover first frame, chunks, session lifecycle, preload, cancel, and error events.
+
+Current implementation:
+
+- `POST /v1/text2audio/stream` is the provider-neutral route; `/v1/text2audio/indextts` remains for compatibility.
+- `Text2AudioSynthesizeRequest`, `Text2AudioWarmupRequest`, and `RealtimeAvatarEvent` are in the service schema.
+- Integration recipes now exist for OpenTalking, a generic agent service, and CLI / HTTP usage.
+
+### Phase 3: Performance, residency, and multi-model scheduling, 3-5 months
+
+Deliverables:
+
+- Make resident workers the default direction for Core models, with cold start, hot request, warmup, restart, and recovery tracked as standard metrics.
+- Start multiple services from a runtime profile and expose VRAM watermarks, model load state, queue length, recent errors, and recent request latency.
+- Support idle unload, warm load, busy rejection, and fallback.
+- Establish a benchmark matrix for CUDA, Ascend 910B, and CPU stub.
+- Track TTFF, first audio packet, first video chunk, total latency, VRAM, throughput, and failure rate.
+
+Current implementation:
+
+- Benchmark artifact example: `docs/artifacts/benchmark_matrix.example.json`.
+- CLI profile validation already fixes model composition, ports, resources, warmup, concurrency, and fallback fields.
+
+### Phase 4: Open integration and production hardening, 5-6 months
+
+Deliverables:
+
+- Stabilize HTTP batch generate, WebSocket realtime avatar, and HTTP streaming text2audio.
+- Provide an OpenAI Realtime-like adapter as a compatibility candidate.
+- Add CUDA Docker Compose, Ascend 910B scripts, and CANN setup notes.
+- Document offline model directories and ModelScope / Hugging Face / Modelers download strategies.
+- Provide 2-3 integration recipes: OpenTalking, generic agent service, and plain CLI / HTTP usage.
+- Add production troubleshooting docs for OOM, missing model paths, port conflicts, worker crashes, audio sample-rate mismatch, WebSocket interruption, and NPU environment variable errors.
+
+## Public interfaces
+
+- `Runtime Profile`: describes model composition, backend, resources, and service launch strategy.
+- `Model Capability Manifest`: declares model capability, I/O, hardware support, streaming, and resident status.
+- `text2audio.service.v1`: unified text2audio service interface with service-backed adapters as the preferred path.
+- `realtime-avatar.ws.v1`: covers session init, audio chunk, video chunk, metrics, error, cancel, and finish.
+- OpenTalking-compatible protocols remain, but are labeled integration compatibility.
+
+## Test plan
+
+- Unit tests: capability manifest parsing, runtime profile validation, text2audio request / response schema, realtime avatar event schema, worker health / warmup / error state.
+- Integration tests: `omnirt models` shows Core / Adjacent / Experimental; text2audio fake runtime returns streaming PCM; realtime avatar fake runtime completes a WebSocket session; runtime profile starts a mock multi-model service composition.
+- Real-hardware smoke: CUDA covers at least one TTS and one avatar runtime; Ascend prioritizes FlashTalk / QuickTalk or a verified realtime avatar path; each smoke produces a RunReport and benchmark artifact.
+- Integration validation: OpenTalking runs as an example integration; an additional HTTP/WebSocket demo proves OmniRT is an independent runtime without OpenTalking dependency.
 
 ## Registry key convention
 

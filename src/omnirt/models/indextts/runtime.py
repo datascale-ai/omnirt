@@ -529,10 +529,11 @@ class IndexTTSStreamingRuntime:
     ) -> AsyncIterator[bytes]:
         if not text.strip():
             return
-        prompt_audio = self._resolve_voice_prompt(voice)
+        config = dict(config or {})
+        prompt_audio = str(config.get("prompt_audio") or "").strip() or self._resolve_voice_prompt(voice)
         self._validate_inputs(prompt_audio)
         out_q: queue.Queue[bytes | BaseException | None] = queue.Queue()
-        self._start_worker(text, dict(config or {}), out_q, prompt_audio)
+        self._start_worker(text, config, out_q, prompt_audio)
         loop = asyncio.get_running_loop()
         while True:
             item = await loop.run_in_executor(None, out_q.get)

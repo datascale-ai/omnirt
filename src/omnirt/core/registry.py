@@ -29,6 +29,10 @@ class ModelCapabilities:
     chain_role: str = ""
     realtime: bool = False
     tier: ModelTier = "experimental"
+    streaming: bool = False
+    resident: bool = False
+    service_adapter: str = ""
+    backend_status: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

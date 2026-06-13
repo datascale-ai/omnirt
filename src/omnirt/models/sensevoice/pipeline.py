@@ -52,6 +52,9 @@ class SenseVoiceConfig:
         maturity="beta",
         tier="core",
         supports_batching=False,
+        streaming=False,
+        resident=False,
+        backend_status={"cuda": "supported", "ascend": "planned", "cpu-stub": "supported"},
         chain_role="voice-understanding",
         summary="SenseVoice offline audio transcription for digital-human voice understanding.",
         example=(

@@ -1,48 +1,118 @@
 # 模型支持路线图
 
-本文档基于当前已经实现的基线能力，定义 `omnirt` 后续推荐推进的数字人链路路线图。
+本文档定义 OmniRT 后续 6 个月的演进计划。新的项目定位是：**面向实时数字人与多模态 Agent 的开放推理运行时**。
 
-OmniRT 后续不再以泛图像 / 泛视频模型数量作为主目标。已经接入的模型会继续保留在 registry 中，但路线图优先服务数字人垂直领域：
+OmniRT 不是 OpenTalking 专用后端，也不是业务场景包平台。OpenTalking 是重点参考接入方之一；政务、直播、客服等业务场景、Persona、知识库和客户页面应由上层产品承载。OmniRT 核心只负责模型运行、协议、性能、部署、健康检查、benchmark 和能力声明。
 
-- 语音生成和音色复用
-- 语音识别和语音理解
-- 音频驱动数字人视频
-- 实时流式与常驻 worker
-- 角色资产与 idle 视频素材
-- 数字人后处理增强
-- CUDA / Ascend 双后端可复现部署
+## 运行时侧概念
+
+- `Runtime Profile`：一组模型、后端、资源、预热、并发和降级配置。
+- `Model Capability Manifest`：模型支持的任务、输入输出、流式能力、硬件后端、冷启动 / 热态特征。
+- `Benchmark Scenario`：用于测 TTFF、首包、端到端耗时、显存、并发和稳定性的标准压测场景。
+- `Integration Recipe`：面向 OpenTalking、Agent 框架、自研前端的接入示例。
+
+这些概念替代文档里的“业务场景包”表述。业务端到端交付可以引用 OmniRT 的 profile / manifest / benchmark / recipe，但不应把业务页面或客户流程放进 OmniRT core。
 
 状态说明：
 
-- 最近审阅时间：2026-05-11
-- 这是一份 OmniRT 内部推荐路线图，不代表上游框架承诺
-
-当前实现备注：
-
-- OmniRT currently ships `sd15`, `sd21`, `sdxl-base-1.0`, `sdxl-refiner-1.0`, `sdxl-turbo`, `animate-diff-sdxl`, `sd3-medium`, `sd3.5-large`, `sd3.5-large-turbo`, `kolors`, `svd`, `svd-xt`, `flux-dev`, `flux-depth`, `flux-schnell`, `flux-canny`, `flux-fill`, `flux-kontext`, `flux2.dev` / `flux2-dev`, `chronoedit`, `glm-image`, `hunyuan-image-2.1`, `omnigen`, `qwen-image`, `qwen-image-edit`, `qwen-image-edit-plus`, `qwen-image-layered`, `sana-1.6b`, `ovis-image`, `hidream-i1`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `cogvideox-2b`, `cogvideox-5b`, `kandinsky5-t2v`, `kandinsky5-i2v`, `wan2.1-t2v-14b`, `wan2.1-i2v-14b`, `wan2.2-t2v-14b`, `wan2.2-i2v-14b`, `hunyuan-video`, `hunyuan-video-1.5-t2v`, `hunyuan-video-1.5-i2v`, `helios-t2v`, `helios-i2v`, `sana-video`, `ltx-video`, `ltx2-i2v`, `skyreels-v2`, `soulx-flashtalk-14b`, and `soulx-flashhead-1.3b`
-- 这意味着当前代码库已经具备一个较宽的 model zoo 表面，但后续不会继续按“大而全”扩张
-- 下文会把 FlashTalk / FlashHead / LiveAct / CosyVoice / SenseVoice 视为 Core，把 SDXL / Flux2 / Qwen-Image / SVD / Wan 视为数字人相邻素材能力
-- 对于多任务家族，当前 registry 会在必要时使用任务后缀，例如 `helios-t2v` / `helios-i2v` 和 `hunyuan-video-1.5-t2v` / `hunyuan-video-1.5-i2v`
+- 最近审阅时间：2026-06-13
+- 规划周期：6 个月
+- 目标：从“模型适配集合”推进到“可部署、可观测、可 benchmark、可被多类上层系统接入的多模态推理运行时”
 
 ## 当前快照
 
 完整的已实现清单由 registry 自动生成，见 [模型清单](supported_models.md)。本文档专注于优先级与待办。
 
-当前优先级最高的不是继续增加泛模型，而是把数字人主链路补成可部署闭环：
+当前实现已经覆盖较宽的 model zoo 表面，包括 SD / Flux / Qwen / SVD / Wan 等泛图像与视频模型，也覆盖 FlashTalk / FlashHead / LiveAct / CosyVoice / SoulX-Podcast / IndexTTS / SenseVoice 等数字人链路模型。后续不会继续以“模型越多越好”为主线。
 
-- `cosyvoice3-triton-trtllm` 的稳定流式 TTS 与可复用 speaker profile
-- `soulx-flashtalk-14b` 的常驻 worker、热态 benchmark、实时服务接入
-- `soulx-flashhead-1.3b` / `soulx-liveact-14b` 的 resident path 与部署文档
-- ASR / 语音理解入口：第一版为 `sensevoice-small`，Whisper / Paraformer 继续作为候选
-- 角色资产与 idle 视频素材生成的最小推荐组合
+模型层级收敛如下：
+
+- Core：TTS、ASR、audio2video、realtime avatar、常驻 worker。
+- Adjacent：角色资产、idle 视频、背景、后处理。
+- Experimental：泛图像 / 泛视频模型保留 registry，但不作为主卖点。
 
 ## 规划原则
 
-1. 优先支持能直接服务数字人产品链路的模型和服务能力。
-2. Core 模型必须具备真实硬件 smoke、benchmark 和部署文档；只注册不验证不能称为主线支持。
-3. Adjacent 模型只在能服务角色资产、背景、idle 视频、修图或后处理时继续投入。
-4. Experimental 模型保留 registry 与基础测试，但不再要求 CUDA / Ascend 双后端验证。
-5. 避免把 OmniRT 做成 Diffusers / ComfyUI 的轻量复刻；框架价值应体现在数字人运行时、常驻服务、观测和部署闭环。
+1. OmniRT 只负责运行时能力：模型运行、协议、性能、部署、健康检查、benchmark 和能力声明。
+2. Core 模型必须具备 capability manifest、单测、真机 smoke、benchmark 与部署文档；只注册不验证不能称为主线支持。
+3. TTS、ASR、audio2video、realtime avatar、post-processing 优先走统一服务化 adapter，支持常驻进程、流式输出、健康检查和热态复用。
+4. OpenTalking 相关内容保留为 `examples/integrations/opentalking` 或文档示例，不作为 OmniRT 的唯一叙事中心。
+5. OpenAI Realtime-like adapter 可以作为兼容层候选，但不替代 OmniRT Native Realtime Avatar 协议。
+
+## 6 个月路线图
+
+### 第 1 阶段：定位与能力清单收敛，0-1 个月
+
+交付：
+
+- 更新 README、roadmap 和支持状态文档，明确 OmniRT 是开放运行时，不是 OpenTalking 专用后端。
+- 给 Core 模型补齐 capability manifest，包括任务类型、输入输出、streaming、resident、CUDA / Ascend 状态。
+- 文档里的“业务场景”统一改为 benchmark scenario / integration recipe / runtime profile。
+- `omnirt models --manifest` 和 `omnirt profile validate` 进入 CLI。
+
+当前落地：
+
+- `ModelCapabilities` 增加 `streaming`、`resident`、`service_adapter`、`backend_status`。
+- `Model Capability Manifest` 与 `Runtime Profile` 已有解析、校验和 CLI 输出。
+- 示例 profile 放在 `examples/profiles/realtime-avatar-local.yaml`。
+
+### 第 2 阶段：实时链路与服务化 adapter，1-3 个月
+
+交付：
+
+- 完成 TTS service-backed adapter 规范：IndexTTS / CosyVoice / SoulX-Podcast 统一到 `text2audio.service.v1`。
+- 明确 streaming PCM、WAV artifact、speaker profile、prompt audio、reference text 的输入约定。
+- 增加 `/models`、`/health`、`/metrics`、`/warmup` 通用服务面。
+- 强化 realtime avatar runtime：FlashTalk / QuickTalk / Wav2Lip / FasterLivePortrait 通过统一 WebSocket 协议暴露。
+- 保留 FlashTalk-compatible 协议，同时推进 OmniRT Native Realtime Avatar 协议。
+- 支持首帧、chunk、session lifecycle、preload、cancel、error event。
+
+当前落地：
+
+- `POST /v1/text2audio/stream` 已作为 provider-neutral 入口，`/v1/text2audio/indextts` 保留兼容。
+- `Text2AudioSynthesizeRequest`、`Text2AudioWarmupRequest`、`RealtimeAvatarEvent` 已进入服务 schema。
+- `examples/integrations/opentalking`、`agent-service`、`http-cli-demo` 已建立接入 recipe。
+
+### 第 3 阶段：性能、常驻与多模型调度，3-5 个月
+
+交付：
+
+- resident worker 作为 Core 模型默认方向，冷启动、热态请求、预热、重启、状态恢复进入标准指标。
+- 按 runtime profile 启动多个服务，提供显存水位、模型加载状态、队列长度、最近错误、最近请求耗时。
+- 支持空闲卸载、预热加载、繁忙拒绝或降级。
+- 建立 benchmark matrix：CUDA、Ascend 910B、CPU stub 分开记录。
+- 指标包括 TTFF、first audio packet、first video chunk、total latency、显存、吞吐、失败率。
+
+当前落地：
+
+- benchmark artifact 示例放在 `docs/artifacts/benchmark_matrix.example.json`。
+- CLI profile 校验已经能固定模型组合、端口、资源、预热、并发和降级字段。
+
+### 第 4 阶段：开放接入与生产化，5-6 个月
+
+交付：
+
+- 稳定 HTTP batch generate、WebSocket realtime avatar、HTTP streaming text2audio。
+- 提供 OpenAI Realtime-like adapter 作为兼容层候选。
+- 补齐 CUDA Docker Compose、Ascend 910B 启动脚本和 CANN 环境说明。
+- 明确离线模型目录、ModelScope / Hugging Face / Modelers 下载策略。
+- 提供 2-3 个 integration recipe：OpenTalking、通用 Agent 服务、纯 CLI / HTTP 服务调用。
+- 建立生产排障文档：OOM、模型路径缺失、端口冲突、worker 崩溃、音频采样率不匹配、WebSocket 中断、NPU 环境变量错误。
+
+## Public Interfaces
+
+- `Runtime Profile` 配置格式：描述模型组合、后端、资源和服务启动策略。
+- `Model Capability Manifest`：声明模型能力、输入输出、硬件支持、streaming / resident 状态。
+- `text2audio.service.v1`：统一 text2audio 服务接口，优先支持 service-backed adapter。
+- `realtime-avatar.ws.v1`：覆盖 session init、audio chunk、video chunk、metrics、error、cancel、finish。
+- OpenTalking 兼容协议继续保留，但标注为 integration compatibility。
+
+## Test Plan
+
+- 单元测试：capability manifest 解析、runtime profile 校验、text2audio request / response schema、realtime avatar event schema、worker health / warmup / error 状态。
+- 集成测试：`omnirt models` 展示 Core / Adjacent / Experimental；text2audio fake runtime 返回 streaming PCM；realtime avatar fake runtime 完成 WebSocket session；runtime profile 启动 mock 多模型服务组合。
+- 真机 smoke：CUDA 至少覆盖一个 TTS 和一个 avatar runtime；Ascend 优先覆盖 FlashTalk / QuickTalk 或已验证的实时 avatar 路径；每次 smoke 产出 RunReport 和 benchmark artifact。
+- 接入验证：OpenTalking 作为示例接入跑通；另提供无 OpenTalking 依赖的 HTTP/WebSocket demo，证明 OmniRT 是独立运行时。
 
 ## Registry key 约定
 
