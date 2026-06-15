@@ -1,7 +1,7 @@
 # OmniRT
 
 <p align="center">
-  <strong>面向实时数字人与多模态 Agent 的开放推理运行时</strong>
+  <strong>面向数字人主链路的开放推理运行时，重点沉淀 Ascend / 910B 部署路径，并保留 CUDA 主流兼容</strong>
 </p>
 
 <p align="center">
@@ -21,22 +21,23 @@
 
 ---
 
-OmniRT 是一个面向实时数字人与多模态 Agent 的开放多模态推理运行时，围绕模型运行、协议、性能、部署、健康检查、benchmark 和能力声明，提供统一请求契约、实时推理协议、常驻 worker、跨 CUDA / Ascend 后端部署，以及面向 OpenTalking、Agent 服务和自研前端的接入基础。
+OmniRT 是一个面向实时数字人与多模态 Agent 的开放多模态推理运行时。项目以数字人主链路为核心，优先沉淀可私有化部署、可验证、可 benchmark 的 Ascend / 910B 适配路径，同时保留 CUDA 作为主流开发、验证和兼容后端。
 
 OmniRT 不是 OpenTalking 专用后端，也不承载政务、直播、客服等业务场景包。OpenTalking 是重点参考接入方之一；Persona、知识库、客户页面和业务流程应放在上层系统，OmniRT 核心只沉淀 Runtime Profile、Model Capability Manifest、Benchmark Scenario 和 Integration Recipe。
 
-OmniRT 不再追求成为“大而全”的通用模型库。已经适配的泛图像 / 泛视频模型会保留在 registry 中，但后续维护资源优先投向数字人主链路：**TTS → 音频驱动数字人 → 实时流式服务 → 角色资产 / idle 素材 → 后处理增强**。
+OmniRT 不再追求成为“大而全”的通用模型库。已经适配的泛图像 / 泛视频模型会保留在 registry 中，但后续维护资源优先投向可部署、可复现的数字人主链路：**TTS → 音频驱动数字人 → 实时流式服务 → 角色资产 / idle 素材 → 后处理增强**。
 
 ## ✨ 核心亮点
 
 - **数字人链路优先** — 核心覆盖 talking avatar、TTS、角色资产、idle 视频素材与后处理路线图
+- **Ascend / 910B 重点适配** — 围绕私有化部署、常驻 worker、真机 smoke 和 benchmark 沉淀可复现路径
 - **统一请求契约** — `GenerateRequest`、`GenerateResult`、`RunReport` 三个对象覆盖 batch 生成任务面
 - **运行时能力声明** — `omnirt models --manifest` 输出模型任务、输入输出、streaming、resident 与后端状态
 - **Runtime Profile** — `omnirt profile validate` 校验模型组合、端口、显存预算、预热、并发和降级配置
 - **实时数字人协议** — FlashTalk-compatible WebSocket 兼容 OpenTalking，OmniRT Native Realtime Avatar WebSocket 面向新集成
-- **跨后端运行时** — 同一份请求可在 `cuda` / `ascend` / `cpu-stub` 上完成校验与执行
+- **跨后端运行时** — 同一份请求可在 `ascend` / `cuda` / `cpu-stub` 上完成校验与执行；CUDA 仍是主流开发和兼容路径
 - **三种入口** — Python API、CLI (`omnirt generate / validate / models`)、FastAPI 服务
-- **核心数字人模型** — FlashTalk / FlashHead / LiveAct / CosyVoice / SenseVoice 作为当前主线验证对象
+- **核心数字人模型** — FlashTalk / FlashHead / LiveAct / CosyVoice / SenseVoice / SoulX-Podcast 作为当前主线验证对象
 - **产物标准化** — 图像统一导出为 PNG，音频统一导出为 WAV，视频统一导出为 MP4，每次运行都会生成一份 `RunReport`
 - **离线与国内环境友好** — 同时支持本地目录、Hugging Face、ModelScope、Modelers 快照
 - **LoRA 灵活加载** — 本地 safetensors 与 `hf://` 单文件引用并存
@@ -84,7 +85,7 @@ pip install -e '.[server]'
 pip install -e '.[docs]'
 ```
 
-完整的入门流程（包括首次 `validate` / `generate`、YAML 请求格式、preset，以及 `hf://` 单文件 LoRA 引用）见 [docs/getting_started/quickstart.md](./docs/getting_started/quickstart.md)。
+真实部署建议优先参考 Ascend / 910B 数字人链路；CUDA 仍是模型生态最成熟的开发、验证和兼容路径。完整的入门流程（包括首次 `validate` / `generate`、YAML 请求格式、preset，以及 `hf://` 单文件 LoRA 引用）见 [docs/getting_started/quickstart.md](./docs/getting_started/quickstart.md)。
 
 ## FlashTalk 910B Runtime
 
@@ -153,7 +154,7 @@ omnirt models --tier core --manifest
 
 | 层级 | 维护策略 | 代表模型 |
 |---|---|---|
-| Core | 必须有 registry、单测、真机 smoke、benchmark 与部署文档 | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm` |
+| Core | 必须有 registry、单测、真机 smoke、benchmark 与部署文档 | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | 服务于角色资产、背景、idle 视频、数字人素材生产，按场景补 smoke | `sdxl-base-1.0`, `flux2.dev`, `qwen-image`, `svd-xt`, `wan2.2-*` |
 | Experimental | 保留已接入能力，不再作为主卖点或双后端验证承诺 | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2` 等泛模型 |
 
@@ -177,7 +178,10 @@ omnirt models --tier core --manifest
 
 - `soulx-flashtalk-14b` 已在 Ascend 910B2 常驻 `persistent_worker` 链路完成真机验证
 - `soulx-liveact-14b` 与 `soulx-flashhead-1.3b` 已通过 script-backed wrapper 接入 `audio2video`
-- `cosyvoice3-triton-trtllm` 已接入 `text2audio`，作为数字人 TTS 链路的 CUDA 验证基线
+- `cosyvoice3-triton-trtllm` 已接入 `text2audio`，保留 CUDA/TensorRT-LLM 验证基线，并支持指向 Ascend-hosted Triton 兼容服务端点
+- `sensevoice-small` 已接入 `audio2text`，Ascend 后端下 `device=auto` 会解析为 FunASR 可用的 `npu:0`
+- `indextts` 常驻 `serve-text2audio` runtime 已支持 `ascend` / `npu` 设备别名、NPU 默认 fp16 和 `torch_npu` 加载检查
+- `soulx-podcast-1.7b` 已接入 `text2audio`，可通过 `service_accelerator=ascend` 指向外部 Ascend-hosted FastAPI 服务
 - `sdxl-base-1.0` 与 `svd-xt` 保留为角色资产和 idle 视频素材的 adjacent 基线
 - `flux-fill`、`flux-kontext`、`qwen-image-edit`、`qwen-image-edit-plus` 等编辑模型已经接入 smoke 入口，按 adjacent 素材能力维护
 - `soulx-flashtalk-14b` 可通过 [FlashTalk 兼容 WebSocket](./docs/user_guide/serving/flashtalk_ws.md) 接入 OpenTalking 等实时数字人链路
@@ -190,8 +194,8 @@ omnirt models --tier core --manifest
 
 | 形态 | 适用场景 | 文档 |
 |---|---|---|
-| CUDA 单机 | NVIDIA GPU 本地推理 / 开发机 | [cuda.md](./docs/user_guide/deployment/cuda.md) |
 | Ascend 单机 | 昇腾 910 / 310P 等 NPU | [ascend.md](./docs/user_guide/deployment/ascend.md) |
+| CUDA 单机 | NVIDIA GPU 本地推理 / 开发机 | [cuda.md](./docs/user_guide/deployment/cuda.md) |
 | Docker | 容器化隔离、CI/CD、可复制环境 | [docker.md](./docs/user_guide/deployment/docker.md) |
 | 分布式服务 | 多卡 / 多机 / 高并发在线服务 | [distributed_serving.md](./docs/user_guide/deployment/distributed_serving.md) |
 

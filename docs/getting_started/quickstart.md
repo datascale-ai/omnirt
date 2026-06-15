@@ -2,6 +2,8 @@
 
 这份指南覆盖从全新 checkout 到一次可校验的 OmniRT 请求，以及本地文档站预览的最短路径。
 
+OmniRT 的数字人主线优先沉淀 Ascend / 910B 的私有化部署、真机 smoke 和 benchmark 路径；CUDA 仍是模型生态最成熟的开发、验证和兼容后端。下面的环境说明按“先能本地校验，再选择 Ascend 或 CUDA 真机运行”的顺序展开。
+
 ## 环境要求
 
 | 项目 | 最低要求 | 备注 |
@@ -21,36 +23,6 @@ python -m pip install -e '.[dev]'
 ```
 
 `--backend cpu-stub` 已经覆盖大多数单元路径，不需要 GPU / NPU。
-
-### CUDA 环境（NVIDIA GPU）
-
-| 项目 | 要求 |
-|---|---|
-| GPU | NVIDIA Ampere 及以上（A100 / L40S / RTX 3090 / 4090 等） |
-| 显存 | 按模型 `resource_hint.min_vram_gb`，SDXL ≥ 12 GB、SVD ≥ 14 GB、Flux2 ≥ 24 GB（`omnirt models <id>` 查看每个模型的确切值） |
-| NVIDIA 驱动 | ≥ 535（与 CUDA 12.1 配套） |
-| CUDA Toolkit | 12.1 或 12.4 |
-| PyTorch | 2.1+，官方 CUDA wheel 优先，例如 `torch==2.5.1+cu121` |
-
-推荐安装顺序：
-
-```bash
-# 1. 先装匹配的 CUDA PyTorch wheel（从 pytorch.org 选索引）
-python -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
-
-# 2. 再装 OmniRT 本体与其余 runtime 依赖
-python -m pip install -e '.[runtime,dev]'
-
-# 3. 烟测
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-omnirt generate --task text2image --model sdxl-base-1.0 --prompt "a lighthouse" --backend cuda --preset fast
-```
-
-提示：
-
-- `torch.compile` 对 Ampere+ 才稳定；老卡可通过 `OMNIRT_DISABLE_COMPILE=1` 跳过编译一路走 eager。
-- 多卡并行、USP、CFG 分片目前不是公开能力（见 [PLAN.md](https://github.com/datascale-ai/omnirt/blob/main/PLAN.md)）。
-- 编译与显存日志会出现在 `RunReport.backend_timeline` 里。
 
 ### Ascend 环境（华为 Atlas / 910 / 910B）
 
@@ -87,6 +59,36 @@ omnirt generate --task audio2video --model soulx-flashtalk-14b \
 - Ascend 后端的更深入细节、已知限制与 smoke 入口见 [Ascend 后端](../user_guide/deployment/ascend.md)。
 - 国内环境通常拉不到 `huggingface.co`；走内网模型镜像 / 离线快照的完整流程见 [国内部署](../user_guide/deployment/china_mirrors.md)。
 - Ascend 设备可见性用 `ASCEND_RT_VISIBLE_DEVICES` 控制（等价于 CUDA 的 `CUDA_VISIBLE_DEVICES`）。
+
+### CUDA 环境（NVIDIA GPU）
+
+| 项目 | 要求 |
+|---|---|
+| GPU | NVIDIA Ampere 及以上（A100 / L40S / RTX 3090 / 4090 等） |
+| 显存 | 按模型 `resource_hint.min_vram_gb`，SDXL ≥ 12 GB、SVD ≥ 14 GB、Flux2 ≥ 24 GB（`omnirt models <id>` 查看每个模型的确切值） |
+| NVIDIA 驱动 | ≥ 535（与 CUDA 12.1 配套） |
+| CUDA Toolkit | 12.1 或 12.4 |
+| PyTorch | 2.1+，官方 CUDA wheel 优先，例如 `torch==2.5.1+cu121` |
+
+推荐安装顺序：
+
+```bash
+# 1. 先装匹配的 CUDA PyTorch wheel（从 pytorch.org 选索引）
+python -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+
+# 2. 再装 OmniRT 本体与其余 runtime 依赖
+python -m pip install -e '.[runtime,dev]'
+
+# 3. 烟测
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+omnirt generate --task text2image --model sdxl-base-1.0 --prompt "a lighthouse" --backend cuda --preset fast
+```
+
+提示：
+
+- `torch.compile` 对 Ampere+ 才稳定；老卡可通过 `OMNIRT_DISABLE_COMPILE=1` 跳过编译一路走 eager。
+- 多卡并行、USP、CFG 分片目前不是公开能力（见 [PLAN.md](https://github.com/datascale-ai/omnirt/blob/main/PLAN.md)）。
+- 编译与显存日志会出现在 `RunReport.backend_timeline` 里。
 
 ## 安装
 

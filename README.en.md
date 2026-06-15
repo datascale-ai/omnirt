@@ -1,7 +1,7 @@
 # OmniRT
 
 <p align="center">
-  <strong>Open inference runtime for realtime digital humans and multimodal agents</strong>
+  <strong>Open runtime for the digital-human path, with deployable Ascend / 910B adaptation and mainstream CUDA compatibility</strong>
 </p>
 
 <p align="center">
@@ -21,22 +21,23 @@
 
 ---
 
-OmniRT is an open multimodal inference runtime for realtime digital humans and multimodal agents. It focuses on model execution, protocols, performance, deployment, health checks, benchmark artifacts, and capability declarations, with a unified request contract, realtime inference protocols, resident workers, CUDA / Ascend deployment, and integration foundations for OpenTalking, agent services, and custom frontends.
+OmniRT is an open multimodal inference runtime for realtime digital humans and multimodal agents. It prioritizes deployable, verifiable, and benchmarkable Ascend / 910B adaptation for the digital-human path, while keeping CUDA as the mainstream development, validation, and compatibility backend.
 
 OmniRT is not an OpenTalking-only backend and it does not own business scenario packages such as government service, livestreaming, or customer support. OpenTalking is one important validation client. Persona packages, knowledge bases, customer pages, and business workflows belong in upper-layer systems; OmniRT core should expose Runtime Profiles, Model Capability Manifests, Benchmark Scenarios, and Integration Recipes.
 
-OmniRT is no longer trying to be a broad model zoo. General image and video models that are already integrated remain available in the registry, but future maintenance effort is centered on the digital-human path: **TTS → audio-driven avatar → realtime serving → avatar assets / idle video → post-processing**.
+OmniRT is no longer trying to be a broad model zoo. General image and video models that are already integrated remain available in the registry, but future maintenance effort is centered on a deployable and reproducible digital-human path: **TTS → audio-driven avatar → realtime serving → avatar assets / idle video → post-processing**.
 
 ## ✨ Highlights
 
 - **Digital-human first** — talking avatars, TTS, avatar assets, idle video, and post-processing are the core scope
+- **Ascend / 910B adaptation priority** — private deployment, resident workers, real-hardware smoke tests, and benchmarks are treated as first-class delivery artifacts
 - **Unified contract** — `GenerateRequest`, `GenerateResult`, `RunReport` cover batch generation surfaces
 - **Capability manifests** — `omnirt models --manifest` declares model task, I/O, streaming, resident, and backend status
 - **Runtime profiles** — `omnirt profile validate` checks model composition, ports, VRAM budget, warmup, concurrency, and fallback config
 - **Realtime avatar protocols** — FlashTalk-compatible WebSocket for OpenTalking compatibility, plus OmniRT Native Realtime Avatar WebSocket for new integrations
-- **Cross-backend** — the same request validates and runs on `cuda` / `ascend` / `cpu-stub`
+- **Cross-backend** — the same request validates and runs on `ascend` / `cuda` / `cpu-stub`; CUDA remains the mainstream development and compatibility path
 - **Three entry points** — Python API, CLI (`omnirt generate / validate / models`), FastAPI server
-- **Core digital-human models** — FlashTalk / FlashHead / LiveAct / CosyVoice / SenseVoice are the current validation line
+- **Core digital-human models** — FlashTalk / FlashHead / LiveAct / CosyVoice / SenseVoice / SoulX-Podcast are the current validation line
 - **Standard artifacts** — PNG for images, WAV for audio, MP4 for videos, each run ships a `RunReport`
 - **Offline-friendly** — local directories, Hugging Face, ModelScope, Modelers snapshots all supported
 - **LoRA flexibility** — local safetensors and `hf://` single-file refs side by side
@@ -84,7 +85,7 @@ pip install -e '.[server]'
 pip install -e '.[docs]'
 ```
 
-Full walkthrough — first `validate` / `generate`, YAML request format, presets, `hf://` single-file LoRA refs — see [docs/getting_started/quickstart.en.md](./docs/getting_started/quickstart.en.md).
+For real deployment, start with the Ascend / 910B digital-human path; CUDA remains the most mature development, validation, and compatibility backend. Full walkthrough — first `validate` / `generate`, YAML request format, presets, `hf://` single-file LoRA refs — see [docs/getting_started/quickstart.en.md](./docs/getting_started/quickstart.en.md).
 
 ## FlashTalk 910B Runtime
 
@@ -152,8 +153,8 @@ omnirt models --tier core --manifest
 A complete generated snapshot is at [docs/user_guide/models/supported_models.en.md](./docs/user_guide/models/supported_models.en.md); digital-human priorities and validation status live in [support_status.en.md](./docs/user_guide/models/support_status.en.md).
 
 | Tier | Maintenance policy | Examples |
-|---|---|
-| Core | Requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm`, `sensevoice-small` |
+|---|---|---|
+| Core | Requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | Supports avatar assets, backgrounds, idle video, and digital-human content production; smoke tests are added by scenario | `sdxl-base-1.0`, `flux2.dev`, `qwen-image`, `svd-xt`, `wan2.2-*` |
 | Experimental | Keeps existing integrations, but is not a headline promise or dual-backend validation target | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2`, and other general models |
 
@@ -177,8 +178,10 @@ Real end-to-end generation still depends on the target hardware stack, runtime l
 
 - `soulx-flashtalk-14b` has completed real-hardware validation on the Ascend 910B2 `persistent_worker` path
 - `soulx-liveact-14b` and `soulx-flashhead-1.3b` are integrated through the `persistent_worker` execution surface, with script-backed generation retained inside the worker
-- `cosyvoice3-triton-trtllm` is integrated as the CUDA-validated TTS baseline for the digital-human path
-- `sensevoice-small` is integrated as the first offline ASR / `audio2text` entrypoint
+- `cosyvoice3-triton-trtllm` keeps the CUDA/TensorRT-LLM validation baseline and can target an Ascend-hosted Triton-compatible service endpoint
+- `sensevoice-small` is integrated as the first offline ASR / `audio2text` entrypoint; with the Ascend backend, `device=auto` resolves to FunASR-compatible `npu:0`
+- `indextts` exposes a resident `serve-text2audio` runtime with `ascend` / `npu` device aliases, NPU fp16 defaults, and `torch_npu` load checks
+- `soulx-podcast-1.7b` is integrated for `text2audio` and can target an external Ascend-hosted FastAPI service through `service_accelerator=ascend`
 - `sdxl-base-1.0` and `svd-xt` remain adjacent baselines for avatar assets and idle video material
 - Editing models such as `flux-fill`, `flux-kontext`, `qwen-image-edit`, and `qwen-image-edit-plus` have smoke-test entry points and are maintained as adjacent asset capabilities
 - `soulx-flashtalk-14b` can serve OpenTalking-style realtime avatar clients through the [FlashTalk-compatible WebSocket](./docs/user_guide/serving/flashtalk_ws.en.md) path
@@ -192,8 +195,8 @@ Pick a topology that matches your hardware and scale:
 
 | Topology | When to use | Docs |
 |---|---|---|
-| CUDA single node | NVIDIA GPU local inference / workstation | [cuda.en.md](./docs/user_guide/deployment/cuda.en.md) |
 | Ascend single node | Ascend 910 / 310P and similar NPUs | [ascend.en.md](./docs/user_guide/deployment/ascend.en.md) |
+| CUDA single node | NVIDIA GPU local inference / workstation | [cuda.en.md](./docs/user_guide/deployment/cuda.en.md) |
 | Docker | Container isolation, CI/CD, reproducible envs | [docker.en.md](./docs/user_guide/deployment/docker.en.md) |
 | Distributed serving | Multi-GPU / multi-host / high-concurrency serving | [distributed_serving.en.md](./docs/user_guide/deployment/distributed_serving.en.md) |
 

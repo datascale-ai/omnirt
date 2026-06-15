@@ -1,5 +1,5 @@
 site_name: OmniRT
-site_description: 面向 CUDA 与 Ascend 后端的开源数字人链路多模态生成运行时。
+site_description: 面向数字人主链路的多模态推理运行时，重点沉淀 Ascend / 910B 私有化部署路径，并保留 CUDA 兼容后端。
 site_url: https://datascale-ai.github.io/omnirt/
 repo_url: https://github.com/datascale-ai/omnirt
 repo_name: datascale-ai/omnirt
@@ -95,7 +95,7 @@ plugins:
           name: 简体中文
           link: /
           site_name: OmniRT
-          site_description: 面向 CUDA 与 Ascend 后端的开源数字人链路多模态生成运行时。
+          site_description: 面向数字人主链路的多模态推理运行时，重点沉淀 Ascend / 910B 私有化部署路径，并保留 CUDA 兼容后端。
           theme:
             language: zh
         - locale: en
@@ -103,7 +103,7 @@ plugins:
           name: English
           link: /en/
           site_name: OmniRT
-          site_description: Open digital-human multimodal generation runtime with CUDA and Ascend backends.
+          site_description: Digital-human multimodal runtime with deployable Ascend / 910B adaptation and CUDA-compatible paths.
           theme:
             language: en
           nav:
@@ -132,8 +132,8 @@ plugins:
                     - Realtime Avatar WebSocket: user_guide/serving/realtime_avatar_ws.md
                 - Deployment:
                     - Overview: user_guide/deployment/index.md
-                    - CUDA: user_guide/deployment/cuda.md
                     - Ascend Backend: user_guide/deployment/ascend.md
+                    - CUDA: user_guide/deployment/cuda.md
                     - Domestic Deployment: user_guide/deployment/china_mirrors.md
                     - Docker: user_guide/deployment/docker.md
                     - Distributed Serving: user_guide/deployment/distributed_serving.md
@@ -206,8 +206,8 @@ nav:
           - 实时数字人 WebSocket: user_guide/serving/realtime_avatar_ws.md
       - 部署指南:
           - 概览: user_guide/deployment/index.md
-          - CUDA: user_guide/deployment/cuda.md
           - Ascend 后端: user_guide/deployment/ascend.md
+          - CUDA: user_guide/deployment/cuda.md
           - 国内部署: user_guide/deployment/china_mirrors.md
           - Docker: user_guide/deployment/docker.md
           - 分布式服务: user_guide/deployment/distributed_serving.md
