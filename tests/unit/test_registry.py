@@ -71,3 +71,5 @@ def test_indextts_is_registered_as_text2audio_model() -> None:
     assert spec.capabilities.realtime is True
     assert spec.capabilities.artifact_kind == "audio"
     assert "quick_streaming_tokens" in spec.capabilities.supported_config
+    assert spec.capabilities.streaming is True
+    assert spec.capabilities.service_adapter == "text2audio.service.v1"

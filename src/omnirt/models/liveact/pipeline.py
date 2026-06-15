@@ -170,6 +170,9 @@ class LiveActLaunchConfig:
         chain_role="avatar-render",
         realtime=False,
         tier="core",
+        streaming=False,
+        resident=True,
+        backend_status={"ascend": "supported", "cuda": "planned", "cpu-stub": "validation-only"},
         summary="SoulX-LiveAct long-form audio-driven avatar video generation on Ascend.",
         example=(
             "OMNIRT_LIVEACT_REPO_PATH=/path/to/SoulX-LiveAct "

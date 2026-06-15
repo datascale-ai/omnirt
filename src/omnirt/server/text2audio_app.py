@@ -9,10 +9,15 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
-from omnirt.models.indextts import create_indextts_runtime_from_env
 from omnirt.server.routes.text2audio import router as text2audio_router
 
 log = logging.getLogger(__name__)
+
+
+def create_indextts_runtime_from_env():
+    from omnirt.models.indextts.runtime import create_indextts_runtime_from_env as _create
+
+    return _create()
 
 
 def _runtime_enabled(name: str) -> bool:

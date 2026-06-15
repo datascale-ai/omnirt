@@ -60,6 +60,10 @@ class SoulXPodcastConfig:
         maturity="beta",
         tier="core",
         supports_batching=False,
+        streaming=False,
+        resident=True,
+        service_adapter="text2audio.service.v1",
+        backend_status={"cuda": "supported", "ascend": "planned", "cpu-stub": "validation-only"},
         chain_role="voice-generation",
         summary="SoulX-Podcast text-to-audio generation through the official FastAPI route.",
         example=(

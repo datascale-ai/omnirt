@@ -19,7 +19,12 @@ from omnirt.server.routes.jobs import router as jobs_router
 from omnirt.server.routes.openai import router as openai_router
 from omnirt.server.routes.text2audio import router as text2audio_router
 from omnirt.telemetry import OtlpExporter, PrometheusMetrics, TraceRecorder
-from omnirt.models.indextts import create_indextts_runtime_from_env
+
+
+def create_indextts_runtime_from_env():
+    from omnirt.models.indextts.runtime import create_indextts_runtime_from_env as _create
+
+    return _create()
 
 
 def _allowed_frame_roots_from_env() -> list[str]:

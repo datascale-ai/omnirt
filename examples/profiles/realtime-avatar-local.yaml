@@ -1,0 +1,50 @@
+name: realtime-avatar-local
+version: 1.0.0
+description: Local realtime avatar profile with service-backed TTS and native avatar WebSocket.
+defaults:
+  max_concurrency: 1
+  preload: true
+environment:
+  OMNIRT_INDEXTTS_RUNTIME: "1"
+  OMNIRT_INDEXTTS_PRELOAD: "1"
+  OMNIRT_REALTIME_AVATAR_RUNTIME: fake
+models:
+  - id: indextts
+    task: text2audio
+    backend: cuda
+    service: text2audio.service.v1
+    port: 9012
+    resources:
+      vram_gb: 8
+    warmup:
+      text: OmniRT text2audio warmup.
+      max_chunks: 1
+    concurrency: 1
+    degrade_to: cpu-stub
+    config:
+      streaming_mode: token_window
+      sample_rate: 16000
+  - id: quicktalk
+    task: audio2video
+    backend: ascend
+    service: realtime-avatar.ws.v1
+    port: 8765
+    resources:
+      accelerator: Ascend 910B
+      vram_gb: 32
+    warmup:
+      preload_reference: true
+    concurrency: 1
+    degrade_to: wav2lip
+  - id: soulx-flashtalk-14b
+    task: audio2video
+    backend: ascend
+    service: batch-generate.v1
+    resources:
+      accelerator: Ascend 910B2
+      vram_gb: 64
+    warmup:
+      resident_worker: true
+    concurrency: 1
+    config:
+      audio_encode_mode: stream

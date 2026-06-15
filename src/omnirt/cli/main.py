@@ -254,6 +254,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Filter the list view by digital-human maintenance tier.",
     )
+    models_parser.add_argument(
+        "--manifest",
+        action="store_true",
+        help="Emit Model Capability Manifest JSON for one model or the current list.",
+    )
 
     runtime_parser = subparsers.add_parser("runtime", help="Manage isolated model runtime environments.")
     runtime_subparsers = runtime_parser.add_subparsers(dest="runtime_command")
@@ -283,6 +288,12 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_logs.add_argument("name", help="Runtime name, for example flashtalk.")
     runtime_logs.add_argument("--device", default="ascend", help="Runtime device profile, for example ascend.")
     runtime_logs.add_argument("--home", help="Runtime home directory. Default: <omnirt repo>/.omnirt.")
+
+    profile_parser = subparsers.add_parser("profile", help="Validate and inspect Runtime Profile files.")
+    profile_subparsers = profile_parser.add_subparsers(dest="profile_command")
+    profile_validate = profile_subparsers.add_parser("validate", help="Validate a Runtime Profile YAML/JSON file.")
+    profile_validate.add_argument("path", help="Runtime Profile YAML or JSON path.")
+    profile_validate.add_argument("--json", action="store_true", help="Emit normalized JSON.")
 
     serve_parser = subparsers.add_parser("serve", help="Run the OmniRT HTTP API server.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
@@ -1026,6 +1037,27 @@ def render_runtime_env(env: dict[str, str], *, shell: bool) -> str:
     return "\n".join(f"{key}={value}" for key, value in env.items())
 
 
+def render_runtime_profile_summary(payload: dict[str, object]) -> str:
+    models = payload.get("models", [])
+    lines = [
+        f"profile={payload['name']}",
+        f"version={payload['version']}",
+        f"models={len(models) if isinstance(models, list) else 0}",
+    ]
+    if payload.get("description"):
+        lines.append(f"description={payload['description']}")
+    if isinstance(models, list):
+        for model in models:
+            if isinstance(model, dict):
+                service = f" service={model.get('service', '')}" if model.get("service") else ""
+                port = f" port={model.get('port')}" if model.get("port") is not None else ""
+                lines.append(
+                    f"model: {model.get('id')} task={model.get('task')} backend={model.get('backend')}"
+                    f"{service}{port} concurrency={model.get('concurrency')}"
+                )
+    return "\n".join(lines)
+
+
 def run_runtime_command(args: argparse.Namespace) -> int:
     from omnirt.runtime import RuntimeInstaller, load_manifest, load_state
     from omnirt.runtime.paths import set_omnirt_home
@@ -1108,6 +1140,28 @@ def run_runtime_command(args: argparse.Namespace) -> int:
     return 2
 
 
+def run_profile_command(args: argparse.Namespace) -> int:
+    if not args.profile_command:
+        print("error: profile subcommand is required", file=sys.stderr)
+        return 2
+    if args.profile_command == "validate":
+        from omnirt.runtime.profile import load_runtime_profile
+
+        try:
+            profile = load_runtime_profile(args.path)
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        payload = profile.to_dict()
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(render_runtime_profile_summary(payload))
+        return 0
+    print(f"error: unknown profile subcommand: {args.profile_command}", file=sys.stderr)
+    return 2
+
+
 def scenario_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser):
     from omnirt.bench import BenchScenario, get_bench_scenario
 
@@ -1141,6 +1195,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.command == "runtime":
         return run_runtime_command(args)
+
+    if args.command == "profile":
+        return run_profile_command(args)
 
     if args.command == "serve":
         if args.protocol == "flashtalk-ws":
@@ -1306,6 +1363,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.command == "models":
         from omnirt.core.types import OmniRTError
+        from omnirt.runtime.capabilities import capability_manifest_for_spec
 
         if args.model:
             try:
@@ -1314,7 +1372,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2
             variants = list_model_variants(args.model)
-            if args.json:
+            if args.manifest:
+                manifests = {
+                    task: capability_manifest_for_spec(variant_spec).to_dict()
+                    for task, variant_spec in variants.items()
+                }
+                print(json.dumps(manifests[spec.task] if len(manifests) == 1 else manifests, indent=2, ensure_ascii=False))
+            elif args.json:
                 print(
                     json.dumps(
                         {
@@ -1347,6 +1411,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         tier_filter = getattr(args, "tier", "all")
         if tier_filter != "all":
             specs = [spec for spec in specs if spec.capabilities.tier == tier_filter]
+        if args.manifest:
+            print(
+                json.dumps(
+                    [capability_manifest_for_spec(spec).to_dict() for spec in specs],
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         if getattr(args, "format", "text") == "markdown":
             sys.stdout.write(render_models_markdown(specs))
             return 0

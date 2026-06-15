@@ -59,6 +59,15 @@ OmniRT 原生请求与 `GenerateRequest` 对齐：
 
 `experimental` 只应出现在开发、兼容验证或明确授权的内部服务里，不应作为默认生产能力暴露。
 
+## Runtime Profile 与 Capability Manifest
+
+运行时侧新增两个稳定接口：
+
+- `omnirt models --manifest`：输出 `Model Capability Manifest`，用于声明模型任务、输入输出、streaming、resident、service adapter 和后端支持状态。
+- `omnirt profile validate <path>`：校验 `Runtime Profile`，用于描述多模型服务组合、端口、资源、预热、最大并发和降级模型。
+
+示例 profile 见 `examples/profiles/realtime-avatar-local.yaml`。这类配置可以被 OpenTalking、Dify / Agent 服务、自研前端或 CLI 启动脚本复用。
+
 ## 同步响应
 
 同步 `POST /v1/generate` 返回 `GenerateResult`：
@@ -125,6 +134,36 @@ OmniRT 原生请求与 `GenerateRequest` 对齐：
 
 `POST /v1/audio/speech` 当前保留，返回 `501`。
 
+## Text2Audio service-backed adapter
+
+TTS 模型优先支持服务化 adapter，不要求全部走离线 `omnirt generate` 路径。通用 text2audio 服务面：
+
+- `GET /v1/text2audio/models`
+- `GET /v1/text2audio/health`
+- `GET /v1/text2audio/metrics`
+- `POST /v1/text2audio/warmup`
+- `POST /v1/text2audio/stream`
+
+统一请求：
+
+```json
+{
+  "model": "indextts",
+  "text": "你好，我是 OmniRT 实时语音。",
+  "voice": "voice-a",
+  "speaker_profile": "voice-a",
+  "prompt_audio": "/models/voices/reference.wav",
+  "reference_text": "参考音色文本",
+  "audio_format": "pcm_s16le",
+  "stream": true,
+  "config": {
+    "streaming_mode": "token_window"
+  }
+}
+```
+
+默认返回 `audio/L16` PCM 流，并通过 `x-audio-sample-rate` 声明采样率。模型特定路径如 `/v1/text2audio/indextts` 会继续保留为兼容入口。
+
 ## 实时数字人 WebSocket
 
 OmniRT 同时提供 audio2video 流式入口和原生实时数字人入口：
@@ -135,6 +174,24 @@ OmniRT 同时提供 audio2video 流式入口和原生实时数字人入口：
 - `WS /v1/avatar/realtime`：OmniRT 原生 Realtime Avatar 协议，面向新集成，提供 `session_id`、`trace_id`、结构化错误和 chunk metrics。
 
 二进制音视频帧复用 `AUDI` / `VIDX` framing。详细协议见 [FlashTalk WebSocket](../serving/flashtalk_ws.md) 与 [Realtime Avatar WebSocket](../serving/realtime_avatar_ws.md)。
+
+OmniRT Native Realtime Avatar 事件 envelope：
+
+```json
+{
+  "type": "metrics",
+  "session_id": "session-123",
+  "trace_id": "trace-123",
+  "model": "quicktalk",
+  "chunk_index": 1,
+  "metrics": {
+    "ttff_ms": 120.5,
+    "first_video_chunk_ms": 180.0
+  }
+}
+```
+
+稳定事件类型包括 `session.created`、`session.cancelled`、`session.closed`、`metrics`、`error`、`finish` 和 `pong`。二进制 audio chunk / video chunk 仍通过 WebSocket binary frame 传输。
 
 ## 相关
 

@@ -147,6 +147,7 @@ plugins:
                     - Presets: user_guide/features/presets.md
                     - Validation: user_guide/features/validation.md
                     - Service Schema: user_guide/features/service_schema.md
+                    - Runtime Profiles: user_guide/features/runtime_profiles.md
                     - Dispatch & Queue: user_guide/features/dispatch_queue.md
                     - Telemetry: user_guide/features/telemetry.md
             - Developer Guide:
@@ -220,6 +221,7 @@ nav:
           - 预设: user_guide/features/presets.md
           - 请求校验: user_guide/features/validation.md
           - 服务协议: user_guide/features/service_schema.md
+          - Runtime Profile: user_guide/features/runtime_profiles.md
           - 派发与队列: user_guide/features/dispatch_queue.md
           - 遥测: user_guide/features/telemetry.md
   - 开发者指南:

@@ -59,6 +59,15 @@ Every registry entry has a `tier`: `core`, `adjacent`, or `experimental`. The Py
 
 `experimental` should only be exposed in development, compatibility validation, or explicitly authorized internal services. It should not be part of the default production surface.
 
+## Runtime Profiles and Capability Manifests
+
+Two stable runtime-side interfaces are available:
+
+- `omnirt models --manifest`: emits a `Model Capability Manifest` declaring task, I/O, streaming, resident mode, service adapter, and backend support status.
+- `omnirt profile validate <path>`: validates a `Runtime Profile` describing multi-model service composition, ports, resources, warmup, max concurrency, and fallbacks.
+
+See `examples/profiles/realtime-avatar-local.yaml`. Profiles can be reused by OpenTalking, Dify / agent services, custom frontends, or CLI launch scripts.
+
 ## Sync response
 
 Synchronous `POST /v1/generate` returns a `GenerateResult`:
@@ -125,6 +134,36 @@ These compatibility routes are currently available:
 
 `POST /v1/audio/speech` is currently reserved and returns `501`.
 
+## Text2Audio service-backed adapter
+
+TTS models should prefer service-backed adapters. They do not all have to go through offline `omnirt generate`.
+
+- `GET /v1/text2audio/models`
+- `GET /v1/text2audio/health`
+- `GET /v1/text2audio/metrics`
+- `POST /v1/text2audio/warmup`
+- `POST /v1/text2audio/stream`
+
+Generic request:
+
+```json
+{
+  "model": "indextts",
+  "text": "Hello from OmniRT realtime voice.",
+  "voice": "voice-a",
+  "speaker_profile": "voice-a",
+  "prompt_audio": "/models/voices/reference.wav",
+  "reference_text": "reference voice text",
+  "audio_format": "pcm_s16le",
+  "stream": true,
+  "config": {
+    "streaming_mode": "token_window"
+  }
+}
+```
+
+The default response is an `audio/L16` PCM stream with `x-audio-sample-rate`. Model-specific routes such as `/v1/text2audio/indextts` remain available for compatibility.
+
 ## Realtime avatar WebSockets
 
 OmniRT exposes audio2video streaming paths and the native realtime avatar path:
@@ -135,6 +174,24 @@ OmniRT exposes audio2video streaming paths and the native realtime avatar path:
 - `WS /v1/avatar/realtime`: OmniRT Native Realtime Avatar protocol for new integrations, with `session_id`, `trace_id`, structured errors, and chunk metrics.
 
 Both paths reuse the `AUDI` / `VIDX` binary framing. See [FlashTalk WebSocket](../serving/flashtalk_ws.md) and [Realtime Avatar WebSocket](../serving/realtime_avatar_ws.md).
+
+OmniRT Native Realtime Avatar event envelope:
+
+```json
+{
+  "type": "metrics",
+  "session_id": "session-123",
+  "trace_id": "trace-123",
+  "model": "quicktalk",
+  "chunk_index": 1,
+  "metrics": {
+    "ttff_ms": 120.5,
+    "first_video_chunk_ms": 180.0
+  }
+}
+```
+
+Stable event types include `session.created`, `session.cancelled`, `session.closed`, `metrics`, `error`, `finish`, and `pong`. Binary audio chunks and video chunks still travel as WebSocket binary frames.
 
 ## Related
 

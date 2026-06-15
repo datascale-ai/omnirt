@@ -243,3 +243,78 @@ def test_text2audio_models_exposes_indextts_streaming_boundary(monkeypatch) -> N
     assert status["streaming_granularity"] == "segment"
     assert status["model_internal_streaming"] is False
     assert status["connected"] is True
+
+
+def test_text2audio_generic_stream_route_uses_service_adapter_contract(monkeypatch) -> None:
+    captured = {}
+
+    class FakeRuntime:
+        sample_rate = 24000
+
+        def status(self):
+            return {"ready": True, "model": "IndexTeam/IndexTTS-2"}
+
+        async def synthesize_pcm_stream(self, text, *, voice=None, config=None):
+            captured["text"] = text
+            captured["voice"] = voice
+            captured["config"] = config
+            yield b"\x01\x00"
+
+    monkeypatch.setenv("OMNIRT_INDEXTTS_RUNTIME", "1")
+    monkeypatch.setattr("omnirt.server.app.create_indextts_runtime_from_env", lambda: FakeRuntime())
+
+    client = TestClient(create_app(default_backend="cpu-stub"))
+    response = client.post(
+        "/v1/text2audio/stream",
+        json={
+            "model": "indextts",
+            "text": "你好。",
+            "speaker_profile": "voice-a",
+            "prompt_audio": "/tmp/reference.wav",
+            "reference_text": "参考文本",
+            "config": {"streaming_mode": "segment"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-omnirt-adapter-schema"] == "text2audio.service.v1"
+    assert response.headers["x-audio-sample-rate"] == "24000"
+    assert response.content == b"\x01\x00"
+    assert captured == {
+        "text": "你好。",
+        "voice": "voice-a",
+        "config": {
+            "streaming_mode": "segment",
+            "reference_text": "参考文本",
+            "prompt_audio": "/tmp/reference.wav",
+        },
+    }
+
+
+def test_text2audio_generic_health_metrics_and_warmup(monkeypatch) -> None:
+    calls = []
+
+    class FakeRuntime:
+        sample_rate = 16000
+
+        def status(self):
+            return {"ready": True, "model": "IndexTeam/IndexTTS-2"}
+
+        def warmup(self, *, text="", max_chunks=1):
+            calls.append((text, max_chunks))
+
+    monkeypatch.setenv("OMNIRT_INDEXTTS_RUNTIME", "1")
+    monkeypatch.setattr("omnirt.server.app.create_indextts_runtime_from_env", lambda: FakeRuntime())
+
+    client = TestClient(create_app(default_backend="cpu-stub"))
+
+    assert client.get("/health").json()["ok"] is True
+    models = client.get("/models").json()
+    assert models["adapter_schema"] == "text2audio.service.v1"
+    metrics = client.get("/v1/text2audio/metrics").json()
+    assert metrics["ready_count"] == 1
+
+    warmup = client.post("/warmup", json={"model": "indextts", "text": "启动预热", "max_chunks": 2})
+    assert warmup.status_code == 200
+    assert warmup.json()["ok"] is True
+    assert calls == [("启动预热", 2)]

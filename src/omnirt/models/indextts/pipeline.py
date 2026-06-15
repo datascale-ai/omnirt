@@ -54,6 +54,10 @@ from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequ
         tier="adjacent",
         supports_batching=False,
         realtime=True,
+        streaming=True,
+        resident=True,
+        service_adapter="text2audio.service.v1",
+        backend_status={"cuda": "supported", "cpu-stub": "validation-only"},
         chain_role="voice-generation",
         summary=(
             "IndexTTS-2 resident text-to-audio service for OpenTalking TTS, with segment streaming "

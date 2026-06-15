@@ -124,6 +124,10 @@ class FlashTalkLaunchConfig:
         chain_role="avatar-render",
         realtime=True,
         tier="core",
+        streaming=True,
+        resident=True,
+        service_adapter="realtime-avatar.ws.v1",
+        backend_status={"ascend": "supported", "cuda": "planned", "cpu-stub": "validation-only"},
         summary="SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend.",
         example=(
             "OMNIRT_FLASHTALK_REPO_PATH=/path/to/SoulX-FlashTalk "
