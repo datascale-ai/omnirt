@@ -35,6 +35,7 @@ _ENV_KEYS = {
     "repo_path": "REPO_PATH",
     "ckpt_dir": "CKPT_DIR",
     "wav2vec_dir": "WAV2VEC_DIR",
+    "env_script": "ENV_SCRIPT",
     "ascend_env_script": "ASCEND_ENV_SCRIPT",
     "python_executable": "PYTHON",
 }

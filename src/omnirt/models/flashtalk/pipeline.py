@@ -1,4 +1,4 @@
-"""SoulX-FlashTalk wrapper pipeline backed by an external Ascend checkout."""
+"""SoulX-FlashTalk wrapper pipeline backed by an external checkout."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from omnirt.workers import GrpcResidentWorkerProxy, ManagedGrpcResidentWorkerPro
 @dataclass(frozen=True)
 class FlashTalkRuntimeConfig:
     resident_target: Optional[str]
+    accelerator: str
     repo_path: Path
     ckpt_dir: Path
     wav2vec_dir: Path
@@ -48,6 +49,7 @@ class FlashTalkRuntimeConfig:
 
 @dataclass(frozen=True)
 class FlashTalkLaunchConfig:
+    accelerator: str
     repo_path: Path
     script_path: Path
     ckpt_dir: Path
@@ -81,7 +83,7 @@ class FlashTalkLaunchConfig:
         "min_vram_gb": 64,
         "vram_scope": "aggregate",
         "dtype": "bf16",
-        "accelerator": "Ascend 910B2",
+        "accelerator": "CUDA GPU or Ascend 910B2",
     },
     capabilities=ModelCapabilities(
         required_inputs=("image", "audio"),
@@ -104,6 +106,8 @@ class FlashTalkLaunchConfig:
             "num_processes",
             "accelerate_executable",
             "visible_devices",
+            "accelerator",
+            "env_script",
             "ascend_env_script",
             "t5_quant",
             "t5_quant_dir",
@@ -127,12 +131,12 @@ class FlashTalkLaunchConfig:
         streaming=True,
         resident=True,
         service_adapter="realtime-avatar.ws.v1",
-        backend_status={"ascend": "supported", "cuda": "planned", "cpu-stub": "validation-only"},
-        summary="SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend.",
+        backend_status={"ascend": "supported", "cuda": "supported", "cpu-stub": "validation-only"},
+        summary="SoulX-FlashTalk talking-head avatar generation via image plus audio on CUDA or Ascend.",
         example=(
             "OMNIRT_FLASHTALK_REPO_PATH=/path/to/SoulX-FlashTalk "
             "omnirt generate --task audio2video --model soulx-flashtalk-14b --image speaker.png "
-            "--audio voice.wav --backend ascend"
+            "--audio voice.wav --backend cuda"
         ),
     ),
 )
@@ -148,7 +152,7 @@ class FlashTalkPipeline(BasePipeline):
         if resident_target:
             autostart = bool(config.get("resident_autostart", False))
         else:
-            runtime_config = cls.resolve_runtime_config(config)
+            runtime_config = cls.resolve_runtime_config(config, backend_name=getattr(runtime, "name", "auto"))
             distributed_requested = (
                 runtime_config.launcher != "python"
                 or runtime_config.nproc_per_node > 1
@@ -160,7 +164,7 @@ class FlashTalkPipeline(BasePipeline):
         if resident_target:
             if autostart:
                 if runtime_config is None:
-                    runtime_config = cls.resolve_runtime_config(config)
+                    runtime_config = cls.resolve_runtime_config(config, backend_name=getattr(runtime, "name", "auto"))
                 project_root = Path(__file__).resolve().parents[4]
                 worker_id = f"flashtalk-resident-{resident_target.rsplit(':', 1)[-1]}"
                 return ManagedGrpcResidentWorkerProxy(
@@ -173,7 +177,7 @@ class FlashTalkPipeline(BasePipeline):
                         worker_id=worker_id,
                     ),
                     cwd=project_root,
-                    env=build_resident_worker_env(project_root=project_root),
+                    env=build_resident_worker_env(project_root=project_root, runtime_config=runtime_config),
                     env_script=runtime_config.ascend_env_script,
                     log_file=project_root / "outputs" / f"{worker_id}.log",
                 )
@@ -193,7 +197,7 @@ class FlashTalkPipeline(BasePipeline):
         return {"image_path": image_path, "audio_path": audio_path, "prompt": prompt}
 
     def prepare_latents(self, req: GenerateRequest, conditions: Any) -> FlashTalkLaunchConfig:
-        runtime_config = self.resolve_runtime_config(req.config)
+        runtime_config = self.resolve_runtime_config(req.config, backend_name=getattr(self.runtime, "name", "auto"))
         script_path = runtime_config.repo_path / "generate_video.py"
         if not script_path.exists():
             raise FileNotFoundError(f"FlashTalk entry script not found: {script_path}")
@@ -202,6 +206,7 @@ class FlashTalkPipeline(BasePipeline):
         save_file = output_dir / f"{req.model}-{seed}-{int(time.time() * 1000)}.mp4"
 
         launch = FlashTalkLaunchConfig(
+            accelerator=runtime_config.accelerator,
             repo_path=runtime_config.repo_path,
             script_path=script_path,
             ckpt_dir=runtime_config.ckpt_dir,
@@ -231,7 +236,14 @@ class FlashTalkPipeline(BasePipeline):
     def denoise_loop(self, latents: FlashTalkLaunchConfig, conditions: Any, config: Dict[str, Any]) -> Dict[str, Any]:
         env = dict(os.environ)
         if latents.visible_devices:
-            env["ASCEND_RT_VISIBLE_DEVICES"] = latents.visible_devices
+            if latents.accelerator == "cuda":
+                env["CUDA_VISIBLE_DEVICES"] = latents.visible_devices
+                env.pop("ASCEND_RT_VISIBLE_DEVICES", None)
+            elif latents.accelerator == "ascend":
+                env["ASCEND_RT_VISIBLE_DEVICES"] = latents.visible_devices
+                env.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                env["CUDA_VISIBLE_DEVICES"] = latents.visible_devices
         if latents.launcher == "torchrun":
             env["GPU_NUM"] = str(latents.nproc_per_node)
 
@@ -337,6 +349,7 @@ class FlashTalkPipeline(BasePipeline):
             "num_processes": latents.num_processes,
             "accelerate_executable": latents.accelerate_executable,
             "visible_devices": latents.visible_devices,
+            "env_script": latents.ascend_env_script,
             "ascend_env_script": latents.ascend_env_script,
             "t5_quant": latents.t5_quant,
             "t5_quant_dir": str(latents.t5_quant_dir) if latents.t5_quant_dir else None,
@@ -346,7 +359,10 @@ class FlashTalkPipeline(BasePipeline):
         }
 
     @staticmethod
-    def resolve_runtime_config(config: Dict[str, Any]) -> FlashTalkRuntimeConfig:
+    def resolve_runtime_config(config: Dict[str, Any], *, backend_name: str = "auto") -> FlashTalkRuntimeConfig:
+        accelerator = FlashTalkPipeline._normalize_accelerator(
+            config.get("accelerator") or config.get("device") or backend_name
+        )
         repo_path_value = config.get("repo_path") or flashtalk_setting("repo_path", required=True)
         repo_path = Path(str(repo_path_value)).expanduser()
         if not repo_path.exists():
@@ -379,17 +395,24 @@ class FlashTalkPipeline(BasePipeline):
         )
         python_executable = str(python_executable_value)
         accelerate_executable = FlashTalkPipeline._normalize_optional_string(config.get("accelerate_executable"))
+        env_script_override = FlashTalkPipeline._normalize_optional_string(config.get("env_script"))
         ascend_env_override = FlashTalkPipeline._normalize_optional_string(config.get("ascend_env_script"))
-        ascend_env_script = ascend_env_override or flashtalk_setting("ascend_env_script")
+        env_script = (
+            env_script_override
+            or ascend_env_override
+            or flashtalk_setting("env_script")
+            or (flashtalk_setting("ascend_env_script") if accelerator == "ascend" else None)
+        )
         if python_executable and not Path(python_executable).expanduser().exists():
             raise FileNotFoundError(f"FlashTalk python_executable not found: {python_executable}")
-        if ascend_env_script and not Path(ascend_env_script).expanduser().exists():
-            raise FileNotFoundError(f"FlashTalk ascend_env_script not found: {ascend_env_script}")
+        if env_script and not Path(env_script).expanduser().exists():
+            raise FileNotFoundError(f"FlashTalk env_script not found: {env_script}")
         if t5_quant_dir is not None and not t5_quant_dir.exists():
             raise FileNotFoundError(f"FlashTalk t5_quant_dir not found: {t5_quant_dir}")
 
         return FlashTalkRuntimeConfig(
             resident_target=FlashTalkPipeline._normalize_optional_string(config.get("resident_target")),
+            accelerator=accelerator,
             repo_path=repo_path,
             ckpt_dir=ckpt_dir,
             wav2vec_dir=wav2vec_dir,
@@ -400,7 +423,7 @@ class FlashTalkPipeline(BasePipeline):
             num_processes=num_processes,
             accelerate_executable=accelerate_executable,
             visible_devices=FlashTalkPipeline._normalize_optional_string(config.get("visible_devices")),
-            ascend_env_script=ascend_env_script,
+            ascend_env_script=env_script,
             t5_quant=FlashTalkPipeline._normalize_optional_string(config.get("t5_quant")),
             t5_quant_dir=t5_quant_dir,
             wan_quant=FlashTalkPipeline._normalize_optional_string(config.get("wan_quant")),
@@ -419,6 +442,15 @@ class FlashTalkPipeline(BasePipeline):
             return None
         text = str(value).strip()
         return text or None
+
+    @staticmethod
+    def _normalize_accelerator(value: Any) -> str:
+        text = str(value or "").strip().lower()
+        if text in {"cuda", "gpu", "nvidia"}:
+            return "cuda"
+        if text in {"ascend", "npu", "910b", "910b2"}:
+            return "ascend"
+        return "ascend"
 
 
 def probe_video_file(path: Path) -> tuple[int, int, int]:

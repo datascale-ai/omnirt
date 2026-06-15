@@ -8,6 +8,9 @@ OmniRT keeps only lightweight entrypoints, manifests, and requirements. The Soul
 
 ```text
 .omnirt/
+  runtimes/flashtalk/cuda/
+    venv/
+    state.yaml
   runtimes/flashtalk/ascend/
     venv/
     state.yaml
@@ -17,6 +20,48 @@ OmniRT keeps only lightweight entrypoints, manifests, and requirements. The Soul
 ```
 
 To relocate runtime data, pass `--home ./runtime-data` on `omnirt runtime` commands or set `OMNIRT_HOME=./runtime-data` (relative or absolute paths are both fine).
+
+## CUDA GPU Quick Start
+
+The CUDA path follows the official SoulX-FlashTalk GPU setup: `torch==2.7.1` / `torchvision==0.22.1` from the CUDA 12.8 wheel index, plus `flash_attn==2.8.0.post2` installed separately with `--no-build-isolation`. OmniRT's `--device cuda` runtime prepares dependencies this way and does not apply the Ascend-only patch.
+
+```bash
+python -m omnirt.cli.main runtime install flashtalk --device cuda \
+  --ckpt-dir .omnirt/model-repos/SoulX-FlashTalk/models/SoulX-FlashTalk-14B \
+  --wav2vec-dir .omnirt/model-repos/SoulX-FlashTalk/models/chinese-wav2vec2-base \
+  --no-update \
+  --recreate-venv
+```
+
+If no checkpoints are available yet, run the default install and downloads will go into `.omnirt/`:
+
+```bash
+python -m omnirt.cli.main runtime install flashtalk --device cuda
+```
+
+Start the WebSocket server:
+
+```bash
+OMNIRT_FLASHTALK_DEVICE=cuda \
+OMNIRT_FLASHTALK_VISIBLE_DEVICES=0 \
+bash scripts/start_flashtalk_ws.sh
+```
+
+One-shot generation can also explicitly select CUDA:
+
+```bash
+omnirt generate --task audio2video --model soulx-flashtalk-14b \
+  --image .omnirt/model-repos/SoulX-FlashTalk/examples/man.png \
+  --audio .omnirt/model-repos/SoulX-FlashTalk/examples/cantonese_16k.wav \
+  --backend cuda \
+  --repo-path .omnirt/model-repos/SoulX-FlashTalk \
+  --ckpt-dir models/SoulX-FlashTalk-14B \
+  --wav2vec-dir models/chinese-wav2vec2-base \
+  --python-executable .omnirt/runtimes/flashtalk/cuda/venv/bin/python \
+  --launcher python \
+  --visible-devices 0 \
+  --cpu-offload
+```
 
 ## 910B Quick Start
 
@@ -63,7 +108,7 @@ bash model_backends/flashtalk/prepare_ascend_910b.sh
 
 #### SoulX-FlashTalk Ascend compatibility patch (recommended)
 
-A plain GitHub checkout of `SoulX-FlashTalk` is often incompatible with Ascend 910B (`xformers` / CUDA assumptions). OmniRT ships a single patch under `model_backends/flashtalk/patches/soulx-flashtalk-ascend-omnirt.patch` that updates the `flash_talk/` tree (NPU attention path, default realtime `infer_params.yaml`, and more).
+A plain GitHub checkout of `SoulX-FlashTalk` is often incompatible with Ascend 910B (`xformers` / CUDA assumptions). OmniRT ships a single patch under `model_backends/flashtalk/patches/soulx-flashtalk-ascend-omnirt.patch` that updates the `flash_talk/` tree (NPU attention path, default realtime `infer_params.yaml`, and more). This patch is only for `--device ascend`; the CUDA/GPU runtime stays on the official CUDA code path and is not patched automatically.
 
 From the OmniRT repository root, targeting the default SoulX checkout:
 

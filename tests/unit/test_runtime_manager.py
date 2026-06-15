@@ -21,6 +21,20 @@ def test_load_flashtalk_runtime_manifest_uses_project_home_by_default(monkeypatc
     assert manifest.repo_marker_dir == "flash_talk"
 
 
+def test_load_flashtalk_cuda_runtime_manifest(monkeypatch) -> None:
+    monkeypatch.delenv("OMNIRT_HOME", raising=False)
+
+    manifest = load_manifest("flashtalk", "cuda")
+
+    assert manifest.name == "flashtalk"
+    assert manifest.device == "cuda"
+    assert manifest.profile == "cuda"
+    assert manifest.requirements_file == Path("model_backends/flashtalk/requirements-gpu.txt").resolve()
+    assert manifest.env_script is None
+    assert manifest.nproc_per_node == 8
+    assert manifest.checkpoint_url == "https://huggingface.co/Soul-AILab/SoulX-FlashTalk-14B"
+
+
 def test_load_musetalk_cuda_runtime_manifest(monkeypatch) -> None:
     monkeypatch.delenv("OMNIRT_HOME", raising=False)
     monkeypatch.delenv("OMNIRT_MUSETALK_REPO", raising=False)
@@ -91,6 +105,24 @@ def test_plan_skips_existing_repo_checkpoint_and_wav2vec(monkeypatch, tmp_path: 
     assert ["skip", "SoulX-FlashTalk checkout", str(manifest.repo_dir), "contains flash_talk/"] in commands
     assert ["skip", "FlashTalk checkpoint", str(manifest.resolved_ckpt_dir), "already exists"] in commands
     assert ["skip", "wav2vec", str(manifest.resolved_wav2vec_dir), "already exists"] in commands
+
+
+def test_flashtalk_cuda_plan_does_not_apply_ascend_patch(monkeypatch, tmp_path: Path) -> None:
+    from omnirt.runtime.installer import RuntimeInstaller
+
+    monkeypatch.setenv("OMNIRT_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    manifest = load_manifest("flashtalk", "cuda")
+    (manifest.repo_dir / "flash_talk").mkdir(parents=True)
+
+    commands = RuntimeInstaller(manifest).plan_commands(update=True)
+    flattened = [" ".join(str(part) for part in command) for command in commands]
+
+    assert not any("soulx-flashtalk-ascend-omnirt.patch" in command for command in flattened)
+    assert not any("import-time device default" in command for command in flattened)
+    assert any(str(manifest.requirements_file) in command and "-r" in command for command in flattened)
+    assert any("flash_attn==2.8.0.post2" in command for command in flattened)
+    assert any("--no-build-isolation" in command for command in flattened)
 
 
 def test_musetalk_plan_only_manages_repo_and_venv(monkeypatch, tmp_path: Path) -> None:
@@ -271,3 +303,5 @@ def test_runtime_state_roundtrip(monkeypatch, tmp_path: Path) -> None:
     assert path == tmp_path / "home" / "runtimes" / "flashtalk" / "ascend" / "state.yaml"
     assert loaded == state
     assert loaded.to_env()["OMNIRT_FLASHTALK_REPO_PATH"] == str(manifest.repo_dir)
+    assert loaded.to_env()["OMNIRT_FLASHTALK_DEVICE"] == "ascend"
+    assert loaded.to_env()["OMNIRT_FLASHTALK_ASCEND_ENV_SCRIPT"] == str(manifest.env_script)

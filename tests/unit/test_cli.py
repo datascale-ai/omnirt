@@ -123,6 +123,8 @@ def test_request_from_args_builds_soulx_podcast_text2audio_request() -> None:
             "参考音色文本。",
             "--server-url",
             "http://127.0.0.1:18080",
+            "--service-accelerator",
+            "ascend",
             "--timeout",
             "30",
             "--seed",
@@ -146,6 +148,7 @@ def test_request_from_args_builds_soulx_podcast_text2audio_request() -> None:
     assert request.inputs["audio"] == "reference.wav"
     assert request.inputs["reference_text"] == "参考音色文本。"
     assert request.config["server_url"] == "http://127.0.0.1:18080"
+    assert request.config["service_accelerator"] == "ascend"
     assert request.config["timeout"] == 30.0
     assert request.config["seed"] == 42
     assert request.config["temperature"] == 0.7

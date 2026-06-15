@@ -133,6 +133,7 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--server-addr", help="Triton server address for external service-backed models.")
     parser.add_argument("--server-port", type=int, help="Triton gRPC server port for external service-backed models.")
     parser.add_argument("--server-url", help="HTTP server URL for external service-backed models.")
+    parser.add_argument("--service-accelerator", help="Accelerator used by the external service endpoint.")
     parser.add_argument("--timeout", type=float, help="HTTP request timeout in seconds for external service-backed models.")
     parser.add_argument("--sample-rate", type=int, help="Output audio sample rate for text2audio models.")
     parser.add_argument("--request-id", help="Stable external request id for deterministic service probes.")
@@ -175,7 +176,9 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--num-processes", type=int, help="Process count for accelerate launches.")
     parser.add_argument("--accelerate-executable", help="Accelerate executable used for launcher=accelerate.")
     parser.add_argument("--visible-devices", help="Device visibility override, for example 0,1,2,3,4,5,6,7 on Ascend.")
-    parser.add_argument("--ascend-env-script", help="Ascend environment script to source before launching an external model.")
+    parser.add_argument("--accelerator", choices=["cuda", "ascend"], help="Accelerator hint for script-backed models.")
+    parser.add_argument("--env-script", help="Environment script to source before launching an external model.")
+    parser.add_argument("--ascend-env-script", help="Deprecated alias for --env-script on Ascend.")
     parser.add_argument("--t5-quant", choices=["int8", "fp8"], help="T5 quantization mode for FlashTalk.")
     parser.add_argument("--t5-quant-dir", help="Directory containing T5 quantized weights for FlashTalk.")
     parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan weight-only quantization mode for FlashTalk.")
@@ -330,6 +333,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--ckpt-dir", help="Checkpoint directory for SoulX-FlashTalk.")
     serve_parser.add_argument("--wav2vec-dir", help="wav2vec checkpoint directory for FlashTalk.")
     serve_parser.add_argument("--cpu-offload", action="store_true", help="Enable CPU offload for the FlashTalk runtime.")
+    serve_parser.add_argument("--accelerator", choices=["cuda", "ascend"], help="FlashTalk accelerator for --protocol flashtalk-ws.")
+    serve_parser.add_argument("--env-script", help="Environment script to source before launching FlashTalk.")
+    serve_parser.add_argument("--ascend-env-script", help="Deprecated alias for --env-script on Ascend.")
     serve_parser.add_argument("--t5-quant", choices=["int8", "fp8"], help="T5 quantization mode.")
     serve_parser.add_argument("--t5-quant-dir", help="Directory containing T5 quantized weights.")
     serve_parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan quantization mode.")
@@ -429,7 +435,9 @@ def build_parser() -> argparse.ArgumentParser:
     resident_flashtalk_parser.add_argument("--num-processes", type=int, help="Process count for accelerate launches.")
     resident_flashtalk_parser.add_argument("--accelerate-executable", help="Accelerate executable used for launcher=accelerate.")
     resident_flashtalk_parser.add_argument("--visible-devices", help="Visible devices override, for example 0,1,2,3,4,5,6,7.")
-    resident_flashtalk_parser.add_argument("--ascend-env-script", help="Ascend environment script path.")
+    resident_flashtalk_parser.add_argument("--accelerator", choices=["cuda", "ascend"], help="Accelerator used by the resident worker.")
+    resident_flashtalk_parser.add_argument("--env-script", help="Environment script path.")
+    resident_flashtalk_parser.add_argument("--ascend-env-script", help="Deprecated alias for --env-script on Ascend.")
     resident_flashtalk_parser.add_argument("--t5-quant", choices=["int8", "fp8"], help="T5 quantization mode.")
     resident_flashtalk_parser.add_argument("--t5-quant-dir", help="Directory containing T5 quantized weights.")
     resident_flashtalk_parser.add_argument("--wan-quant", choices=["int8", "fp8"], help="Wan quantization mode.")
@@ -469,12 +477,19 @@ def flashtalk_worker_config_from_args(args: argparse.Namespace) -> dict[str, obj
         try:
             from omnirt.runtime import load_state
 
-            state = load_state("flashtalk", "ascend")
+            device = str(getattr(args, "accelerator", None) or getattr(args, "backend", None) or "auto")
+            if device not in {"cuda", "ascend"}:
+                import os
+
+                device = os.environ.get("OMNIRT_FLASHTALK_DEVICE", "ascend")
+            state = load_state("flashtalk", device)
             state_values = {
                 "repo_path": state.repo_path,
                 "ckpt_dir": state.ckpt_dir,
                 "wav2vec_dir": state.wav2vec_dir,
-                "ascend_env_script": state.env_script,
+                "accelerator": state.device,
+                "env_script": state.env_script,
+                "ascend_env_script": state.env_script if state.device == "ascend" else "",
                 "python_executable": state.python,
                 "launcher": "torchrun",
                 "nproc_per_node": state.nproc_per_node,
@@ -493,6 +508,8 @@ def flashtalk_worker_config_from_args(args: argparse.Namespace) -> dict[str, obj
         "num_processes",
         "accelerate_executable",
         "visible_devices",
+        "accelerator",
+        "env_script",
         "ascend_env_script",
         "t5_quant",
         "t5_quant_dir",
@@ -557,7 +574,7 @@ def run_flashtalk_ws_server(args: argparse.Namespace) -> int:
         try:
             from omnirt.runtime import load_state
 
-            resolved.server_path = load_state("flashtalk", "ascend").server_path
+            resolved.server_path = load_state("flashtalk", runtime_config.accelerator).server_path
         except Exception:
             resolved.server_path = str(default_flashtalk_ws_server_path())
     if not Path(resolved.server_path).is_file():
@@ -687,6 +704,7 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "server_addr",
         "server_port",
         "server_url",
+        "service_accelerator",
         "timeout",
         "sample_rate",
         "request_id",
@@ -715,6 +733,8 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "num_processes",
         "accelerate_executable",
         "visible_devices",
+        "accelerator",
+        "env_script",
         "ascend_env_script",
         "t5_quant",
         "t5_quant_dir",

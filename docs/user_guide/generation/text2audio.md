@@ -1,9 +1,10 @@
 # 文本到音频
 
-给定目标文本和一段参考音频，生成 `.wav` 语音。OmniRT 当前提供两条外部服务路线：
+给定目标文本和一段参考音频，生成 `.wav` 语音。OmniRT 当前提供两条外部服务路线和一个常驻 IndexTTS 服务入口：
 
-- `cosyvoice3-triton-trtllm`：接入 CosyVoice3 官方 Triton/TensorRT-LLM 服务。
-- `soulx-podcast-1.7b`：接入 SoulX-Podcast 官方 FastAPI 服务，适合长文本、播客和多说话人语音生成。
+- `cosyvoice3-triton-trtllm`：接入 Triton 兼容的 CosyVoice3 服务端点；CUDA/TensorRT-LLM 是参考部署，Ascend 可通过外部兼容服务端点接入。
+- `soulx-podcast-1.7b`：接入 SoulX-Podcast FastAPI 服务端点，适合长文本、播客和多说话人语音生成；Ascend 路径同样要求服务端已经完成 NPU 部署。
+- `indextts`：通过 `serve-text2audio` 暴露 OpenTalking 可直接消费的 PCM stream，支持 `cuda`、`npu` / `ascend` 和 CPU 服务运行时。
 
 ## 最小示例
 
@@ -136,9 +137,39 @@ config:
 | `sample_rate` | `int` | `24000` | 输出 wav 采样率 |
 | `seed` | `int` | 无 | 作为 Triton request parameter 透传，服务端 BLS 需要消费它后才会让采样完全可复现 |
 | `server_url` | `str` | `http://127.0.0.1:18080` | SoulX-Podcast HTTP API 地址，也可用 `OMNIRT_SOULX_PODCAST_API_URL` 指定 |
+| `service_accelerator` | `str` | 按后端推断 | 记录外部 TTS 服务端点使用的加速器；`--backend ascend` 时默认解析为 `ascend` |
 | `timeout` | `float` | `300` | SoulX-Podcast HTTP 请求超时秒数 |
 | `temperature` / `top_k` / `top_p` / `repetition_penalty` | number | 服务端默认 | SoulX-Podcast 采样参数 |
 | `prompt_audios` / `prompt_texts` | `list[str]` | 单说话人回退 | SoulX-Podcast 多说话人参考音频和文本列表 |
+
+## Ascend 服务端点
+
+`cosyvoice3-triton-trtllm` 和 `soulx-podcast-1.7b` 是 OmniRT wrapper，不在当前进程内加载 TTS 权重。切到 `--backend ascend` 会让运行报告记录 `backend=ascend`，并把 `service_accelerator` 默认标记为 `ascend`；实际推理仍由你配置的 Triton / FastAPI 服务端点完成。
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model cosyvoice3-triton-trtllm \
+  --prompt "你好，欢迎使用 OmniRT。" \
+  --audio inputs/reference.wav \
+  --reference-text "这是一段参考音色文本。" \
+  --backend ascend \
+  --server-addr 8.92.7.195 \
+  --server-port 18001 \
+  --service-accelerator ascend
+```
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model soulx-podcast-1.7b \
+  --prompt "欢迎收听 OmniRT 播客。" \
+  --audio inputs/reference.wav \
+  --reference-text "这是一段参考音色文本。" \
+  --backend ascend \
+  --server-url http://8.92.7.195:18080 \
+  --service-accelerator ascend
+```
 
 ## IndexTTS-2 常驻服务
 
@@ -186,6 +217,17 @@ OMNIRT_INDEXTTS_WARMUP_TEXT="你好。" \
 OMNIRT_INDEXTTS_DEVICE=cuda:0 \
 .venv/bin/python -m omnirt.cli.main serve-text2audio --host 127.0.0.1 --port 9012
 ```
+
+Ascend 机器上先 source CANN 环境并安装匹配的 `torch_npu`，然后把设备切到 `ascend` / `npu` / `npu:0`：
+
+```bash title="终端"
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export OMNIRT_INDEXTTS_DEVICE=ascend
+export OMNIRT_INDEXTTS_NPU_INDEX=0
+export OMNIRT_INDEXTTS_USE_CUDA_KERNEL=0
+```
+
+IndexTTS runtime 会把 `ascend`、`npu` 解析为 `npu:0`，默认启用 `fp16`，并在 NPU 路径加载前检查 `torch_npu`。NPU 路径会禁用 CUDA kernel 开关，避免把 CUDA 专用 kernel 误传给 Ascend 环境。
 
 ```bash title="终端"
 curl -fsS http://127.0.0.1:9012/v1/text2audio/models

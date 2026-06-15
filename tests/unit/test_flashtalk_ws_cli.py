@@ -113,7 +113,7 @@ def test_runtime_parser_accepts_install_status_and_env() -> None:
         "install",
         "flashtalk",
         "--device",
-        "ascend",
+        "cuda",
         "--home",
         "/path/to/omnirt-runtime",
         "--repo-dir",
@@ -125,12 +125,13 @@ def test_runtime_parser_accepts_install_status_and_env() -> None:
         "--recreate-venv",
         "--dry-run",
     ])
-    status = parser.parse_args(["runtime", "status", "flashtalk", "--device", "ascend"])
-    env = parser.parse_args(["runtime", "env", "flashtalk", "--device", "ascend", "--shell"])
+    status = parser.parse_args(["runtime", "status", "flashtalk", "--device", "cuda"])
+    env = parser.parse_args(["runtime", "env", "flashtalk", "--device", "cuda", "--shell"])
 
     assert install.command == "runtime"
     assert install.runtime_command == "install"
     assert install.name == "flashtalk"
+    assert install.device == "cuda"
     assert install.home == "/path/to/omnirt-runtime"
     assert install.repo_dir == "/path/to/SoulX-FlashTalk"
     assert install.ckpt_dir == "/models/SoulX-FlashTalk-14B"

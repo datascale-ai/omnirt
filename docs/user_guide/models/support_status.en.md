@@ -2,7 +2,7 @@
 
 This document tracks OmniRT's digital-human model priorities, real-hardware smoke coverage, and the general models that are being contracted into the experimental tier.
 
-Last updated: `2026-04-28`
+Last updated: `2026-06-15`
 
 ## Current public task surfaces
 
@@ -20,7 +20,7 @@ The full list is generated from the live registry: [Supported Models](supported_
 
 | Tier | Maintenance promise | Current models |
 |---|---|---|
-| Core | Digital-human main path; requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `sensevoice-small` |
+| Core | Digital-human main path; requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | Avatar assets, backgrounds, idle video material, and post-processing; smoke tests are added by digital-human scenario | `sdxl-base-1.0`, `svd-xt`, `flux2.dev`, `qwen-image`, `wan2.2-*` |
 | Experimental | Integrated, but no longer a main investment line; keeps registry and basic tests, without a dual-backend smoke promise | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2`, and similar general models |
 
@@ -47,10 +47,17 @@ The following models have completed real hardware smoke tests using local model 
   Notes: the external SoulX-FlashHead checkout has completed 910B NPU adaptation and quality-profile validation; OmniRT now exposes it through the `persistent_worker` execution surface while retaining the script-backed generation path inside the worker, with `2-step + 2D VAE split + latent_carry off` defaults. Historical real-hardware OmniRT cold-start benchmark: 2 NPU `82.96s`, 4 NPU `84.08s`, both producing `512x512 / 10s / 250 frames`.
 - `cosyvoice3-triton-trtllm`
   CUDA: `validated`
-  Notes: the official `runtime/triton_trtllm` service has completed real benchmark runs. The stable profile is `token2wav=2`, `vocoder=2`, and `kv_cache_free_gpu_memory_fraction=0.2`. The OmniRT wrapper generated a real `2.92s / 24kHz` wav with `denoise_loop_ms=1969.611`; the official 26-sample streaming benchmark measured `RTF=0.1303` and `699.13ms` average first-chunk latency. Client-side `seed` is forwarded, but the server-side BLS still needs to consume that parameter for fully deterministic sampling.
+  Ascend: `wrapper-ready`
+  Notes: the official `runtime/triton_trtllm` service has completed real CUDA benchmark runs. The stable profile is `token2wav=2`, `vocoder=2`, and `kv_cache_free_gpu_memory_fraction=0.2`. The OmniRT wrapper generated a real `2.92s / 24kHz` wav with `denoise_loop_ms=1969.611`; the official 26-sample streaming benchmark measured `RTF=0.1303` and `699.13ms` average first-chunk latency. The Ascend path is service-endpoint adaptation: `--backend ascend` records `service_accelerator=ascend`, but an external Triton-compatible service must already be deployed on NPU.
 - `sensevoice-small`
-  Offline ASR: `contract integrated`
-  Notes: the `audio2text` task surface, registry entry, CLI/Python API, and unit tests are integrated. Real smoke depends on FunASR and a local audio fixture.
+  Ascend: `runtime-ready`
+  Notes: the `audio2text` task surface, registry entry, CLI/Python API, and unit tests are integrated. With `--backend ascend`, `device=auto` resolves to FunASR `npu:0`, and a skippable Ascend smoke is available. Real generation still depends on FunASR, `torch_npu`, and a local audio fixture.
+- `indextts`
+  Ascend: `runtime-ready`
+  Notes: the resident `serve-text2audio` runtime supports `OMNIRT_INDEXTTS_DEVICE=ascend|npu|npu:0`, defaults NPU to fp16, checks `torch_npu` before loading, and disables CUDA-kernel mode on NPU; Ascend env / load smoke coverage is available.
+- `soulx-podcast-1.7b`
+  Ascend: `wrapper-ready`
+  Notes: the OmniRT FastAPI wrapper can target an external Ascend-hosted SoulX-Podcast service with `--backend ascend` and `service_accelerator=ascend`; actual NPU inference support remains the responsibility of that external service.
 
 ## Adjacent: Smoke by Digital-Human Scenario
 
@@ -94,8 +101,8 @@ The following models keep registry entries, generated docs, and basic unit cover
 
 ## Digital-Human Targets Not Completed Yet
 
-- ASR / speech understanding: `sensevoice-small` is the first integrated entrypoint; Whisper and Paraformer remain follow-up candidates
-- TTS and voice reuse: CosyVoice profile caching, stable seed behavior, streaming first-chunk metrics
+- ASR / speech understanding: `sensevoice-small` is the first integrated entrypoint and now has Ascend NPU device resolution; Whisper and Paraformer remain follow-up candidates
+- TTS and voice reuse: external Ascend service implementations for CosyVoice / SoulX-Podcast, CosyVoice profile caching, stable seed behavior, streaming first-chunk metrics
 - Realtime avatars: resident workers, restart behavior, and hot-path benchmarks for FlashTalk / FlashHead / LiveAct
 - Post-processing: GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting for digital-human enhancement
 

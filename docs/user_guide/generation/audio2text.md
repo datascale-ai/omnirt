@@ -38,6 +38,21 @@ print(result.outputs[0].path)
 | `batch_size_s` | `int` | `60` | 离线 batch 窗口 |
 | `device` | `str` | `auto` | `auto` 会按后端解析到 CUDA / NPU / CPU |
 
+## Ascend
+
+`--backend ascend` 会把 `device=auto` 解析为 FunASR 可用的 `npu:0`。真实运行前需要先 source CANN 环境并安装匹配的 `torch_npu` / FunASR 依赖：
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+python -c "import torch, torch_npu; print(torch.npu.device_count())"
+omnirt generate \
+  --task audio2text \
+  --model sensevoice-small \
+  --audio speech.wav \
+  --backend ascend \
+  --model-path /path/to/SenseVoiceSmall
+```
+
 需要真实运行时请安装 ASR 依赖：
 
 ```bash

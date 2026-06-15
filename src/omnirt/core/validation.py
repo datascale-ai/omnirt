@@ -193,6 +193,7 @@ def validate_request(request: GenerateRequest, *, backend: Optional[str] = None)
         ("repo_path", "repository checkout"),
         ("ckpt_dir", "checkpoint directory"),
         ("wav2vec_dir", "wav2vec directory"),
+        ("env_script", "environment script"),
         ("ascend_env_script", "Ascend environment script"),
         ("python_executable", "Python executable"),
     ):

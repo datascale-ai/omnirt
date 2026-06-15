@@ -32,6 +32,11 @@ class FakeCudaRuntime(BackendRuntime):
         return 24.0
 
 
+class FakeAscendRuntime(FakeCudaRuntime):
+    name = "ascend"
+    device_name = "npu"
+
+
 def build_model_spec() -> ModelSpec:
     return ModelSpec(
         id="soulx-podcast-1.7b",
@@ -52,7 +57,37 @@ def test_soulx_podcast_model_is_registered() -> None:
     assert spec.capabilities.artifact_kind == "audio"
     assert spec.capabilities.chain_role == "voice-generation"
     assert "server_url" in spec.capabilities.supported_config
+    assert "service_accelerator" in spec.capabilities.supported_config
     assert "prompt_audios" in spec.capabilities.supported_config
+    assert "Ascend-hosted compatible service" in spec.resource_hint["accelerator"]
+
+
+def test_soulx_podcast_ascend_backend_marks_service_accelerator(tmp_path) -> None:
+    reference_audio = tmp_path / "reference.wav"
+    reference_audio.write_bytes(b"fake wav")
+    request = GenerateRequest(
+        task="text2audio",
+        model="soulx-podcast-1.7b",
+        backend="ascend",
+        inputs={
+            "prompt": "欢迎收听 OmniRT 播客。",
+            "audio": str(reference_audio),
+            "reference_text": "参考音色文本。",
+        },
+        config={
+            "server_url": "http://8.92.7.195:18080",
+            "output_dir": str(tmp_path / "outputs"),
+            "request_id": "fixed-request",
+        },
+    )
+    pipeline = SoulXPodcastPipeline(runtime=FakeAscendRuntime(), model_spec=build_model_spec())
+
+    conditions = pipeline.prepare_conditions(request)
+    latents = pipeline.prepare_latents(request, conditions)
+    resolved = pipeline.resolve_run_config(request, conditions, latents)
+
+    assert latents.service_accelerator == "ascend"
+    assert resolved["service_accelerator"] == "ascend"
 
 
 def test_soulx_podcast_pipeline_posts_single_speaker_request(tmp_path, monkeypatch) -> None:
@@ -209,4 +244,3 @@ def test_soulx_podcast_pipeline_rejects_mismatched_multi_speaker_inputs(tmp_path
 
     with pytest.raises(ValueError, match="same length"):
         pipeline.prepare_conditions(request)
-

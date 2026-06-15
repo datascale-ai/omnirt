@@ -13,7 +13,7 @@ Models are organized by the digital-human production chain rather than by a gene
 | Registry id | Task | Tier | Maturity | Realtime | Summary |
 |---|---|---|---|---|---|
 | `soulx-flashhead-1.3b` | `audio2video` | core | beta | no | SoulX-FlashHead low-latency talking-head generation via image plus audio. |
-| `soulx-flashtalk-14b` | `audio2video` | core | beta | yes | SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend. |
+| `soulx-flashtalk-14b` | `audio2video` | core | beta | yes | SoulX-FlashTalk talking-head avatar generation via image plus audio on CUDA or Ascend. |
 | `soulx-liveact-14b` | `audio2video` | core | beta | no | SoulX-LiveAct long-form audio-driven avatar video generation on Ascend. |
 
 ## Voice generation

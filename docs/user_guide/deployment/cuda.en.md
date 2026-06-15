@@ -55,6 +55,17 @@ omnirt generate --task text2image --model sdxl-base-1.0 \
   --prompt "a lighthouse in fog" --backend cuda --preset fast
 ```
 
+## FlashTalk CUDA
+
+`soulx-flashtalk-14b` uses an isolated SoulX-FlashTalk runtime. The GPU path follows the official setup: CUDA 12.8 PyTorch wheels, `flash_attn==2.8.0.post2 --no-build-isolation`, and no Ascend code patch.
+
+```bash
+python -m omnirt.cli.main runtime install flashtalk --device cuda
+OMNIRT_FLASHTALK_DEVICE=cuda OMNIRT_FLASHTALK_VISIBLE_DEVICES=0 bash scripts/start_flashtalk_ws.sh
+```
+
+See [FlashTalk-compatible WebSocket](../serving/flashtalk_ws.en.md) for WebSocket serving, OpenTalking integration, and checkpoint path configuration.
+
 ## Production tuning
 
 - **`torch.compile`**: on by default, stable on Ampere+. If compilation fails, set `OMNIRT_DISABLE_COMPILE=1` to skip — failures are recorded in `RunReport.backend_timeline`.
