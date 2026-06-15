@@ -1,0 +1,129 @@
+diff --git a/run_ascend_avatar_cp.py b/run_ascend_avatar_cp.py
+index 59dcb7e..2137c33 100644
+--- a/run_ascend_avatar_cp.py
++++ b/run_ascend_avatar_cp.py
+@@ -167,0 +168,62 @@ def mem_gib():
++def text_encoder_device_mode():
++    return os.environ.get("LONGCAT_AVATAR_TEXT_ENCODER_DEVICE", "cpu").strip().lower()
++
++
++def text_encoder_offload_mode():
++    return os.environ.get("LONGCAT_AVATAR_TEXT_ENCODER_OFFLOAD_AFTER_PROMPT", "").strip().lower()
++
++
++def should_offload_text_encoder_after_prompt():
++    mode = text_encoder_offload_mode()
++    return mode in {"1", "true", "yes", "on", "cpu"}
++
++
++def maybe_empty_npu_cache(reset_peak=False):
++    try:
++        torch.npu.empty_cache()
++        if reset_peak:
++            torch.npu.reset_peak_memory_stats()
++    except Exception:
++        pass
++    gc.collect()
++
++
++def move_text_encoder_for_prompt(pipe, device, rank):
++    if pipe.text_encoder is None or not hasattr(pipe.text_encoder, "to"):
++        return False
++    if text_encoder_device_mode() != "npu":
++        return False
++    t0 = time.perf_counter()
++    pipe.text_encoder = pipe.text_encoder.to(device, non_blocking=True)
++    sync()
++    log(
++        {
++            "event": "text_encoder_onload_for_prompt",
++            "seconds": round(time.perf_counter() - t0, 3),
++            "mem_gib": mem_gib(),
++        },
++        rank,
++    )
++    return True
++
++
++def offload_text_encoder_after_prompt(pipe, rank):
++    if pipe.text_encoder is None or not hasattr(pipe.text_encoder, "to"):
++        return
++    if not should_offload_text_encoder_after_prompt():
++        return
++    t0 = time.perf_counter()
++    pipe.text_encoder = pipe.text_encoder.to("cpu")
++    sync()
++    maybe_empty_npu_cache(reset_peak=False)
++    log(
++        {
++            "event": "text_encoder_offloaded_after_prompt",
++            "seconds": round(time.perf_counter() - t0, 3),
++            "target": "cpu",
++            "mem_gib": mem_gib(),
++        },
++        rank,
++    )
++
++
+@@ -343 +404,0 @@ def move_pipeline(pipe, args, device, rank):
+-        text_device = os.environ.get("LONGCAT_AVATAR_TEXT_ENCODER_DEVICE", "cpu").strip().lower()
+@@ -345 +406,2 @@ def move_pipeline(pipe, args, device, rank):
+-            if text_device == "cpu":
++            text_device = text_encoder_device_mode()
++            if text_device == "cpu" or should_offload_text_encoder_after_prompt():
+@@ -648,16 +710,22 @@ def broadcast_prompt_cache(pipe, args, prompt, negative_prompt, device, rank):
+-        t0 = time.perf_counter()
+-        cache = pipe.encode_prompt(
+-            prompt=prompt,
+-            negative_prompt=negative_prompt,
+-            do_classifier_free_guidance=do_cfg,
+-            num_videos_per_prompt=1,
+-            max_sequence_length=args.max_sequence_length,
+-            dtype=dtype,
+-            device=device,
+-        )
+-        log({"event": "prompt_cache", "seconds": round(time.perf_counter() - t0, 3)}, rank)
+-        if cp_size > 1:
+-            for tensor in cache:
+-                if tensor is not None:
+-                    context_parallel_util.cp_broadcast(tensor)
+-        return cache
++        move_text_encoder_for_prompt(pipe, device, rank)
++        try:
++            t0 = time.perf_counter()
++            cache = pipe.encode_prompt(
++                prompt=prompt,
++                negative_prompt=negative_prompt,
++                do_classifier_free_guidance=do_cfg,
++                num_videos_per_prompt=1,
++                max_sequence_length=args.max_sequence_length,
++                dtype=dtype,
++                device=device,
++            )
++            log({"event": "prompt_cache", "seconds": round(time.perf_counter() - t0, 3)}, rank)
++            offload_text_encoder_after_prompt(pipe, rank)
++            if cp_size > 1:
++                for tensor in cache:
++                    if tensor is not None:
++                        context_parallel_util.cp_broadcast(tensor)
++            return cache
++        except Exception:
++            offload_text_encoder_after_prompt(pipe, rank)
++            raise
+diff --git a/run_avatar_worker_optimized_249f_20260614.sh b/run_avatar_worker_optimized_249f_20260614.sh
+index 824f0e0..9c2426f 100755
+--- a/run_avatar_worker_optimized_249f_20260614.sh
++++ b/run_avatar_worker_optimized_249f_20260614.sh
+@@ -111,0 +112 @@ AOE_DIR="${AOE_DIR:-}"
++PRECACHE_STATIC_INPUTS="${PRECACHE_STATIC_INPUTS:-1}"
+@@ -146,0 +148,4 @@ fi
++CACHE_ARGS=(--cache-static-inputs)
++if [ "$PRECACHE_STATIC_INPUTS" = "1" ] || [ "$PRECACHE_STATIC_INPUTS" = "true" ] || [ "$PRECACHE_STATIC_INPUTS" = "yes" ] || [ "$PRECACHE_STATIC_INPUTS" = "on" ]; then
++  CACHE_ARGS+=(--precache-static-inputs)
++fi
+@@ -148 +153 @@ fi
+-printf 'REQ=%s\nRESP=%s\nLOG=%s\nSAVE_MP4=%s\nMP4_OUT=%s\nASCEND_DEVICES=%s\nNPROC_PER_NODE=%s\nCP_SPLIT_HW=%s\nLONGCAT_REQUIRE_IDLE_NPU=%s\nPROFILE_DIR=%s\nPROFILE_RANKS=%s\nAOE_DIR=%s\nLONGCAT_ATTENTION_BACKEND=%s\nLONGCAT_AVATAR_COPY_MUX_DIRECT=%s\nLONGCAT_AVATAR_STREAM_VAE_SAVE=%s\nLONGCAT_AVATAR_STREAM_VAE_ASYNC_WRITER=%s\nLONGCAT_AVATAR_STREAM_VAE_ASYNC_CPU_TENSOR=%s\nLONGCAT_AVATAR_COPY_MUX_QUALITY=%s\nLONGCAT_ENABLE_JEMALLOC=%s\nLONGCAT_JEMALLOC_SO=%s\nLD_PRELOAD=%s\nMALLOC_CONF=%s\nLONGCAT_AVATAR_VAE_TILING=%s\nLONGCAT_AVATAR_ROPE_DEVICE_CACHE=%s\nLONGCAT_AVATAR_ROPE_PREWARM=%s\nLONGCAT_USE_NPU_RMS_NORM=%s\nLONGCAT_AVATAR_STATIC_COND_CACHE=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE_TARGET=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE_KEY=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE_MAX_ENTRIES=%s\nLONGCAT_AVATAR_ATTENTION_CACHE=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_INTERVAL=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_STEP_START=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_START=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_END=%s\n' "$REQ" "$RESP" "$LOG" "$SAVE_MP4" "$MP4_OUT" "$ASCEND_DEVICES" "$NPROC_PER_NODE" "$CP_SPLIT_HW" "$LONGCAT_REQUIRE_IDLE_NPU" "$PROFILE_DIR" "$PROFILE_RANKS" "$AOE_DIR" "$LONGCAT_ATTENTION_BACKEND" "$LONGCAT_AVATAR_COPY_MUX_DIRECT" "$LONGCAT_AVATAR_STREAM_VAE_SAVE" "$LONGCAT_AVATAR_STREAM_VAE_ASYNC_WRITER" "$LONGCAT_AVATAR_STREAM_VAE_ASYNC_CPU_TENSOR" "${LONGCAT_AVATAR_COPY_MUX_QUALITY:-5}" "$LONGCAT_ENABLE_JEMALLOC" "$LONGCAT_JEMALLOC_SO" "${LD_PRELOAD:-}" "${MALLOC_CONF:-}" "$LONGCAT_AVATAR_VAE_TILING" "$LONGCAT_AVATAR_ROPE_DEVICE_CACHE" "$LONGCAT_AVATAR_ROPE_PREWARM" "$LONGCAT_USE_NPU_RMS_NORM" "$LONGCAT_AVATAR_STATIC_COND_CACHE" "$LONGCAT_AVATAR_CROSS_KV_CACHE" "$LONGCAT_AVATAR_CROSS_KV_CACHE_TARGET" "$LONGCAT_AVATAR_CROSS_KV_CACHE_KEY" "$LONGCAT_AVATAR_CROSS_KV_CACHE_MAX_ENTRIES" "$LONGCAT_AVATAR_ATTENTION_CACHE" "$LONGCAT_AVATAR_ATTENTION_CACHE_INTERVAL" "$LONGCAT_AVATAR_ATTENTION_CACHE_STEP_START" "$LONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_START" "$LONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_END"
++printf 'REQ=%s\nRESP=%s\nLOG=%s\nSAVE_MP4=%s\nMP4_OUT=%s\nASCEND_DEVICES=%s\nNPROC_PER_NODE=%s\nCP_SPLIT_HW=%s\nLONGCAT_REQUIRE_IDLE_NPU=%s\nPROFILE_DIR=%s\nPROFILE_RANKS=%s\nAOE_DIR=%s\nPRECACHE_STATIC_INPUTS=%s\nLONGCAT_ATTENTION_BACKEND=%s\nLONGCAT_AVATAR_TEXT_ENCODER_DEVICE=%s\nLONGCAT_AVATAR_TEXT_ENCODER_OFFLOAD_AFTER_PROMPT=%s\nLONGCAT_AVATAR_COPY_MUX_DIRECT=%s\nLONGCAT_AVATAR_STREAM_VAE_SAVE=%s\nLONGCAT_AVATAR_STREAM_VAE_ASYNC_WRITER=%s\nLONGCAT_AVATAR_STREAM_VAE_ASYNC_CPU_TENSOR=%s\nLONGCAT_AVATAR_COPY_MUX_QUALITY=%s\nLONGCAT_ENABLE_JEMALLOC=%s\nLONGCAT_JEMALLOC_SO=%s\nLD_PRELOAD=%s\nMALLOC_CONF=%s\nLONGCAT_AVATAR_VAE_TILING=%s\nLONGCAT_AVATAR_ROPE_DEVICE_CACHE=%s\nLONGCAT_AVATAR_ROPE_PREWARM=%s\nLONGCAT_USE_NPU_RMS_NORM=%s\nLONGCAT_AVATAR_STATIC_COND_CACHE=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE_TARGET=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE_KEY=%s\nLONGCAT_AVATAR_CROSS_KV_CACHE_MAX_ENTRIES=%s\nLONGCAT_AVATAR_ATTENTION_CACHE=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_INTERVAL=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_STEP_START=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_START=%s\nLONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_END=%s\n' "$REQ" "$RESP" "$LOG" "$SAVE_MP4" "$MP4_OUT" "$ASCEND_DEVICES" "$NPROC_PER_NODE" "$CP_SPLIT_HW" "$LONGCAT_REQUIRE_IDLE_NPU" "$PROFILE_DIR" "$PROFILE_RANKS" "$AOE_DIR" "$PRECACHE_STATIC_INPUTS" "$LONGCAT_ATTENTION_BACKEND" "$LONGCAT_AVATAR_TEXT_ENCODER_DEVICE" "${LONGCAT_AVATAR_TEXT_ENCODER_OFFLOAD_AFTER_PROMPT:-}" "$LONGCAT_AVATAR_COPY_MUX_DIRECT" "$LONGCAT_AVATAR_STREAM_VAE_SAVE" "$LONGCAT_AVATAR_STREAM_VAE_ASYNC_WRITER" "$LONGCAT_AVATAR_STREAM_VAE_ASYNC_CPU_TENSOR" "${LONGCAT_AVATAR_COPY_MUX_QUALITY:-5}" "$LONGCAT_ENABLE_JEMALLOC" "$LONGCAT_JEMALLOC_SO" "${LD_PRELOAD:-}" "${MALLOC_CONF:-}" "$LONGCAT_AVATAR_VAE_TILING" "$LONGCAT_AVATAR_ROPE_DEVICE_CACHE" "$LONGCAT_AVATAR_ROPE_PREWARM" "$LONGCAT_USE_NPU_RMS_NORM" "$LONGCAT_AVATAR_STATIC_COND_CACHE" "$LONGCAT_AVATAR_CROSS_KV_CACHE" "$LONGCAT_AVATAR_CROSS_KV_CACHE_TARGET" "$LONGCAT_AVATAR_CROSS_KV_CACHE_KEY" "$LONGCAT_AVATAR_CROSS_KV_CACHE_MAX_ENTRIES" "$LONGCAT_AVATAR_ATTENTION_CACHE" "$LONGCAT_AVATAR_ATTENTION_CACHE_INTERVAL" "$LONGCAT_AVATAR_ATTENTION_CACHE_STEP_START" "$LONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_START" "$LONGCAT_AVATAR_ATTENTION_CACHE_BLOCK_END"
+@@ -158 +163 @@ torchrun --standalone --nnodes=1 --nproc_per_node="$NPROC_PER_NODE" run_ascend_a
+-  --placement dit-only --cache-static-inputs --precache-static-inputs \
++  --placement dit-only "${CACHE_ARGS[@]}" \
