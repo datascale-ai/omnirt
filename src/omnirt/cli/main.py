@@ -133,6 +133,7 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--server-addr", help="Triton server address for external service-backed models.")
     parser.add_argument("--server-port", type=int, help="Triton gRPC server port for external service-backed models.")
     parser.add_argument("--server-url", help="HTTP server URL for external service-backed models.")
+    parser.add_argument("--service-accelerator", help="Accelerator used by the external service endpoint.")
     parser.add_argument("--timeout", type=float, help="HTTP request timeout in seconds for external service-backed models.")
     parser.add_argument("--sample-rate", type=int, help="Output audio sample rate for text2audio models.")
     parser.add_argument("--request-id", help="Stable external request id for deterministic service probes.")
@@ -687,6 +688,7 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "server_addr",
         "server_port",
         "server_url",
+        "service_accelerator",
         "timeout",
         "sample_rate",
         "request_id",

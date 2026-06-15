@@ -1,9 +1,10 @@
 # Text to Audio
 
-Given target text and a reference audio clip, generate a `.wav` speech artifact. OmniRT currently exposes two external-service routes:
+Given target text and a reference audio clip, generate a `.wav` speech artifact. OmniRT currently exposes two external-service routes and one resident IndexTTS service entrypoint:
 
-- `cosyvoice3-triton-trtllm`: CosyVoice3 through the official Triton/TensorRT-LLM service.
-- `soulx-podcast-1.7b`: SoulX-Podcast through the official FastAPI service for long-form, podcast, and multi-speaker speech generation.
+- `cosyvoice3-triton-trtllm`: CosyVoice3 through a Triton-compatible service endpoint; CUDA/TensorRT-LLM remains the reference deployment, while Ascend can be targeted through an externally hosted compatible endpoint.
+- `soulx-podcast-1.7b`: SoulX-Podcast through a FastAPI service endpoint for long-form, podcast, and multi-speaker speech generation; the Ascend path likewise requires the service process to be deployed on NPU first.
+- `indextts`: exposes an OpenTalking-ready PCM stream through `serve-text2audio` and supports `cuda`, `npu` / `ascend`, and CPU service runtimes.
 
 ## Minimal Example
 
@@ -136,9 +137,39 @@ config:
 | `sample_rate` | `int` | `24000` | Output wav sample rate |
 | `seed` | `int` | unset | Forwarded as a Triton request parameter; the server-side BLS must consume it for deterministic sampling |
 | `server_url` | `str` | `http://127.0.0.1:18080` | SoulX-Podcast HTTP API URL; can also be set with `OMNIRT_SOULX_PODCAST_API_URL` |
+| `service_accelerator` | `str` | inferred from backend | Records the external TTS service accelerator; defaults to `ascend` when `--backend ascend` is selected |
 | `timeout` | `float` | `300` | SoulX-Podcast HTTP request timeout in seconds |
 | `temperature` / `top_k` / `top_p` / `repetition_penalty` | number | server default | SoulX-Podcast sampling parameters |
 | `prompt_audios` / `prompt_texts` | `list[str]` | single-speaker fallback | Multi-speaker SoulX-Podcast reference audio and transcript lists |
+
+## Ascend Service Endpoints
+
+`cosyvoice3-triton-trtllm` and `soulx-podcast-1.7b` are OmniRT wrappers; they do not load TTS weights in the current process. Selecting `--backend ascend` records `backend=ascend` in the run report and defaults `service_accelerator` to `ascend`, but the actual inference still happens inside the configured Triton / FastAPI service endpoint.
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model cosyvoice3-triton-trtllm \
+  --prompt "Hello from OmniRT." \
+  --audio inputs/reference.wav \
+  --reference-text "This is the reference voice text." \
+  --backend ascend \
+  --server-addr 8.92.7.195 \
+  --server-port 18001 \
+  --service-accelerator ascend
+```
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model soulx-podcast-1.7b \
+  --prompt "Welcome to the OmniRT podcast." \
+  --audio inputs/reference.wav \
+  --reference-text "This is the reference voice text." \
+  --backend ascend \
+  --server-url http://8.92.7.195:18080 \
+  --service-accelerator ascend
+```
 
 ## IndexTTS-2 Resident Service
 
@@ -186,6 +217,17 @@ OMNIRT_INDEXTTS_WARMUP_TEXT="Hello." \
 OMNIRT_INDEXTTS_DEVICE=cuda:0 \
 .venv/bin/python -m omnirt.cli.main serve-text2audio --host 127.0.0.1 --port 9012
 ```
+
+On Ascend hosts, source CANN and install the matching `torch_npu` first, then switch the device to `ascend`, `npu`, or `npu:0`:
+
+```bash title="terminal"
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export OMNIRT_INDEXTTS_DEVICE=ascend
+export OMNIRT_INDEXTTS_NPU_INDEX=0
+export OMNIRT_INDEXTTS_USE_CUDA_KERNEL=0
+```
+
+The IndexTTS runtime resolves `ascend` and `npu` to `npu:0`, enables `fp16` by default, and checks `torch_npu` before loading the engine on NPU. CUDA-kernel mode is disabled on NPU so CUDA-only kernels are not forwarded into the Ascend environment.
 
 ```bash title="terminal"
 curl -fsS http://127.0.0.1:9012/v1/text2audio/models

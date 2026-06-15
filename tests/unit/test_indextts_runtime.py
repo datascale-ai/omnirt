@@ -76,7 +76,7 @@ def test_indextts_runtime_yields_first_segment_before_second_finishes(monkeypatc
         )
 
         stream = runtime.synthesize_pcm_stream("第一段，第二段。")
-        first = await anext(stream)
+        first = await stream.__anext__()
 
         assert np.frombuffer(first, dtype="<i2").size > 0
         assert calls[0]["init"]["model_dir"] == str(model_dir)
@@ -207,6 +207,103 @@ def test_indextts_runtime_status_reports_missing_inputs(tmp_path) -> None:
     assert status["model_dir_exists"] is False
     assert status["cfg_path_exists"] is False
     assert status["prompt_audio_exists"] is False
+
+
+def test_indextts_runtime_normalizes_ascend_device_and_defaults_to_fp16(monkeypatch, tmp_path) -> None:
+    runtime = IndexTTSStreamingRuntime(
+        model_dir=str(tmp_path / "model"),
+        cfg_path=str(tmp_path / "model" / "config.yaml"),
+        prompt_audio=str(tmp_path / "prompt.wav"),
+        device="ascend",
+        use_cuda_kernel=True,
+    )
+
+    status = runtime.status()
+
+    assert runtime.device == "npu:0"
+    assert runtime.use_fp16 is True
+    assert runtime.use_cuda_kernel is False
+    assert status["device"] == "npu:0"
+    assert status["use_fp16"] is True
+    assert status["use_cuda_kernel"] is False
+
+    monkeypatch.setenv("OMNIRT_INDEXTTS_NPU_INDEX", "3")
+    runtime = IndexTTSStreamingRuntime(
+        model_dir=str(tmp_path / "model"),
+        cfg_path=str(tmp_path / "model" / "config.yaml"),
+        prompt_audio=str(tmp_path / "prompt.wav"),
+        device="npu",
+    )
+
+    assert runtime.device == "npu:3"
+
+
+def test_indextts_runtime_requires_torch_npu_before_loading_npu_engine(monkeypatch, tmp_path) -> None:
+    import builtins
+
+    model_dir = tmp_path / "IndexTTS-2"
+    model_dir.mkdir()
+    cfg = model_dir / "config.yaml"
+    cfg.write_text("test: true\n", encoding="utf-8")
+    prompt = tmp_path / "prompt.wav"
+    prompt.write_bytes(b"prompt")
+
+    class FakeIndexTTS2:
+        def __init__(self, **kwargs):
+            raise AssertionError("engine must not be constructed without torch_npu")
+
+    monkeypatch.setitem(sys.modules, "indextts.infer_v2", SimpleNamespace(IndexTTS2=FakeIndexTTS2))
+    monkeypatch.delitem(sys.modules, "torch_npu", raising=False)
+    original_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "torch_npu":
+            raise ImportError(name)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    runtime = IndexTTSStreamingRuntime(
+        model_dir=str(model_dir),
+        cfg_path=str(cfg),
+        prompt_audio=str(prompt),
+        device="npu:0",
+    )
+
+    with pytest.raises(RuntimeError, match="requires torch_npu"):
+        runtime._load_engine()
+
+
+def test_indextts_runtime_passes_npu_device_to_engine_when_torch_npu_exists(monkeypatch, tmp_path) -> None:
+    model_dir = tmp_path / "IndexTTS-2"
+    model_dir.mkdir()
+    cfg = model_dir / "config.yaml"
+    cfg.write_text("test: true\n", encoding="utf-8")
+    prompt = tmp_path / "prompt.wav"
+    prompt.write_bytes(b"prompt")
+    calls: list[dict[str, object]] = []
+
+    class FakeIndexTTS2:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "torch_npu", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "indextts.infer_v2", SimpleNamespace(IndexTTS2=FakeIndexTTS2))
+
+    runtime = IndexTTSStreamingRuntime(
+        model_dir=str(model_dir),
+        cfg_path=str(cfg),
+        prompt_audio=str(prompt),
+        device="ascend:1",
+        use_fp16=None,
+        use_cuda_kernel=True,
+    )
+
+    runtime._load_engine()
+
+    assert calls[0]["device"] == "npu:1"
+    assert calls[0]["use_fp16"] is True
+    assert calls[0]["use_cuda_kernel"] is False
 
 
 def test_indextts_runtime_maps_quick_tokens_to_index_tts_infer_signature(monkeypatch, tmp_path) -> None:

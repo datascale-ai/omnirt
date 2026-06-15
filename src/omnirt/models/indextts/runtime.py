@@ -52,6 +52,13 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.lower() in {"1", "true", "yes", "on"}
 
 
+def _env_optional_bool(name: str) -> bool | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     if not raw:
@@ -87,6 +94,55 @@ def _normalize_streaming_mode(value: str | None) -> str:
     if mode in {"token", "token_window", "true", "model_internal"}:
         return "token_window"
     return "segment"
+
+
+def _normalize_device(value: str | None) -> str:
+    device = (value or "auto").strip().lower()
+    if not device:
+        return "auto"
+    if device in {"ascend", "npu"}:
+        index = os.environ.get("OMNIRT_INDEXTTS_NPU_INDEX", "0").strip() or "0"
+        return f"npu:{index}"
+    if device.startswith("ascend:"):
+        return f"npu:{device.split(':', 1)[1]}"
+    return device
+
+
+def _device_kind(value: str | None) -> str:
+    device = _normalize_device(value)
+    if device.startswith("cuda"):
+        return "cuda"
+    if device.startswith("npu"):
+        return "npu"
+    return device
+
+
+def _default_use_fp16(device: str) -> bool:
+    return _device_kind(device) in {"cuda", "npu"}
+
+
+def _ensure_torch_npu_for_device(device: str) -> None:
+    if _device_kind(device) != "npu":
+        return
+    try:
+        import torch_npu  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError("IndexTTS NPU runtime requires torch_npu to be installed and CANN env to be sourced.") from exc
+
+
+def _empty_accelerator_cache(device: Any) -> None:
+    import torch
+
+    device_kind = _device_kind(str(device))
+    if device_kind == "cuda":
+        torch.cuda.empty_cache()
+        return
+    if device_kind != "npu":
+        return
+    npu = getattr(torch, "npu", None)
+    empty_cache = getattr(npu, "empty_cache", None) if npu is not None else None
+    if callable(empty_cache):
+        empty_cache()
 
 
 def _tensor_to_i16_pcm(audio: Any) -> np.ndarray:
@@ -254,9 +310,9 @@ class IndexTTSStreamingRuntime:
         self.max_text_tokens_per_segment = max(1, int(max_text_tokens_per_segment))
         self.quick_streaming_tokens = max(0, int(quick_streaming_tokens))
         self.interval_silence_ms = max(0, int(interval_silence_ms))
-        self.device = device or "auto"
-        self.use_fp16 = bool(self.device.startswith("cuda")) if use_fp16 is None else bool(use_fp16)
-        self.use_cuda_kernel = bool(use_cuda_kernel)
+        self.device = _normalize_device(device)
+        self.use_fp16 = _default_use_fp16(self.device) if use_fp16 is None else bool(use_fp16)
+        self.use_cuda_kernel = bool(use_cuda_kernel) and _device_kind(self.device) != "npu"
         self.use_deepspeed = bool(use_deepspeed)
         self.w2v_bert_dir = str(Path(w2v_bert_dir).expanduser()) if w2v_bert_dir else ""
         self.maskgct_dir = str(Path(maskgct_dir).expanduser()) if maskgct_dir else ""
@@ -311,6 +367,8 @@ class IndexTTSStreamingRuntime:
             "quick_streaming_tokens": self.quick_streaming_tokens,
             "interval_silence_ms": self.interval_silence_ms,
             "device": self.device,
+            "use_fp16": self.use_fp16,
+            "use_cuda_kernel": self.use_cuda_kernel,
             "w2v_bert_dir": self.w2v_bert_dir,
             "maskgct_dir": self.maskgct_dir,
             "campplus_dir": self.campplus_dir,
@@ -379,6 +437,7 @@ class IndexTTSStreamingRuntime:
             if cls is None:
                 raise RuntimeError("indextts.infer_v2 does not expose IndexTTS2")
             self._patch_local_runtime_assets(module)
+            _ensure_torch_npu_for_device(self.device)
             kwargs = {
                 "cfg_path": self.cfg_path,
                 "model_dir": self.model_dir,
@@ -952,8 +1011,7 @@ class IndexTTSStreamingRuntime:
             engine.cache_s2mel_style = None
             engine.cache_s2mel_prompt = None
             engine.cache_mel = None
-            if str(engine.device).startswith("cuda"):
-                torch.cuda.empty_cache()
+            _empty_accelerator_cache(engine.device)
         audio, sr = engine._load_and_cut_audio(effective_prompt_audio, 15, False)
         audio_22k = torchaudio.transforms.Resample(sr, 22050)(audio)
         audio_16k = torchaudio.transforms.Resample(sr, 16000)(audio)
@@ -993,8 +1051,7 @@ class IndexTTSStreamingRuntime:
             return engine.cache_emo_cond
         if engine.cache_emo_cond is not None:
             engine.cache_emo_cond = None
-            if str(engine.device).startswith("cuda"):
-                torch.cuda.empty_cache()
+            _empty_accelerator_cache(engine.device)
         emo_audio, _ = engine._load_and_cut_audio(effective_prompt_audio, 15, False, sr=16000)
         emo_inputs = engine.extract_features(emo_audio, sampling_rate=16000, return_tensors="pt")
         emo_input_features = emo_inputs["input_features"].to(engine.device)
@@ -1172,7 +1229,7 @@ def create_indextts_runtime_from_env() -> IndexTTSStreamingRuntime:
         quick_streaming_tokens=_env_int("OMNIRT_INDEXTTS_QUICK_STREAMING_TOKENS", DEFAULT_QUICK_STREAMING_TOKENS),
         interval_silence_ms=_env_int("OMNIRT_INDEXTTS_INTERVAL_SILENCE_MS", 0),
         device=os.environ.get("OMNIRT_INDEXTTS_DEVICE", "auto").strip() or "auto",
-        use_fp16=_env_bool("OMNIRT_INDEXTTS_USE_FP16", True),
+        use_fp16=_env_optional_bool("OMNIRT_INDEXTTS_USE_FP16"),
         use_cuda_kernel=_env_bool("OMNIRT_INDEXTTS_USE_CUDA_KERNEL", False),
         use_deepspeed=_env_bool("OMNIRT_INDEXTTS_USE_DEEPSPEED", False),
         w2v_bert_dir=os.environ.get("OMNIRT_INDEXTTS_W2V_BERT_DIR", "").strip()

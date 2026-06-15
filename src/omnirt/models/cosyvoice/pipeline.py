@@ -18,6 +18,7 @@ class CosyVoiceTritonConfig:
     server_addr: str
     server_port: int
     model_name: str
+    service_accelerator: str
     sample_rate: int
     output_path: Path
     request_id: str
@@ -34,7 +35,7 @@ class CosyVoiceTritonConfig:
     resource_hint={
         "min_vram_gb": 8,
         "dtype": "fp16/bf16",
-        "accelerator": "NVIDIA GPU with external Triton/TensorRT-LLM service",
+        "accelerator": "external CosyVoice service; CUDA/TensorRT-LLM reference or Ascend-hosted compatible service",
     },
     capabilities=ModelCapabilities(
         required_inputs=("prompt", "audio"),
@@ -43,6 +44,7 @@ class CosyVoiceTritonConfig:
             "server_addr",
             "server_port",
             "model_name",
+            "service_accelerator",
             "sample_rate",
             "output_dir",
             "request_id",
@@ -52,6 +54,7 @@ class CosyVoiceTritonConfig:
             "server_addr": "127.0.0.1",
             "server_port": 8001,
             "model_name": "cosyvoice3",
+            "service_accelerator": "cuda",
             "sample_rate": 24000,
         },
         supported_schedulers=(),
@@ -65,7 +68,7 @@ class CosyVoiceTritonConfig:
         service_adapter="text2audio.service.v1",
         backend_status={"cuda": "supported", "ascend": "planned", "cpu-stub": "validation-only"},
         chain_role="voice-generation",
-        summary="CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route.",
+        summary="CosyVoice3 text-to-audio generation through a Triton-compatible service endpoint.",
         example=(
             "omnirt generate --task text2audio --model cosyvoice3-triton-trtllm "
             "--prompt '你好，欢迎使用 OmniRT。' --audio reference.wav --reference-text '参考音色文本' "
@@ -97,6 +100,7 @@ class CosyVoiceTritonPipeline(BasePipeline):
             server_addr=str(req.config.get("server_addr", "127.0.0.1")),
             server_port=int(req.config.get("server_port", 8001)),
             model_name=str(req.config.get("model_name", "cosyvoice3")),
+            service_accelerator=str(req.config.get("service_accelerator") or self._default_service_accelerator()),
             sample_rate=int(req.config.get("sample_rate", 24000)),
             output_path=output_path,
             request_id=request_id,
@@ -192,6 +196,7 @@ class CosyVoiceTritonPipeline(BasePipeline):
             "server_addr": latents.server_addr,
             "server_port": latents.server_port,
             "model_name": latents.model_name,
+            "service_accelerator": latents.service_accelerator,
             "sample_rate": latents.sample_rate,
             "output_dir": str(latents.output_path.parent),
             "request_id": latents.request_id,
@@ -205,6 +210,10 @@ class CosyVoiceTritonPipeline(BasePipeline):
         except ImportError as exc:
             raise DependencyUnavailableError("numpy is required for CosyVoice Triton requests.") from exc
         return np
+
+    def _default_service_accelerator(self) -> str:
+        backend_name = str(getattr(self.runtime, "name", "") or "").strip().lower()
+        return "ascend" if backend_name == "ascend" else "cuda"
 
     @staticmethod
     def _grpc_module():
