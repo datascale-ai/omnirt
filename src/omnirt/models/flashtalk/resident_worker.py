@@ -33,6 +33,7 @@ from __future__ import annotations
 from collections import deque
 from contextlib import contextmanager
 import importlib
+import inspect
 import os
 from pathlib import Path
 import queue
@@ -142,20 +143,17 @@ class FlashTalkResidentWorker:
     def start(self) -> None:
         if self._started:
             return
-        runtime_config = FlashTalkPipeline.resolve_runtime_config(self.config)
+        runtime_config = FlashTalkPipeline.resolve_runtime_config(
+            self.config,
+            backend_name=getattr(self.runtime, "name", "auto"),
+        )
+        self._apply_visible_devices(runtime_config)
         distributed_requested = self._distributed_requested(runtime_config)
         dist_module = self._resolve_distributed_context(runtime_config) if distributed_requested else None
         inference, save_video = self._load_runtime_modules(runtime_config.repo_path)
+        self._patch_official_t5_quant_if_needed(inference, runtime_config)
         self._pipeline = inference.get_pipeline(
-            world_size=self._distributed_world_size(runtime_config),
-            ckpt_dir=str(runtime_config.ckpt_dir),
-            wav2vec_dir=str(runtime_config.wav2vec_dir),
-            cpu_offload=runtime_config.cpu_offload,
-            t5_quant=runtime_config.t5_quant,
-            t5_quant_dir=str(runtime_config.t5_quant_dir) if runtime_config.t5_quant_dir is not None else None,
-            wan_quant=runtime_config.wan_quant,
-            wan_quant_include=runtime_config.wan_quant_include,
-            wan_quant_exclude=runtime_config.wan_quant_exclude,
+            **self._build_get_pipeline_kwargs(inference.get_pipeline, runtime_config)
         )
         self.runtime_config = runtime_config
         self._inference = inference
@@ -177,6 +175,64 @@ class FlashTalkResidentWorker:
                 )
                 self._coordinator_thread.start()
         self._started = True
+
+    def _apply_visible_devices(self, runtime_config: FlashTalkRuntimeConfig) -> None:
+        if not runtime_config.visible_devices:
+            return
+        if runtime_config.accelerator == "ascend":
+            os.environ["ASCEND_RT_VISIBLE_DEVICES"] = runtime_config.visible_devices
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = runtime_config.visible_devices
+            os.environ.pop("ASCEND_RT_VISIBLE_DEVICES", None)
+
+    def _build_get_pipeline_kwargs(self, get_pipeline, runtime_config: FlashTalkRuntimeConfig) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "world_size": self._distributed_world_size(runtime_config),
+            "ckpt_dir": str(runtime_config.ckpt_dir),
+            "wav2vec_dir": str(runtime_config.wav2vec_dir),
+            "cpu_offload": runtime_config.cpu_offload,
+            "t5_quant": runtime_config.t5_quant,
+            "t5_quant_dir": str(runtime_config.t5_quant_dir) if runtime_config.t5_quant_dir is not None else None,
+            "wan_quant": runtime_config.wan_quant,
+            "wan_quant_include": runtime_config.wan_quant_include,
+            "wan_quant_exclude": runtime_config.wan_quant_exclude,
+        }
+        signature = inspect.signature(get_pipeline)
+        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()):
+            return kwargs
+        return {key: value for key, value in kwargs.items() if key in signature.parameters}
+
+    def _patch_official_t5_quant_if_needed(
+        self,
+        inference: Any,
+        runtime_config: FlashTalkRuntimeConfig,
+    ) -> None:
+        if not runtime_config.t5_quant:
+            return
+        signature = inspect.signature(inference.get_pipeline)
+        if (
+            "t5_quant" in signature.parameters
+            or any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+        ):
+            return
+        pipeline_module = importlib.import_module("flash_talk.src.pipeline.flash_talk_pipeline")
+        original = getattr(pipeline_module, "T5EncoderModel", None)
+        if original is None:
+            raise RuntimeError("FlashTalk Pipeline does not expose T5EncoderModel for quantized loading.")
+        if getattr(original, "_omnirt_t5_quant_wrapper", False):
+            return
+        quant_dir = str(runtime_config.t5_quant_dir or runtime_config.ckpt_dir)
+        quant = runtime_config.t5_quant
+
+        def t5_encoder_with_quant(*args, **kwargs):
+            kwargs.setdefault("quant", quant)
+            kwargs.setdefault("quant_dir", quant_dir)
+            return original(*args, **kwargs)
+
+        t5_encoder_with_quant._omnirt_t5_quant_wrapper = True  # type: ignore[attr-defined]
+        t5_encoder_with_quant._omnirt_original = original  # type: ignore[attr-defined]
+        pipeline_module.T5EncoderModel = t5_encoder_with_quant
 
     def ready(self) -> bool:
         return (
@@ -476,6 +532,7 @@ class FlashTalkResidentWorker:
                 "repo_path": str(self.runtime_config.repo_path),
                 "ckpt_dir": str(self.runtime_config.ckpt_dir),
                 "wav2vec_dir": str(self.runtime_config.wav2vec_dir),
+                "accelerator": self.runtime_config.accelerator,
                 "seed": seed,
                 "output_dir": str(output_dir),
                 "audio_encode_mode": str(request.config.get("audio_encode_mode", "stream")),

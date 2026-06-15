@@ -13,7 +13,7 @@ from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequ
     id="indextts",
     task="text2audio",
     default_backend="auto",
-    resource_hint={"min_vram_gb": 8, "dtype": "fp16/fp32", "accelerator": "CUDA or CPU service runtime"},
+    resource_hint={"min_vram_gb": 8, "dtype": "fp16/fp32", "accelerator": "CUDA, Ascend NPU, or CPU service runtime"},
     capabilities=ModelCapabilities(
         required_inputs=("prompt",),
         optional_inputs=("audio", "reference_text"),

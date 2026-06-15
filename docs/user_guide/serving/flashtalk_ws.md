@@ -8,6 +8,9 @@ OmniRT 只保存轻量入口、manifest 和 requirements；SoulX-FlashTalk check
 
 ```text
 .omnirt/
+  runtimes/flashtalk/cuda/
+    venv/
+    state.yaml
   runtimes/flashtalk/ascend/
     venv/
     state.yaml
@@ -17,6 +20,48 @@ OmniRT 只保存轻量入口、manifest 和 requirements；SoulX-FlashTalk check
 ```
 
 若要把 runtime 数据放到别处，可在各 `omnirt runtime` 子命令上加 `--home ./runtime-data`（相对或绝对均可），或设置 `OMNIRT_HOME=./runtime-data`。
+
+## CUDA GPU 快速启动
+
+CUDA 路径跟随 SoulX-FlashTalk 官方 GPU 教程：`torch==2.7.1` / `torchvision==0.22.1` 使用 CUDA 12.8 wheel index，`flash_attn==2.8.0.post2` 使用 `--no-build-isolation` 单独安装。OmniRT 的 `--device cuda` runtime 会按这个方式准备依赖，并且不会应用 Ascend 专用补丁。
+
+```bash
+python -m omnirt.cli.main runtime install flashtalk --device cuda \
+  --ckpt-dir .omnirt/model-repos/SoulX-FlashTalk/models/SoulX-FlashTalk-14B \
+  --wav2vec-dir .omnirt/model-repos/SoulX-FlashTalk/models/chinese-wav2vec2-base \
+  --no-update \
+  --recreate-venv
+```
+
+没有现成权重时可直接安装，让下载进入默认 `.omnirt/` 布局：
+
+```bash
+python -m omnirt.cli.main runtime install flashtalk --device cuda
+```
+
+启动 WebSocket：
+
+```bash
+OMNIRT_FLASHTALK_DEVICE=cuda \
+OMNIRT_FLASHTALK_VISIBLE_DEVICES=0 \
+bash scripts/start_flashtalk_ws.sh
+```
+
+一次性生成也可以显式指定 CUDA：
+
+```bash
+omnirt generate --task audio2video --model soulx-flashtalk-14b \
+  --image .omnirt/model-repos/SoulX-FlashTalk/examples/man.png \
+  --audio .omnirt/model-repos/SoulX-FlashTalk/examples/cantonese_16k.wav \
+  --backend cuda \
+  --repo-path .omnirt/model-repos/SoulX-FlashTalk \
+  --ckpt-dir models/SoulX-FlashTalk-14B \
+  --wav2vec-dir models/chinese-wav2vec2-base \
+  --python-executable .omnirt/runtimes/flashtalk/cuda/venv/bin/python \
+  --launcher python \
+  --visible-devices 0 \
+  --cpu-offload
+```
 
 ## 910B 快速启动
 
@@ -63,7 +108,7 @@ bash model_backends/flashtalk/prepare_ascend_910b.sh
 
 #### SoulX-FlashTalk Ascend 适配补丁（推荐）
 
-从 **GitHub 官方仓库** 克隆的 `SoulX-FlashTalk` 在 Ascend 910B 上常与 **`xformers` / CUDA 假设** 不兼容。OmniRT 在 `model_backends/flashtalk/patches/` 下提供 **统一补丁** `soulx-flashtalk-ascend-omnirt.patch`，覆盖 `flash_talk/` 内所需改动（含 NPU 注意力路径、`infer_params.yaml` 默认实时参数等）。
+从 **GitHub 官方仓库** 克隆的 `SoulX-FlashTalk` 在 Ascend 910B 上常与 **`xformers` / CUDA 假设** 不兼容。OmniRT 在 `model_backends/flashtalk/patches/` 下提供 **统一补丁** `soulx-flashtalk-ascend-omnirt.patch`，覆盖 `flash_talk/` 内所需改动（含 NPU 注意力路径、`infer_params.yaml` 默认实时参数等）。这个补丁只用于 `--device ascend`，CUDA/GPU runtime 保持官方 CUDA 路径，不会自动应用。
 
 **手动应用**（仍在 OmniRT 仓库根目录；SoulX 使用默认路径 `.omnirt/model-repos/SoulX-FlashTalk`）：
 

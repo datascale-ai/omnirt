@@ -16,6 +16,7 @@ from omnirt.core.types import Artifact, DependencyUnavailableError, GenerateRequ
 @dataclass(frozen=True)
 class SoulXPodcastConfig:
     server_url: str
+    service_accelerator: str
     output_path: Path
     request_id: str
     timeout: float
@@ -32,13 +33,14 @@ class SoulXPodcastConfig:
     resource_hint={
         "min_vram_gb": 16,
         "dtype": "bf16/fp16",
-        "accelerator": "NVIDIA GPU with external SoulX-Podcast FastAPI service",
+        "accelerator": "external SoulX-Podcast FastAPI service; CUDA reference or Ascend-hosted compatible service",
     },
     capabilities=ModelCapabilities(
         required_inputs=("prompt", "audio"),
         optional_inputs=("reference_text",),
         supported_config=(
             "server_url",
+            "service_accelerator",
             "output_dir",
             "request_id",
             "timeout",
@@ -52,6 +54,7 @@ class SoulXPodcastConfig:
         ),
         default_config={
             "server_url": "http://127.0.0.1:18080",
+            "service_accelerator": "cuda",
             "timeout": 300,
         },
         supported_schedulers=(),
@@ -65,7 +68,7 @@ class SoulXPodcastConfig:
         service_adapter="text2audio.service.v1",
         backend_status={"cuda": "supported", "ascend": "planned", "cpu-stub": "validation-only"},
         chain_role="voice-generation",
-        summary="SoulX-Podcast text-to-audio generation through the official FastAPI route.",
+        summary="SoulX-Podcast text-to-audio generation through a FastAPI service endpoint.",
         example=(
             "omnirt generate --task text2audio --model soulx-podcast-1.7b "
             "--prompt '欢迎收听 OmniRT 播客。' --audio reference.wav --reference-text '参考音色文本' "
@@ -109,6 +112,7 @@ class SoulXPodcastPipeline(BasePipeline):
         }
         return SoulXPodcastConfig(
             server_url=server_url.rstrip("/"),
+            service_accelerator=str(req.config.get("service_accelerator") or self._default_service_accelerator()),
             output_path=output_path,
             request_id=request_id,
             timeout=timeout,
@@ -167,6 +171,7 @@ class SoulXPodcastPipeline(BasePipeline):
         del req, conditions
         resolved = {
             "server_url": latents.server_url,
+            "service_accelerator": latents.service_accelerator,
             "output_dir": str(latents.output_path.parent),
             "request_id": latents.request_id,
             "timeout": latents.timeout,
@@ -175,6 +180,10 @@ class SoulXPodcastPipeline(BasePipeline):
         }
         resolved.update(latents.generation_params)
         return resolved
+
+    def _default_service_accelerator(self) -> str:
+        backend_name = str(getattr(self.runtime, "name", "") or "").strip().lower()
+        return "ascend" if backend_name == "ascend" else "cuda"
 
     @staticmethod
     def _coerce_list(value: Any) -> list[Any]:

@@ -38,6 +38,21 @@ print(result.outputs[0].path)
 | `batch_size_s` | `int` | `60` | Offline batch window |
 | `device` | `str` | `auto` | `auto` maps to CUDA / NPU / CPU from the selected backend |
 
+## Ascend
+
+With `--backend ascend`, `device=auto` resolves to FunASR's `npu:0` device string. Before running the real model, source CANN and install matching `torch_npu` / FunASR dependencies:
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+python -c "import torch, torch_npu; print(torch.npu.device_count())"
+omnirt generate \
+  --task audio2text \
+  --model sensevoice-small \
+  --audio speech.wav \
+  --backend ascend \
+  --model-path /path/to/SenseVoiceSmall
+```
+
 Install the ASR extra before running the real model:
 
 ```bash

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import os
 import threading
 import types
 import sys
@@ -484,6 +485,157 @@ def test_flashtalk_resident_worker_runs_single_process_once_mode(tmp_path: Path,
     assert first.metadata.timings["chunk_count"] == 1.0
     assert "chunk_core_ms_avg" in first.metadata.timings
     assert "chunk_total_ms_avg" in second.metadata.timings
+
+
+def test_flashtalk_resident_worker_filters_patch_only_get_pipeline_kwargs(tmp_path: Path, monkeypatch) -> None:
+    repo_path = tmp_path / "SoulX-FlashTalk"
+    ckpt_dir = repo_path / "models" / "SoulX-FlashTalk-14B"
+    wav2vec_dir = repo_path / "models" / "chinese-wav2vec2-base"
+    repo_path.mkdir()
+    ckpt_dir.mkdir(parents=True)
+    wav2vec_dir.mkdir(parents=True)
+    python_executable = tmp_path / "python"
+    python_executable.write_text("", encoding="utf-8")
+    python_executable.chmod(0o755)
+    captured: dict[str, object] = {}
+
+    def official_cuda_get_pipeline(world_size, ckpt_dir, wav2vec_dir, cpu_offload=False):
+        captured.update(
+            {
+                "world_size": world_size,
+                "ckpt_dir": ckpt_dir,
+                "wav2vec_dir": wav2vec_dir,
+                "cpu_offload": cpu_offload,
+            }
+        )
+        return "pipeline"
+
+    worker = FlashTalkResidentWorker(
+        runtime=FakeAscendRuntime(),
+        model_spec=build_model_spec(),
+        config={
+            "accelerator": "cuda",
+            "repo_path": str(repo_path),
+            "ckpt_dir": "models/SoulX-FlashTalk-14B",
+            "wav2vec_dir": "models/chinese-wav2vec2-base",
+            "python_executable": str(python_executable),
+            "launcher": "python",
+            "nproc_per_node": 1,
+            "cpu_offload": True,
+            "wan_quant": "int8",
+        },
+        adapters=None,
+    )
+    fake_inference = SimpleNamespace(
+        infer_params={"sample_rate": 16000, "tgt_fps": 25},
+        get_pipeline=official_cuda_get_pipeline,
+    )
+    monkeypatch.setattr(worker, "_load_runtime_modules", lambda repo: (fake_inference, lambda *args, **kwargs: None))
+
+    worker.start()
+
+    assert captured["world_size"] == 1
+    assert captured["ckpt_dir"] == str(ckpt_dir)
+    assert captured["wav2vec_dir"] == str(wav2vec_dir)
+    assert captured["cpu_offload"] is True
+
+
+def test_flashtalk_resident_worker_applies_cuda_visible_devices(tmp_path: Path, monkeypatch) -> None:
+    repo_path = tmp_path / "SoulX-FlashTalk"
+    ckpt_dir = repo_path / "models" / "SoulX-FlashTalk-14B"
+    wav2vec_dir = repo_path / "models" / "chinese-wav2vec2-base"
+    repo_path.mkdir()
+    ckpt_dir.mkdir(parents=True)
+    wav2vec_dir.mkdir(parents=True)
+    python_executable = tmp_path / "python"
+    python_executable.write_text("", encoding="utf-8")
+    python_executable.chmod(0o755)
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+
+    worker = FlashTalkResidentWorker(
+        runtime=FakeAscendRuntime(),
+        model_spec=build_model_spec(),
+        config={
+            "accelerator": "cuda",
+            "repo_path": str(repo_path),
+            "ckpt_dir": "models/SoulX-FlashTalk-14B",
+            "wav2vec_dir": "models/chinese-wav2vec2-base",
+            "python_executable": str(python_executable),
+            "launcher": "python",
+            "nproc_per_node": 1,
+            "visible_devices": "2",
+        },
+        adapters=None,
+    )
+    fake_inference = SimpleNamespace(
+        infer_params={"sample_rate": 16000, "tgt_fps": 25},
+        get_pipeline=lambda **kwargs: "pipeline",
+    )
+    monkeypatch.setattr(worker, "_load_runtime_modules", lambda repo: (fake_inference, lambda *args, **kwargs: None))
+
+    worker.start()
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "2"
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    worker.shutdown()
+
+
+def test_flashtalk_resident_worker_wraps_official_t5_quant_when_signature_lacks_patch_kwargs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_path = tmp_path / "SoulX-FlashTalk"
+    ckpt_dir = repo_path / "models" / "SoulX-FlashTalk-14B"
+    wav2vec_dir = repo_path / "models" / "chinese-wav2vec2-base"
+    repo_path.mkdir()
+    ckpt_dir.mkdir(parents=True)
+    wav2vec_dir.mkdir(parents=True)
+    (ckpt_dir / "t5_int8.safetensors").write_bytes(b"fake")
+    (ckpt_dir / "t5_map_int8.json").write_text("{}", encoding="utf-8")
+    python_executable = tmp_path / "python"
+    python_executable.write_text("", encoding="utf-8")
+    python_executable.chmod(0o755)
+    captured: dict[str, object] = {}
+
+    class FakeT5:
+        def __init__(self, *args, **kwargs):
+            del args
+            captured.update(kwargs)
+
+    fake_pipeline_module = types.ModuleType("flash_talk.src.pipeline.flash_talk_pipeline")
+    fake_pipeline_module.T5EncoderModel = FakeT5
+
+    def official_cuda_get_pipeline(world_size, ckpt_dir, wav2vec_dir, cpu_offload=False):
+        del world_size, ckpt_dir, wav2vec_dir, cpu_offload
+        fake_pipeline_module.T5EncoderModel(device="cuda")
+        return "pipeline"
+
+    worker = FlashTalkResidentWorker(
+        runtime=FakeAscendRuntime(),
+        model_spec=build_model_spec(),
+        config={
+            "accelerator": "cuda",
+            "repo_path": str(repo_path),
+            "ckpt_dir": "models/SoulX-FlashTalk-14B",
+            "wav2vec_dir": "models/chinese-wav2vec2-base",
+            "python_executable": str(python_executable),
+            "launcher": "python",
+            "nproc_per_node": 1,
+            "t5_quant": "int8",
+        },
+        adapters=None,
+    )
+    fake_inference = SimpleNamespace(
+        infer_params={"sample_rate": 16000, "tgt_fps": 25},
+        get_pipeline=official_cuda_get_pipeline,
+    )
+    monkeypatch.setitem(sys.modules, "flash_talk.src.pipeline.flash_talk_pipeline", fake_pipeline_module)
+    monkeypatch.setattr(worker, "_load_runtime_modules", lambda repo: (fake_inference, lambda *args, **kwargs: None))
+
+    worker.start()
+
+    assert captured["quant"] == "int8"
+    assert captured["quant_dir"] == str(ckpt_dir)
 
 
 def test_flashtalk_pipeline_can_return_remote_resident_proxy() -> None:

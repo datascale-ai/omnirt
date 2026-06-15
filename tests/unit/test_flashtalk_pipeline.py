@@ -52,6 +52,11 @@ class LowMemoryAscendRuntime(FakeAscendRuntime):
         return 7.0
 
 
+class FakeCudaRuntime(FakeAscendRuntime):
+    name = "cuda"
+    device_name = "cuda"
+
+
 def test_flashtalk_aggregate_vram_budget_accepts_multi_card_launch() -> None:
     request = GenerateRequest(
         task="audio2video",
@@ -170,7 +175,72 @@ def test_flashtalk_pipeline_launches_external_script(tmp_path, monkeypatch) -> N
     assert "--cpu_offload" in captured["cmd"][2]
     assert captured["cwd"] == str(repo_path)
     assert captured["env"]["ASCEND_RT_VISIBLE_DEVICES"] == "0,1,2,3,4,5,6,7"
+    assert "CUDA_VISIBLE_DEVICES" not in captured["env"]
     assert captured["env"]["GPU_NUM"] == "8"
+
+
+def test_flashtalk_pipeline_launches_cuda_external_script(tmp_path, monkeypatch) -> None:
+    repo_path = tmp_path / "SoulX-FlashTalk"
+    ckpt_dir = repo_path / "models" / "SoulX-FlashTalk-14B"
+    wav2vec_dir = repo_path / "models" / "chinese-wav2vec2-base"
+    repo_path.mkdir()
+    ckpt_dir.mkdir(parents=True)
+    wav2vec_dir.mkdir(parents=True)
+    (repo_path / "generate_video.py").write_text("print('stub')\n", encoding="utf-8")
+    image_path = tmp_path / "speaker.png"
+    audio_path = tmp_path / "voice.wav"
+    image_path.write_bytes(b"fake")
+    audio_path.write_bytes(b"fake")
+    python_executable = tmp_path / "python"
+    python_executable.write_text("", encoding="utf-8")
+    python_executable.chmod(0o755)
+
+    captured = {}
+
+    def fake_run(cmd, check, cwd, env, stdout, stderr, text):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        captured["env"] = env
+        shell_command = cmd[-1]
+        output_path = Path(shell_command.split("--save_file", 1)[1].split()[0].strip("'\""))
+        output_path.write_bytes(b"video")
+
+        class Completed:
+            stdout = "ok"
+
+        return Completed()
+
+    monkeypatch.setattr("omnirt.models.flashtalk.pipeline.subprocess.run", fake_run)
+    monkeypatch.setattr("omnirt.models.flashtalk.pipeline.probe_video_file", lambda path: (704, 416, 28))
+
+    request = GenerateRequest(
+        task="audio2video",
+        model="soulx-flashtalk-14b",
+        backend="cuda",
+        inputs={"image": str(image_path), "audio": str(audio_path)},
+        config={
+            "repo_path": str(repo_path),
+            "ckpt_dir": "models/SoulX-FlashTalk-14B",
+            "wav2vec_dir": "models/chinese-wav2vec2-base",
+            "output_dir": str(tmp_path / "outputs"),
+            "python_executable": str(python_executable),
+            "launcher": "python",
+            "visible_devices": "0",
+            "audio_encode_mode": "stream",
+            "seed": 9,
+        },
+    )
+
+    pipeline = FlashTalkPipeline(runtime=FakeCudaRuntime(), model_spec=build_model_spec())
+
+    result = pipeline.run(request)
+
+    assert Path(result.outputs[0].path).exists()
+    assert captured["cmd"][:2] == ["bash", "-lc"]
+    assert "generate_video.py" in captured["cmd"][2]
+    assert captured["cwd"] == str(repo_path)
+    assert captured["env"]["CUDA_VISIBLE_DEVICES"] == "0"
+    assert "ASCEND_RT_VISIBLE_DEVICES" not in captured["env"]
 
 
 def test_flashtalk_pipeline_supports_accelerate_launcher(tmp_path, monkeypatch) -> None:

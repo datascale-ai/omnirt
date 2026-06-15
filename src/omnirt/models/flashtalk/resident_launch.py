@@ -38,6 +38,8 @@ def build_flashtalk_resident_worker_command(
         worker_id,
         "--backend",
         backend_name,
+        "--accelerator",
+        runtime_config.accelerator,
         "--repo-path",
         str(runtime_config.repo_path),
         "--ckpt-dir",
@@ -98,7 +100,7 @@ def build_flashtalk_resident_worker_command(
     raise ValueError(f"Unsupported FlashTalk resident launcher: {runtime_config.launcher}")
 
 
-def build_resident_worker_env(*, project_root: Path) -> dict[str, str]:
+def build_resident_worker_env(*, project_root: Path, runtime_config: FlashTalkRuntimeConfig | None = None) -> dict[str, str]:
     env = dict(os.environ)
     src_path = project_root / "src"
     existing = env.get("PYTHONPATH", "").strip()
@@ -106,4 +108,11 @@ def build_resident_worker_env(*, project_root: Path) -> dict[str, str]:
         env["PYTHONPATH"] = f"{src_path}:{existing}"
     else:
         env["PYTHONPATH"] = str(src_path)
+    if runtime_config is not None and runtime_config.visible_devices:
+        if runtime_config.accelerator == "ascend":
+            env["ASCEND_RT_VISIBLE_DEVICES"] = runtime_config.visible_devices
+            env.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            env["CUDA_VISIBLE_DEVICES"] = runtime_config.visible_devices
+            env.pop("ASCEND_RT_VISIBLE_DEVICES", None)
     return env

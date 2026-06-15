@@ -32,6 +32,11 @@ class FakeCudaRuntime(BackendRuntime):
         return 24.0
 
 
+class FakeAscendRuntime(FakeCudaRuntime):
+    name = "ascend"
+    device_name = "npu"
+
+
 def build_model_spec() -> ModelSpec:
     return ModelSpec(
         id="cosyvoice3-triton-trtllm",
@@ -51,6 +56,37 @@ def test_cosyvoice_model_is_registered() -> None:
     assert spec.default_backend == "cuda"
     assert spec.capabilities.artifact_kind == "audio"
     assert "seed" in spec.capabilities.supported_config
+    assert "service_accelerator" in spec.capabilities.supported_config
+    assert "Ascend-hosted compatible service" in spec.resource_hint["accelerator"]
+
+
+def test_cosyvoice_ascend_backend_marks_service_accelerator(tmp_path) -> None:
+    reference_audio = tmp_path / "reference.wav"
+    reference_audio.write_bytes(b"fake")
+    request = GenerateRequest(
+        task="text2audio",
+        model="cosyvoice3-triton-trtllm",
+        backend="ascend",
+        inputs={
+            "prompt": "生成一段确定性测试语音。",
+            "audio": str(reference_audio),
+            "reference_text": "参考音色。",
+        },
+        config={
+            "server_addr": "8.92.7.195",
+            "server_port": 18001,
+            "output_dir": str(tmp_path / "outputs"),
+            "request_id": "fixed-request",
+        },
+    )
+    pipeline = CosyVoiceTritonPipeline(runtime=FakeAscendRuntime(), model_spec=build_model_spec())
+
+    conditions = pipeline.prepare_conditions(request)
+    latents = pipeline.prepare_latents(request, conditions)
+    resolved = pipeline.resolve_run_config(request, conditions, latents)
+
+    assert latents.service_accelerator == "ascend"
+    assert resolved["service_accelerator"] == "ascend"
 
 
 def test_cosyvoice_pipeline_sends_offline_triton_request(tmp_path, monkeypatch) -> None:

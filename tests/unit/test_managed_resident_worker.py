@@ -4,7 +4,7 @@ from pathlib import Path
 
 from omnirt.core.types import Artifact, GenerateRequest, GenerateResult, RunReport
 from omnirt.models.flashtalk.pipeline import FlashTalkRuntimeConfig
-from omnirt.models.flashtalk.resident_launch import build_flashtalk_resident_worker_command
+from omnirt.models.flashtalk.resident_launch import build_flashtalk_resident_worker_command, build_resident_worker_env
 from omnirt.workers.managed import ManagedGrpcResidentWorkerProxy
 
 
@@ -106,6 +106,7 @@ def test_managed_proxy_spawns_once_and_submits(monkeypatch, tmp_path: Path) -> N
 def test_build_flashtalk_resident_worker_command_uses_torchrun_wrapper(tmp_path: Path) -> None:
     runtime_config = FlashTalkRuntimeConfig(
         resident_target=None,
+        accelerator="ascend",
         repo_path=tmp_path / "repo",
         ckpt_dir=tmp_path / "ckpt",
         wav2vec_dir=tmp_path / "wav2vec",
@@ -136,3 +137,32 @@ def test_build_flashtalk_resident_worker_command_uses_torchrun_wrapper(tmp_path:
     assert any(part.startswith("--master_port=") for part in command)
     assert "-m" in command
     assert "resident-flashtalk-worker" in command
+
+
+def test_build_resident_worker_env_sets_cuda_visible_devices(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ASCEND_RT_VISIBLE_DEVICES", "0,1")
+    runtime_config = FlashTalkRuntimeConfig(
+        resident_target=None,
+        accelerator="cuda",
+        repo_path=tmp_path / "repo",
+        ckpt_dir=tmp_path / "ckpt",
+        wav2vec_dir=tmp_path / "wav2vec",
+        cpu_offload=False,
+        python_executable="/tmp/py",
+        launcher="torchrun",
+        nproc_per_node=4,
+        num_processes=4,
+        accelerate_executable=None,
+        visible_devices="2,3,4,5",
+        ascend_env_script=None,
+        t5_quant=None,
+        t5_quant_dir=None,
+        wan_quant=None,
+        wan_quant_include=None,
+        wan_quant_exclude=None,
+    )
+
+    env = build_resident_worker_env(project_root=tmp_path, runtime_config=runtime_config)
+
+    assert env["CUDA_VISIBLE_DEVICES"] == "2,3,4,5"
+    assert "ASCEND_RT_VISIBLE_DEVICES" not in env

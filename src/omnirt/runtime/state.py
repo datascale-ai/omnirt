@@ -57,17 +57,21 @@ class RuntimeState:
     def to_env(self, *, prefix: str | None = None) -> dict[str, str]:
         if prefix is None:
             prefix = f"OMNIRT_{self.name.upper()}_"
-        return {
+        env = {
             f"{prefix}REPO_PATH": self.repo_path,
             f"{prefix}SERVER_PATH": self.server_path,
             f"{prefix}CKPT_DIR": self.ckpt_dir,
             f"{prefix}WAV2VEC_DIR": self.wav2vec_dir,
+            f"{prefix}DEVICE": self.device,
             f"{prefix}ENV_SCRIPT": self.env_script,
             f"{prefix}VENV_ACTIVATE": self.venv_activate,
             f"{prefix}PYTHON": self.python,
             f"{prefix}TORCHRUN": self.torchrun,
             f"{prefix}NPROC_PER_NODE": str(self.nproc_per_node),
         }
+        if self.device == "ascend":
+            env[f"{prefix}ASCEND_ENV_SCRIPT"] = self.env_script
+        return env
 
 
 def runtime_state_path(name: str, device: str) -> Path:

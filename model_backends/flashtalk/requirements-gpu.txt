@@ -1,0 +1,31 @@
+# CUDA requirements following the official SoulX-FlashTalk quickstart.
+#
+# PyTorch wheels are installed from the CUDA 12.8 index. Keep the Ascend-only
+# torch-npu package out of this file; Ascend uses requirements-ascend.txt.
+--index-url https://download.pytorch.org/whl/cu128
+--extra-index-url https://pypi.org/simple
+
+torch==2.7.1
+torchvision==0.22.1
+ninja
+opencv-python-headless>=4.12.0.88
+diffusers>=0.34.0
+transformers>=4.46.3
+tokenizers>=0.20.3
+accelerate>=1.8.1
+tqdm
+imageio
+easydict
+ftfy
+imageio-ffmpeg
+scikit-image
+loguru
+gradio>=5.0.0
+xfuser>=0.4.3
+pyloudnorm
+librosa
+optimum-quanto==0.2.6
+huggingface_hub[cli]
+PyYAML>=6
+websockets>=13
+attrs>=23.2.0

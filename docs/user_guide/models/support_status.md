@@ -2,7 +2,7 @@
 
 本文档记录 `omnirt` 当前数字人链路的模型优先级、已经完成的真机 smoke、以及需要收缩到 experimental 的泛模型。
 
-最近更新：`2026-04-28`
+最近更新：`2026-06-15`
 
 ## 当前公开任务面
 
@@ -20,7 +20,7 @@
 
 | 层级 | 维护承诺 | 当前模型 |
 |---|---|---|
-| Core | 数字人主链路；必须有 registry、单测、真机 smoke、benchmark、部署文档 | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `sensevoice-small` |
+| Core | 数字人主链路；必须有 registry、单测、真机 smoke、benchmark、部署文档 | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | 服务于角色资产、背景图、idle 视频素材、后处理；按数字人场景补 smoke | `sdxl-base-1.0`, `svd-xt`, `flux2.dev`, `qwen-image`, `wan2.2-*` |
 | Experimental | 已接入但不再作为主线投入；保留 registry 与基础测试，不承诺双后端 smoke | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2` 等 |
 
@@ -47,10 +47,17 @@
   说明: 外部 SoulX-FlashHead checkout 已完成 910B NPU 适配和质量档验证；OmniRT 当前通过 `persistent_worker` 执行表面接入，worker 内部保留 script-backed 生成路径，默认 `2-step + 2D VAE split + latent_carry off`。历史 OmniRT 真机冷启动 benchmark：2 卡 `82.96s`，4 卡 `84.08s`，输出均为 `512x512 / 10s / 250 frames`
 - `cosyvoice3-triton-trtllm`
   CUDA: `已验证`
-  说明: 官方 `runtime/triton_trtllm` 服务已完成真实 benchmark；稳定配置为 `token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`。OmniRT wrapper 真实生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark `RTF=0.1303`、平均首包 `699.13ms`。客户端 `seed` 已透传，但服务端 BLS 仍需消费该参数才能完全固定采样。
+  Ascend: `wrapper-ready`
+  说明: 官方 `runtime/triton_trtllm` 服务已完成真实 CUDA benchmark；稳定配置为 `token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`。OmniRT wrapper 真实生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark `RTF=0.1303`、平均首包 `699.13ms`。Ascend 路径当前是服务端点适配：`--backend ascend` 会记录 `service_accelerator=ascend`，但需要外部 Triton 兼容服务已在 NPU 上部署。
 - `sensevoice-small`
-  离线 ASR: `契约已接入`
-  说明: `audio2text` 任务面、registry、CLI/Python API 与单测已接入；真机 smoke 依赖 FunASR 与本地音频样本。
+  Ascend: `runtime-ready`
+  说明: `audio2text` 任务面、registry、CLI/Python API 与单测已接入；`--backend ascend` 下 `device=auto` 会解析到 FunASR `npu:0`，并新增可跳过的 Ascend smoke。真机生成仍依赖 FunASR、`torch_npu` 与本地音频样本。
+- `indextts`
+  Ascend: `runtime-ready`
+  说明: 常驻 `serve-text2audio` runtime 支持 `OMNIRT_INDEXTTS_DEVICE=ascend|npu|npu:0`，默认 NPU fp16，加载前检查 `torch_npu`，并在 NPU 路径禁用 CUDA kernel 开关；新增 Ascend env / load smoke。
+- `soulx-podcast-1.7b`
+  Ascend: `wrapper-ready`
+  说明: OmniRT FastAPI wrapper 可通过 `--backend ascend` 和 `service_accelerator=ascend` 指向外部 Ascend-hosted SoulX-Podcast 服务；实际 NPU 推理能力由外部服务实现承担。
 
 ## Adjacent：按数字人场景补真机 smoke
 
@@ -94,8 +101,8 @@
 
 ## 尚未完成的数字人重点目标
 
-- ASR / 语音理解：`sensevoice-small` 已作为第一版入口接入；Whisper、Paraformer 作为后续候选
-- TTS 与音色复用：CosyVoice profile 缓存、稳定 seed、流式首包指标
+- ASR / 语音理解：`sensevoice-small` 已作为第一版入口接入并具备 Ascend NPU 设备解析；Whisper、Paraformer 作为后续候选
+- TTS 与音色复用：CosyVoice / SoulX-Podcast 的外部 Ascend 服务端实现、CosyVoice profile 缓存、稳定 seed、流式首包指标
 - 实时数字人：FlashTalk / FlashHead / LiveAct 的 resident worker 化、重启、热态 benchmark
 - 后处理：GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting 等数字人增强链路
 

@@ -12,6 +12,7 @@ Required environment:
 
 Common environment:
   OMNIRT_HOME                      Runtime home. Default: <omnirt checkout>/.omnirt
+  OMNIRT_FLASHTALK_DEVICE         Runtime device profile. Default: ascend
   OMNIRT_FLASHTALK_HOST           Bind host. Default: 0.0.0.0
   OMNIRT_FLASHTALK_PORT           Bind port. Default: 8765
   OMNIRT_FLASHTALK_SERVER_PATH    WS server entrypoint. Default: model_backends/flashtalk/flashtalk_ws_server.py
@@ -22,7 +23,8 @@ Common environment:
   OMNIRT_FLASHTALK_CMD_DIR        Command-file dir. Default: ./outputs/flashtalk-cmd
   OMNIRT_FLASHTALK_PYTHON         Python executable. Default: python
   OMNIRT_FLASHTALK_TORCHRUN       torchrun executable. Default: torchrun
-  OMNIRT_FLASHTALK_ENV_SCRIPT     Ascend/CANN environment script.
+  OMNIRT_FLASHTALK_VISIBLE_DEVICES Device visibility override, e.g. 0 or 0,1,2,3,4,5,6,7.
+  OMNIRT_FLASHTALK_ENV_SCRIPT     Optional accelerator environment script.
   OMNIRT_FLASHTALK_VENV_ACTIVATE  Virtualenv activate script.
 
 Optional quantization environment:
@@ -52,6 +54,11 @@ Optional background mode:
   python -m omnirt.cli.main runtime install flashtalk --device ascend
   bash scripts/start_flashtalk_ws.sh
   bash scripts/start_flashtalk_ws.sh --background
+
+CUDA example using an OmniRT-managed runtime:
+  cd <omnirt-repo-root>
+  python -m omnirt.cli.main runtime install flashtalk --device cuda
+  OMNIRT_FLASHTALK_DEVICE=cuda OMNIRT_FLASHTALK_VISIBLE_DEVICES=0 bash scripts/start_flashtalk_ws.sh
 USAGE
 }
 
@@ -135,7 +142,7 @@ load_runtime_env() {
     eval "$env_output"
   else
     echo "error: FlashTalk runtime is not configured." >&2
-    echo "hint: run 'python -m omnirt.cli.main runtime install flashtalk --device ascend' or set OMNIRT_FLASHTALK_* manually." >&2
+    echo "hint: run 'python -m omnirt.cli.main runtime install flashtalk --device ${OMNIRT_FLASHTALK_DEVICE:-ascend}' or set OMNIRT_FLASHTALK_* manually." >&2
     exit 2
   fi
 }
@@ -146,6 +153,7 @@ require_env OMNIRT_FLASHTALK_REPO_PATH
 
 HOST="${OMNIRT_FLASHTALK_HOST:-0.0.0.0}"
 PORT="${OMNIRT_FLASHTALK_PORT:-8765}"
+DEVICE="${OMNIRT_FLASHTALK_DEVICE:-ascend}"
 REPO_PATH="${OMNIRT_FLASHTALK_REPO_PATH}"
 SERVER_PATH="${OMNIRT_FLASHTALK_SERVER_PATH:-$ROOT/model_backends/flashtalk/flashtalk_ws_server.py}"
 CKPT_DIR="${OMNIRT_FLASHTALK_CKPT_DIR:-models/SoulX-FlashTalk-14B}"
@@ -191,6 +199,22 @@ fi
 
 mkdir -p "$CMD_DIR"
 export FLASHTALK_CMD_DIR="$CMD_DIR"
+export GPU_NUM="$NPROC_PER_NODE"
+
+if [[ -n "${OMNIRT_FLASHTALK_VISIBLE_DEVICES:-}" ]]; then
+  case "$DEVICE" in
+    cuda)
+      export CUDA_VISIBLE_DEVICES="$OMNIRT_FLASHTALK_VISIBLE_DEVICES"
+      ;;
+    ascend)
+      export ASCEND_RT_VISIBLE_DEVICES="$OMNIRT_FLASHTALK_VISIBLE_DEVICES"
+      ;;
+    *)
+      echo "error: OMNIRT_FLASHTALK_DEVICE must be cuda or ascend, got: $DEVICE" >&2
+      exit 2
+      ;;
+  esac
+fi
 
 # SoulX flash_talk/inference.py: env overrides infer_params.yaml (${VAR:-default} keeps pre-exported values).
 export FLASHTALK_HEIGHT="${FLASHTALK_HEIGHT:-704}"

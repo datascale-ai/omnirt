@@ -14,16 +14,16 @@ Models are organized by the digital-human production chain rather than by a gene
 |---|---|---|---|---|---|
 | `longcat-video-avatar-1.5` | `audio2video` | core | beta | no | LongCat-Video-Avatar 1.5 audio-driven avatar generation via external CUDA or Ascend checkouts. |
 | `soulx-flashhead-1.3b` | `audio2video` | core | beta | no | SoulX-FlashHead low-latency talking-head generation via image plus audio. |
-| `soulx-flashtalk-14b` | `audio2video` | core | beta | yes | SoulX-FlashTalk talking-head avatar generation via image plus audio on Ascend. |
+| `soulx-flashtalk-14b` | `audio2video` | core | beta | yes | SoulX-FlashTalk talking-head avatar generation via image plus audio on CUDA or Ascend. |
 | `soulx-liveact-14b` | `audio2video` | core | beta | no | SoulX-LiveAct long-form audio-driven avatar video generation on Ascend. |
 
 ## Voice generation
 
 | Registry id | Task | Tier | Maturity | Realtime | Summary |
 |---|---|---|---|---|---|
-| `cosyvoice3-triton-trtllm` | `text2audio` | core | beta | no | CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route. |
+| `cosyvoice3-triton-trtllm` | `text2audio` | core | beta | no | CosyVoice3 text-to-audio generation through a Triton-compatible service endpoint. |
 | `indextts` | `text2audio` | adjacent | beta | yes | IndexTTS-2 resident text-to-audio service for OpenTalking TTS, with segment streaming and experimental token-window streaming through `serve-text2audio`. |
-| `soulx-podcast-1.7b` | `text2audio` | core | beta | no | SoulX-Podcast text-to-audio generation through the official FastAPI route. |
+| `soulx-podcast-1.7b` | `text2audio` | core | beta | no | SoulX-Podcast text-to-audio generation through a FastAPI service endpoint. |
 
 ## Voice understanding roadmap
 

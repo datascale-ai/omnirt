@@ -94,7 +94,7 @@ class RuntimeInstaller:
             marker_dir=self.manifest.repo_marker_dir,
             label=self._repo_label,
         )
-        if self.manifest.name == "flashtalk":
+        if self.manifest.name == "flashtalk" and self.manifest.device == "ascend":
             self._apply_soulx_ascend_patch(self.manifest.repo_dir)
             if _patch_soulx_wan_t5_for_cpu_torch(self.manifest.repo_dir):
                 self.commands.append(["patch", "SoulX-FlashTalk", "flash_talk/wan/modules/t5.py", "import-time device default"])
@@ -117,7 +117,7 @@ class RuntimeInstaller:
                 label=self._repo_label,
             ),
         ]
-        if self.manifest.name == "flashtalk":
+        if self.manifest.name == "flashtalk" and self.manifest.device == "ascend":
             commands.extend(
                 [
                     [
@@ -214,10 +214,10 @@ class RuntimeInstaller:
             "120",
             "--retries",
             "5",
-            "-i",
-            self.manifest.pip_index_url,
         ]
-        if self.manifest.pip_extra_index_url:
+        if not self._requirements_file_defines_index() and self.manifest.pip_index_url:
+            command.extend(["-i", self.manifest.pip_index_url])
+        if not self._requirements_file_defines_extra_index() and self.manifest.pip_extra_index_url:
             command.extend(["--extra-index-url", self.manifest.pip_extra_index_url])
         command.extend(["-r", str(self.manifest.requirements_file)])
         return command
@@ -293,12 +293,30 @@ class RuntimeInstaller:
     def _planned_install_requirements_commands(self) -> list[list[str]]:
         uv = shutil.which("uv")
         if uv:
-            return self._uv_install_requirements_commands(uv)
-        torch_command = self._musetalk_torch_install_command()
-        non_torch_command = self._musetalk_non_torch_install_command()
-        if torch_command is not None and non_torch_command is not None:
-            return [torch_command, non_torch_command]
-        return [self._install_requirements_command()]
+            commands = self._uv_install_requirements_commands(uv)
+        else:
+            torch_command = self._musetalk_torch_install_command()
+            non_torch_command = self._musetalk_non_torch_install_command()
+            if torch_command is not None and non_torch_command is not None:
+                commands = [torch_command, non_torch_command]
+            else:
+                commands = [self._install_requirements_command()]
+        flash_attn_command = self._flashtalk_cuda_flash_attn_install_command()
+        if flash_attn_command is not None:
+            commands.append(flash_attn_command)
+        return commands
+
+    def _flashtalk_cuda_flash_attn_install_command(self) -> list[str] | None:
+        if self.manifest.name != "flashtalk" or self.manifest.device != "cuda":
+            return None
+        return [
+            str(self.manifest.python_path),
+            "-m",
+            "pip",
+            "install",
+            "flash_attn==2.8.0.post2",
+            "--no-build-isolation",
+        ]
 
     def _uv_install_requirements_commands(self, uv: str) -> list[list[str]]:
         torch_command = self._musetalk_torch_install_command()
@@ -325,16 +343,34 @@ class RuntimeInstaller:
             str(self.manifest.python_path),
             "--index-strategy",
             "unsafe-best-match",
-            "-i",
-            self.manifest.pip_index_url,
         ]
-        if self.manifest.pip_extra_index_url:
+        if not self._requirements_file_defines_index() and self.manifest.pip_index_url:
+            command.extend(["-i", self.manifest.pip_index_url])
+        if not self._requirements_file_defines_extra_index() and self.manifest.pip_extra_index_url:
             command.extend(["--extra-index-url", self.manifest.pip_extra_index_url])
         if self.manifest.name == "musetalk" and no_build_isolation_chumpy:
             command.extend(["--no-build-isolation-package", "chumpy"])
-        if requirements_file is not None:
-            command.extend(["-r", str(requirements_file)])
+        command.extend(["-r", str(requirements_file or self.manifest.requirements_file)])
         return command
+
+    def _requirements_file_defines_index(self) -> bool:
+        return self._requirements_file_has_option("--index-url", "-i")
+
+    def _requirements_file_defines_extra_index(self) -> bool:
+        return self._requirements_file_has_option("--extra-index-url")
+
+    def _requirements_file_has_option(self, *options: str) -> bool:
+        try:
+            lines = self.manifest.requirements_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return False
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if any(stripped == option or stripped.startswith(f"{option} ") for option in options):
+                return True
+        return False
 
     def _prepare_venv(self, *, recreate: bool) -> None:
         if recreate and self.manifest.venv_dir.exists():
