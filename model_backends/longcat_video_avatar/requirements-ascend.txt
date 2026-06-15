@@ -1,0 +1,22 @@
+# Install torch, torchvision, and torch-npu from the wheel source matching your CANN release first.
+# Keep this file focused on Python-level dependencies that are safe to install from mirrors.
+accelerate>=1.8.1
+diffusers>=0.34.0
+einops
+ffmpeg-python
+huggingface_hub[cli]
+imageio
+imageio-ffmpeg
+librosa
+loguru
+numpy
+opencv-python-headless>=4.12.0.88
+protobuf
+PyYAML>=6
+safetensors
+scikit-image
+sentencepiece
+soundfile
+tokenizers>=0.20.3
+tqdm
+transformers>=4.46.3
