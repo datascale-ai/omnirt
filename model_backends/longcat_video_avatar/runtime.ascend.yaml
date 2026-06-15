@@ -1,0 +1,30 @@
+name: longcat_video_avatar
+device: ascend
+profile: ascend_910b
+
+sources:
+  repo_url: https://github.com/meituan-longcat/LongCat-Video.git
+  checkpoint_url:
+  wav2vec_repo_id:
+
+paths:
+  runtime_dir: ${OMNIRT_HOME}/runtimes/longcat_video_avatar/ascend
+  repo_dir: ${OMNIRT_HOME}/model-repos/LongCat-Video
+
+runtime:
+  type: venv
+  python: "3.10"
+  env_script: /usr/local/Ascend/ascend-toolkit/set_env.sh
+  nproc_per_node: 8
+
+install:
+  requirements_file: ${OMNIRT_ROOT}/model_backends/longcat_video_avatar/requirements-ascend.txt
+  pip_index_url: https://pypi.tuna.tsinghua.edu.cn/simple
+  hf_endpoint: https://hf-mirror.com
+
+launch:
+  server_path: ${OMNIRT_ROOT}/model_backends/longcat_video_avatar/run_avatar_worker_ascend.sh
+
+defaults:
+  ckpt_dir: weights/LongCat-Video-Avatar-1.5
+  wav2vec_dir:
