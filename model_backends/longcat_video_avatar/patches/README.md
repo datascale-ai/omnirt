@@ -37,3 +37,25 @@ Suggested patch file names:
 - `longcat-video-avatar-cuda-worker.patch`
 - `longcat-video-avatar-attention-backends.patch`
 - `longcat-video-avatar-stream-save.patch`
+- `longcat-avatar-text-encoder-offload.patch`
+
+## Text Encoder Offload Patch
+
+`longcat-avatar-text-encoder-offload.patch` is a focused Ascend resident-service
+patch. It only changes:
+
+- `run_ascend_avatar_cp.py`: when
+  `LONGCAT_AVATAR_TEXT_ENCODER_DEVICE=npu` and
+  `LONGCAT_AVATAR_TEXT_ENCODER_OFFLOAD_AFTER_PROMPT=cpu`, move the text encoder
+  to NPU for `encode_prompt`, then immediately move it back to CPU and clear the
+  NPU cache.
+- `run_avatar_worker_optimized_249f_20260614.sh`: add
+  `PRECACHE_STATIC_INPUTS=0` support so resident services can skip startup
+  pre-cache.
+
+Apply it to a LongCat-Video checkout that already contains OmniRT's Ascend
+runner files:
+
+```bash
+git -C /path/to/LongCat-Video apply --unidiff-zero /path/to/omnirt/model_backends/longcat_video_avatar/patches/longcat-avatar-text-encoder-offload.patch
+```
