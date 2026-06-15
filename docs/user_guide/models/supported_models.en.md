@@ -20,9 +20,9 @@ Models are organized by the digital-human production chain rather than by a gene
 
 | Registry id | Task | Tier | Maturity | Realtime | Summary |
 |---|---|---|---|---|---|
-| `cosyvoice3-triton-trtllm` | `text2audio` | core | beta | no | CosyVoice3 text-to-audio generation through the official Triton/TensorRT-LLM route. |
+| `cosyvoice3-triton-trtllm` | `text2audio` | core | beta | no | CosyVoice3 text-to-audio generation through a Triton-compatible service endpoint. |
 | `indextts` | `text2audio` | adjacent | beta | yes | IndexTTS-2 resident text-to-audio service for OpenTalking TTS, with segment streaming and experimental token-window streaming through `serve-text2audio`. |
-| `soulx-podcast-1.7b` | `text2audio` | core | beta | no | SoulX-Podcast text-to-audio generation through the official FastAPI route. |
+| `soulx-podcast-1.7b` | `text2audio` | core | beta | no | SoulX-Podcast text-to-audio generation through a FastAPI service endpoint. |
 
 ## Voice understanding roadmap
 
