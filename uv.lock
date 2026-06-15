@@ -2870,7 +2870,7 @@ wheels = [
 
 [[package]]
 name = "omnirt"
-version = "0.1.0a0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -2932,12 +2932,6 @@ indextts = [
     { name = "pydantic" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-quicktalk-converter = [
-    { name = "onnx" },
-    { name = "onnx2torch" },
-    { name = "onnxruntime", version = "1.24.3", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "onnxruntime", version = "1.26.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.11'" },
-]
 quicktalk-ascend = [
     { name = "insightface" },
     { name = "kornia" },
@@ -2950,6 +2944,12 @@ quicktalk-ascend = [
     { name = "torch" },
     { name = "torchvision" },
     { name = "transformers" },
+]
+quicktalk-converter = [
+    { name = "onnx" },
+    { name = "onnx2torch" },
+    { name = "onnxruntime", version = "1.24.3", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "onnxruntime", version = "1.26.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 quicktalk-cuda = [
     { name = "insightface" },

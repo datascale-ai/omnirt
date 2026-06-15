@@ -1,0 +1,30 @@
+FROM python:3.11-slim-bookworm
+
+WORKDIR /app
+
+ARG DEBIAN_MIRROR=deb.debian.org
+
+RUN if [ "$DEBIAN_MIRROR" != "deb.debian.org" ]; then \
+        sed -i "s|http://deb.debian.org|https://${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md README.en.md LICENSE ./
+COPY src ./src
+COPY model_backends ./model_backends
+COPY examples ./examples
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+RUN python -m pip install --index-url "$PIP_INDEX_URL" --no-cache-dir -U pip setuptools wheel \
+    && python -m pip install --index-url "$PIP_INDEX_URL" --no-cache-dir -e ".[server]"
+
+ENV OMNIRT_HOST=0.0.0.0
+ENV OMNIRT_PORT=8000
+
+EXPOSE 8000
+
+CMD ["omnirt", "serve", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: datascale-ai
+  RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+
+jobs:
+  python-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build package artifacts
+        run: |
+          python -m pip install -U pip setuptools wheel build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omnirt-python-dist
+          path: dist/*
+
+  docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.server
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/omnirt-server:${{ env.RELEASE_VERSION }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/datascale-ai/omnirt
+            org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  github-release:
+    runs-on: ubuntu-latest
+    needs:
+      - python-artifacts
+      - docker-image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: omnirt-python-dist
+          path: dist
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          name: OmniRT ${{ env.RELEASE_VERSION }}
+          body_path: .github/releases/v0.1.0.md
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
