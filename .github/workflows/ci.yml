@@ -16,10 +16,48 @@ jobs:
           python-version: "3.11"
       - name: Install package
         run: python -m pip install -e '.[dev]'
-      - name: Verify package build
-        run: python -m build
       - name: Run unit and parity tests
         run: pytest tests/unit tests/parity --maxfail=1
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build Python package
+        run: |
+          python -m pip install -U pip build twine
+          python -m build
+          python -m twine check dist/*
+      - name: Check package contents
+        run: |
+          python - <<'PY'
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          wheel = next(Path("dist").glob("*.whl"))
+          sdist = next(Path("dist").glob("*.tar.gz"))
+
+          with zipfile.ZipFile(wheel) as archive:
+              wheel_tests = [
+                  name for name in archive.namelist()
+                  if name.startswith("tests/")
+              ]
+
+          with tarfile.open(sdist) as archive:
+              sdist_tests = [
+                  name for name in archive.getnames()
+                  if "/tests/" in name
+              ]
+
+          if wheel_tests or sdist_tests:
+              raise SystemExit(
+                  "Package artifacts must not include top-level tests files."
+              )
+          PY
 
   docs-lint:
     runs-on: ubuntu-latest
