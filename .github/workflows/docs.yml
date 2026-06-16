@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.repository == 'datascale-ai/omnirt' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -39,6 +40,7 @@ jobs:
           path: site
 
   deploy:
+    if: ${{ github.repository == 'datascale-ai/omnirt' }}
     needs: build
     runs-on: ubuntu-latest
     environment:
