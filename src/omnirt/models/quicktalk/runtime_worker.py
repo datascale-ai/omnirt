@@ -556,11 +556,15 @@ class RealtimeV3Worker:
         return reps, elapsed
 
     def prepare_pcm_features(
-        self, pcm: np.ndarray, sample_rate: int
+        self, pcm: np.ndarray, sample_rate: int, *, use_cache: bool = True
     ) -> tuple[list[np.ndarray], float]:
         """Same as ``prepare_wav_features`` but takes raw PCM, skipping tempfile I/O."""
         start = time.perf_counter()
-        cache_path, pcm_arr = self._pcm_feature_cache_path(pcm, sample_rate)
+        if use_cache:
+            cache_path, pcm_arr = self._pcm_feature_cache_path(pcm, sample_rate)
+        else:
+            cache_path = None
+            pcm_arr = np.ascontiguousarray(np.asarray(pcm).reshape(-1))
         cached = self._load_audio_feature_cache(cache_path, kind="pcm") if cache_path is not None else None
         if cached is not None:
             return cached
@@ -573,7 +577,7 @@ class RealtimeV3Worker:
         elapsed = time.perf_counter() - start
         if cache_path is not None:
             self._save_audio_feature_cache(cache_path, reps, kind="pcm")
-        print(f"v3_audio_feature_cache=miss kind=pcm frames={len(reps)} build_seconds={elapsed:.3f}", flush=True)
+            print(f"v3_audio_feature_cache=miss kind=pcm frames={len(reps)} build_seconds={elapsed:.3f}", flush=True)
         return reps, elapsed
 
     @staticmethod
@@ -612,7 +616,7 @@ class RealtimeV3Worker:
         future = pcm_arr if lookahead_chunks > 0 else np.zeros(0, dtype=np.int16)
         parts = [part for part in (history, target, future) if part.size]
         combined = np.concatenate(parts).astype(np.int16, copy=False) if parts else np.zeros(0, dtype=np.int16)
-        reps, elapsed = self.prepare_pcm_features(combined, sample_rate)
+        reps, elapsed = self.prepare_pcm_features(combined, sample_rate, use_cache=False)
 
         history_frames = self._streaming_frame_count(history, sample_rate, self.fps) if history.size else 0
         target_frames = self._streaming_frame_count(target, sample_rate, self.fps)
