@@ -63,6 +63,44 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 omnirt generate ...    # 多卡（目前公开 API
 
 `ASCEND_RT_VISIBLE_DEVICES` 是 CUDA 上 `CUDA_VISIBLE_DEVICES` 的等价物。
 
+## vLLM-Omni 语音服务
+
+TTS 模型如果已经由 vLLM-Omni/vLLM-Ascend 托管，OmniRT 推荐使用 `vllm-omni-speech` provider 通过 HTTP 调用 `/v1/audio/speech`，而不是把模型权重直接加载进 OmniRT 进程。这样可以把 Ascend runtime、vLLM worker、模型 chunking 和 OmniRT 的调度/观测边界分开。
+
+910B 服务进程通常先准备环境：
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+export ASCEND_RT_VISIBLE_DEVICES=0
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+```
+
+Qwen3-TTS 示例：
+
+```bash
+vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --deploy-config vllm_omni/deploy/qwen3_tts.yaml \
+  --omni \
+  --port 8091 \
+  --trust-remote-code
+```
+
+OmniRT 侧调用：
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model vllm-omni-speech \
+  --prompt "你好，这是昇腾上的 vLLM-Omni 语音服务。" \
+  --server-url http://127.0.0.1:8091 \
+  --upstream-model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --voice vivian \
+  --language Chinese
+```
+
+如果用 OpenAI-compatible `/v1/audio/speech`，请求里的 `model` 可以直接写上游模型名；OmniRT 会自动落到 `vllm-omni-speech` 并转发。
+
 ## 已验证模型
 
 下表反映最近一轮 Ascend smoke 的覆盖情况。完整清单以 [支持状态](../models/support_status.md) 为准。
@@ -71,6 +109,7 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 omnirt generate ...    # 多卡（目前公开 API
 |---|---|---|---|
 | `soulx-flashtalk-14b` | `audio2video` | 8.0.RC2+ | Core；常驻 worker 路径已完成真机 benchmark |
 | `soulx-flashhead-1.3b` | `audio2video` | 8.0.RC2+ | Core；script-backed 冷启动包装 |
+| `vllm-omni-speech` | `text2audio` | 8.3.RC1+ | 外部 vLLM-Omni/vLLM-Ascend 服务适配面已接入；真实 910B benchmark 单独记录 |
 | `sdxl-base-1.0` | `text2image` | 8.0.RC2 | 稳定 |
 | `svd-xt` | `image2video` | 8.0.RC2 | 部分算子回退到 eager |
 | `wan2.2-t2v-14b` | `text2video` | 8.0.RC2+ | 初步验证；建议 `preset=balanced` |

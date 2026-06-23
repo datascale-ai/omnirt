@@ -106,6 +106,30 @@ python3 client_grpc.py \
 - 当前 26 条 streaming benchmark 与近期稳定复跑区间一致：平均首包约 `0.70s`，`RTF` 约 `0.13`。
 - `seed` 已从 OmniRT 侧透传为 Triton request parameter；要让 benchmark 完全可复现，还需要服务端 BLS 读取并转发该参数到 OpenAI/TensorRT-LLM 请求。
 
+## 146 本地 streaming TRT 补丁记录
+
+2026-06-23 在 146 上继续验证本地 CosyVoice HTTP streaming server。这个路径和 Triton gRPC provider 是两套协议，但对实时语音链路很有参考价值，已经沉淀到 `examples/profiles/cosyvoice-146-triton-trtllm.yaml` 的 `146-local-stream-trt` profile。
+
+关键配置：
+
+- `flow_decoder_trt=true`，健康检查里的 `flow_decoder_estimator=TrtContextWrapper`
+- `transformers==4.51.3`、`torch==2.5.1+cu124`、`torchaudio==2.5.1+cu124`
+- `token_hop_len=8`、`token_max_hop_len=32`、`stream_scale_factor=2`
+- `flow_n_timesteps=10`
+- `max_token_text_ratio=6.0`、`min_token_text_ratio=2.0`
+- 屏蔽全部 `stop_token_ids`，而不是只屏蔽一个 EOS-like token
+- 每个请求结束后恢复 streaming tuning，避免 `token_hop_len` 等状态泄漏到下一次请求
+- 复用 `zero_shot_cache_id=voiceops_warmup`
+
+实测信号：
+
+| 场景 | 首包 | 音频时长 | 总 RTF |
+|---|---:|---:|---:|
+| short | `575 ms` | `3.48s` | `0.664` |
+| medium | `485 ms` | `8.20s` | `0.627` |
+
+未修复前同一长文本会随 seed 从 `3.2s / 80 tokens` 漂到 `56.0s / 1400 tokens`，因此这类链路必须同时看 TTFA、输出时长、chunk/token 数、总耗时和 RTF；贪心 / top-1 解码曾被验证为质量和 RTF 都不可接受，不应作为稳定性修复方向。
+
 ## 相关
 
 - [文本到音频](../user_guide/generation/text2audio.md)

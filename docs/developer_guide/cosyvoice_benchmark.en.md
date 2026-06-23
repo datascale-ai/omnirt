@@ -106,6 +106,30 @@ Results:
 - The current 26-sample streaming benchmark matches the recent stable rerun band: average first chunk is about `0.70s`, and `RTF` is about `0.13`.
 - `seed` is forwarded from OmniRT as a Triton request parameter; fully deterministic benchmark runs still require the server-side BLS to read and forward that value to the OpenAI/TensorRT-LLM request.
 
+## 146 Local Streaming TRT Patch
+
+On 2026-06-23, host 146 was also used to validate the local CosyVoice HTTP streaming server. This path is a different protocol from the Triton gRPC provider, but the tuning is valuable for realtime voice chains and is now captured as the `146-local-stream-trt` profile in `examples/profiles/cosyvoice-146-triton-trtllm.yaml`.
+
+Key settings:
+
+- `flow_decoder_trt=true`, with health reporting `flow_decoder_estimator=TrtContextWrapper`
+- `transformers==4.51.3`, `torch==2.5.1+cu124`, and `torchaudio==2.5.1+cu124`
+- `token_hop_len=8`, `token_max_hop_len=32`, `stream_scale_factor=2`
+- `flow_n_timesteps=10`
+- `max_token_text_ratio=6.0`, `min_token_text_ratio=2.0`
+- mask all `stop_token_ids`, not just one EOS-like token
+- reset streaming tuning after each request so `token_hop_len` and related state do not leak into the next request
+- reuse `zero_shot_cache_id=voiceops_warmup`
+
+Measured signals:
+
+| Case | First chunk | Audio duration | Total RTF |
+|---|---:|---:|---:|
+| short | `575 ms` | `3.48s` | `0.664` |
+| medium | `485 ms` | `8.20s` | `0.627` |
+
+Before the patch, the same long text varied by seed from `3.2s / 80 tokens` to `56.0s / 1400 tokens`, so this path must be judged by TTFA, output duration, chunk/token count, wall time, and RTF together. Greedy / top-1 decoding was tested and produced unacceptable quality and RTF, so it should not be used as the stability fix.
+
 ## Related
 
 - [Text to Audio](../user_guide/generation/text2audio.md)

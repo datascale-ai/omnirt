@@ -63,6 +63,44 @@ ASCEND_RT_VISIBLE_DEVICES=0,1 omnirt generate ...    # multi-card (public API st
 
 `ASCEND_RT_VISIBLE_DEVICES` is the Ascend analog of `CUDA_VISIBLE_DEVICES`.
 
+## vLLM-Omni Speech Service
+
+When a TTS model is served by vLLM-Omni/vLLM-Ascend, OmniRT should use the `vllm-omni-speech` provider to call `/v1/audio/speech` over HTTP instead of loading TTS weights inside the OmniRT process. This keeps Ascend runtime, vLLM workers, model chunking, and OmniRT scheduling/telemetry boundaries separate.
+
+A typical 910B service process starts with:
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+export ASCEND_RT_VISIBLE_DEVICES=0
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+```
+
+Qwen3-TTS example:
+
+```bash
+vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --deploy-config vllm_omni/deploy/qwen3_tts.yaml \
+  --omni \
+  --port 8091 \
+  --trust-remote-code
+```
+
+OmniRT call:
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model vllm-omni-speech \
+  --prompt "Hello from vLLM-Omni speech on Ascend." \
+  --server-url http://127.0.0.1:8091 \
+  --upstream-model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --voice vivian \
+  --language English
+```
+
+For OpenAI-compatible `/v1/audio/speech`, the request `model` can be the upstream model name. OmniRT automatically selects `vllm-omni-speech` and forwards it.
+
 ## Validated models
 
 The table below reflects the most recent Ascend smoke coverage. The source of truth is [Support Status](../models/support_status.md).
@@ -71,6 +109,7 @@ The table below reflects the most recent Ascend smoke coverage. The source of tr
 |---|---|---|---|
 | `soulx-flashtalk-14b` | `audio2video` | 8.0.RC2+ | Core; resident-worker path has real-hardware benchmark coverage |
 | `soulx-flashhead-1.3b` | `audio2video` | 8.0.RC2+ | Core; script-backed cold-start wrapper |
+| `vllm-omni-speech` | `text2audio` | 8.3.RC1+ | External vLLM-Omni/vLLM-Ascend service integration is wired; real 910B benchmark should be tracked separately |
 | `sdxl-base-1.0` | `text2image` | 8.0.RC2 | stable |
 | `svd-xt` | `image2video` | 8.0.RC2 | some ops fall back to eager |
 | `wan2.2-t2v-14b` | `text2video` | 8.0.RC2+ | initial validation; `preset=balanced` recommended |

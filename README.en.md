@@ -154,7 +154,7 @@ A complete generated snapshot is at [docs/user_guide/models/supported_models.en.
 
 | Tier | Maintenance policy | Examples |
 |---|---|---|
-| Core | Requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
+| Core | Requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm`, `vllm-omni-speech`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | Supports avatar assets, backgrounds, idle video, and digital-human content production; smoke tests are added by scenario | `sdxl-base-1.0`, `flux2.dev`, `qwen-image`, `svd-xt`, `wan2.2-*` |
 | Experimental | Keeps existing integrations, but is not a headline promise or dual-backend validation target | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2`, and other general models |
 
@@ -179,6 +179,7 @@ Real end-to-end generation still depends on the target hardware stack, runtime l
 - `soulx-flashtalk-14b` has completed real-hardware validation on the Ascend 910B2 `persistent_worker` path
 - `soulx-liveact-14b` and `soulx-flashhead-1.3b` are integrated through the `persistent_worker` execution surface, with script-backed generation retained inside the worker
 - `cosyvoice3-triton-trtllm` keeps the CUDA/TensorRT-LLM validation baseline and can target an Ascend-hosted Triton-compatible service endpoint
+- `vllm-omni-speech` is integrated through OpenAI-compatible `/v1/audio/speech`, forwarding to Qwen3-TTS, CosyVoice3, Fish Speech S2 Pro, and similar services hosted by vLLM-Omni / vLLM-Ascend
 - `sensevoice-small` is integrated as the first offline ASR / `audio2text` entrypoint; with the Ascend backend, `device=auto` resolves to FunASR-compatible `npu:0`
 - `indextts` exposes a resident `serve-text2audio` runtime with `ascend` / `npu` device aliases, NPU fp16 defaults, and `torch_npu` load checks
 - `soulx-podcast-1.7b` is integrated for `text2audio` and can target an external Ascend-hosted FastAPI service through `service_accelerator=ascend`

@@ -67,6 +67,7 @@ _BUILTIN_MODEL_IDS = {
     "longcat-video-avatar-1.5",
     "soulx-podcast-1.7b",
     "cosyvoice3-triton-trtllm",
+    "vllm-omni-speech",
     "indextts",
     "sensevoice-small",
 }
@@ -94,6 +95,7 @@ _BUILTIN_MODEL_VARIANTS = {
     ("longcat-video-avatar-1.5", "audio2video"),
     ("soulx-podcast-1.7b", "text2audio"),
     ("cosyvoice3-triton-trtllm", "text2audio"),
+    ("vllm-omni-speech", "text2audio"),
     ("indextts", "text2audio"),
     ("sensevoice-small", "audio2text"),
 }
@@ -148,6 +150,7 @@ def ensure_registered() -> None:
     from omnirt.models.longcat_video_avatar import pipeline as _longcat_video_avatar_pipeline  # noqa: F401
     from omnirt.models.soulx_podcast import pipeline as _soulx_podcast_pipeline  # noqa: F401
     from omnirt.models.cosyvoice import pipeline as _cosyvoice_pipeline  # noqa: F401
+    from omnirt.models.vllm_omni_speech import pipeline as _vllm_omni_speech_pipeline  # noqa: F401
     from omnirt.models.indextts import pipeline as _indextts_pipeline  # noqa: F401
     from omnirt.models.sensevoice import pipeline as _sensevoice_pipeline  # noqa: F401
 
@@ -269,6 +272,12 @@ def ensure_registered() -> None:
         registered_ids = set(list_models())
         if not {"cosyvoice3-triton-trtllm"}.issubset(registered_ids):
             importlib.reload(_cosyvoice_pipeline)
+            registered_ids = set(list_models())
+    if not {"vllm-omni-speech"}.issubset(registered_ids):
+        _re_register_module_classes(_vllm_omni_speech_pipeline)
+        registered_ids = set(list_models())
+        if not {"vllm-omni-speech"}.issubset(registered_ids):
+            importlib.reload(_vllm_omni_speech_pipeline)
             registered_ids = set(list_models())
     if not {"indextts"}.issubset(registered_ids):
         _re_register_module_classes(_indextts_pipeline)

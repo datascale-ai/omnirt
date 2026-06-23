@@ -1,8 +1,9 @@
 # Text to Audio
 
-Given target text and a reference audio clip, generate a `.wav` speech artifact. OmniRT currently exposes two external-service routes and one resident IndexTTS service entrypoint:
+Given target text and a reference audio clip, generate a `.wav` speech artifact. OmniRT currently exposes three external-service routes and one resident IndexTTS service entrypoint:
 
 - `cosyvoice3-triton-trtllm`: CosyVoice3 through a Triton-compatible service endpoint; CUDA/TensorRT-LLM remains the reference deployment, while Ascend can be targeted through an externally hosted compatible endpoint.
+- `vllm-omni-speech`: vLLM-Omni through its OpenAI-compatible `/v1/audio/speech` service. This can front CosyVoice3, Qwen3-TTS, Fish Speech S2 Pro, and other vLLM-Omni TTS models, including Ascend deployments through vLLM-Ascend.
 - `soulx-podcast-1.7b`: SoulX-Podcast through a FastAPI service endpoint for long-form, podcast, and multi-speaker speech generation; the Ascend path likewise requires the service process to be deployed on NPU first.
 - `indextts`: exposes an OpenTalking-ready PCM stream through `serve-text2audio` and supports `cuda`, `npu` / `ascend`, and CPU service runtimes.
 
@@ -58,6 +59,59 @@ Given target text and a reference audio clip, generate a `.wav` speech artifact.
       server_port: 18001
       seed: 42
     ```
+
+## vLLM-Omni Speech
+
+`vllm-omni-speech` does not load TTS weights inside the OmniRT process. It calls an already-running vLLM-Omni service. Run the model service on CUDA or Ascend NPU hosts; keep OmniRT responsible for registry, access control, scheduling, telemetry, and OpenAI-compatible forwarding.
+
+=== "OpenAI-compatible"
+
+    ```bash
+    curl -sS -X POST http://127.0.0.1:8000/v1/audio/speech \
+      -H 'content-type: application/json' \
+      -d '{
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "input": "Hello, this is OmniRT forwarding speech synthesis to vLLM-Omni.",
+        "voice": "vivian",
+        "language": "English",
+        "response_format": "wav"
+      }' \
+      -o /tmp/omnirt-vllm-omni.wav
+    ```
+
+=== "CLI"
+
+    ```bash
+    omnirt generate \
+      --task text2audio \
+      --model vllm-omni-speech \
+      --prompt "Hello from the vLLM-Omni speech service." \
+      --backend auto \
+      --server-url http://127.0.0.1:8091 \
+      --upstream-model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+      --voice vivian \
+      --language English
+    ```
+
+=== "YAML"
+
+    ```yaml
+    task: text2audio
+    model: vllm-omni-speech
+    backend: auto
+    inputs:
+      prompt: Hello from the vLLM-Omni speech service.
+    config:
+      server_url: http://127.0.0.1:8091
+      upstream_model: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+      voice: vivian
+      language: English
+      response_format: wav
+    ```
+
+The OpenAI-compatible route has a compatibility shortcut: if `/v1/audio/speech` receives a `model` that is not an OmniRT registry id, OmniRT automatically selects the `vllm-omni-speech` provider and forwards that `model` value as the upstream vLLM-Omni model. Pass `omnirt_model` when you want to choose an OmniRT provider explicitly.
+
+For voice cloning, use `inputs.audio` / `inputs.reference_text`; OmniRT converts the local reference audio to a data URL and forwards it as vLLM-Omni `ref_audio` / `ref_text`. You can also pass `ref_audio` directly in config as an HTTP URL, `file://` URI, or data URL.
 
 ## SoulX-Podcast
 
@@ -134,9 +188,21 @@ config:
 | `server_addr` | `str` | `127.0.0.1` | Triton gRPC server address |
 | `server_port` | `int` | `8001` | Triton gRPC port; the current 146 validation container uses `18001` |
 | `model_name` | `str` | `cosyvoice3` | Triton model-repository name |
+| `service_profile` | `str` | `custom` | External service profile metadata; the 146 TensorRT/Triton baseline uses `146-triton-trtllm` |
+| `token2wav_instances` / `vocoder_instances` | `int` | service-side config | CosyVoice Triton token2wav / vocoder instance counts; the stable 146 profile uses `2 / 2` |
+| `kv_cache_free_gpu_memory_fraction` | `float` | service-side config | TensorRT-LLM KV-cache setting; the stable 146 profile uses `0.2` |
+| `token_hop_len` / `token_max_hop_len` / `stream_scale_factor` | `int` | service-side config | Local HTTP streaming server token-window tuning; the low-first-audio 146 profile uses `8 / 32 / 2` |
+| `max_token_text_ratio` / `min_token_text_ratio` | `float` | service-side config | Local HTTP streaming server output-length guard; the stable 146 profile uses `6.0 / 2.0` |
+| `stop_token_mask` | `str` | service-side config | Local HTTP streaming server stop-token masking policy; the 146 patch uses `all_stop_token_ids` |
 | `sample_rate` | `int` | `24000` | Output wav sample rate |
 | `seed` | `int` | unset | Forwarded as a Triton request parameter; the server-side BLS must consume it for deterministic sampling |
-| `server_url` | `str` | `http://127.0.0.1:18080` | SoulX-Podcast HTTP API URL; can also be set with `OMNIRT_SOULX_PODCAST_API_URL` |
+| `server_url` (vLLM-Omni) | `str` | `http://127.0.0.1:8091` | vLLM-Omni speech service URL; can also be set with `OMNIRT_VLLM_OMNI_SPEECH_URL` |
+| `upstream_model` / `vllm_model` | `str` | server default | Upstream vLLM-Omni model, for example `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` |
+| `voice` | `str` | server default | Preset voice name; Qwen3-TTS CustomVoice commonly uses names such as `vivian` |
+| `response_format` | `str` | `wav` | vLLM-Omni output format: `wav`, `pcm`, `mp3`, `flac`, etc.; `stream=true` usually pairs with `pcm` |
+| `task_type` / `language` / `instructions` | `str` | server default | vLLM-Omni TTS extension fields |
+| `stream` / `initial_codec_chunk_frames` / `non_streaming_mode` | bool/int | server default | vLLM-Omni low-first-audio and chunking tuning fields |
+| `server_url` (SoulX-Podcast) | `str` | `http://127.0.0.1:18080` | SoulX-Podcast HTTP API URL; can also be set with `OMNIRT_SOULX_PODCAST_API_URL` |
 | `service_accelerator` | `str` | inferred from backend | Records the external TTS service accelerator; defaults to `ascend` when `--backend ascend` is selected |
 | `timeout` | `float` | `300` | SoulX-Podcast HTTP request timeout in seconds |
 | `temperature` / `top_k` / `top_p` / `repetition_penalty` | number | server default | SoulX-Podcast sampling parameters |
@@ -241,7 +307,36 @@ curl -sS -X POST http://127.0.0.1:9012/v1/text2audio/indextts \
 
 ## Deployment Notes
 
-The stable 146-machine service profile is `GPU1`, `token2wav=2`, `vocoder=2`, and `kv_cache_free_gpu_memory_fraction=0.2`; Triton gRPC is exposed on `18001` inside the validation container. On 2026-04-28, the OmniRT `text2audio` wrapper generated a `2.92s / 24kHz` wav with `denoise_loop_ms=1969.611`; the official 26-sample streaming benchmark measured `RTF=0.1303` and `699.13ms` average first-chunk latency.
+### CosyVoice on 146
+
+The NVIDIA Triton/TensorRT-LLM service validated on host 146 is now captured in `examples/profiles/cosyvoice-146-triton-trtllm.yaml` and `model_backends/cosyvoice/README.md`:
+
+- Triton/TensorRT-LLM gRPC profile: `service_profile=146-triton-trtllm`, `GPU1`, `token2wav=2`, `vocoder=2`, `kv_cache_free_gpu_memory_fraction=0.2`, and Triton gRPC on `18001`.
+- Local HTTP streaming TRT profile: `service_profile=146-local-stream-trt`, `flow_decoder_trt=true`, `token_hop_len=8`, `token_max_hop_len=32`, `stream_scale_factor=2`, `max_token_text_ratio=6.0`, `min_token_text_ratio=2.0`, and `stop_token_mask=all_stop_token_ids`.
+- Do not judge the conversational path by TTFA alone: before the 146 stop-token / ratio patch, the same long text varied by seed from `3.2s / 80 tokens` to `56.0s / 1400 tokens`. Check first audio, output duration, chunk/token count, wall time, and RTF together.
+
+```bash
+omnirt profile validate examples/profiles/cosyvoice-146-triton-trtllm.yaml --json
+```
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model cosyvoice3-triton-trtllm \
+  --prompt "Hello from OmniRT." \
+  --audio inputs/reference.wav \
+  --reference-text "This is the reference voice text." \
+  --backend cuda \
+  --service-profile 146-triton-trtllm \
+  --server-addr 8.92.9.146 \
+  --server-port 18001 \
+  --token2wav-instances 2 \
+  --vocoder-instances 2 \
+  --kv-cache-free-gpu-memory-fraction 0.2 \
+  --seed 42
+```
+
+On 2026-04-28, the OmniRT `text2audio` wrapper generated a `2.92s / 24kHz` wav with `denoise_loop_ms=1969.611`; the official 26-sample streaming benchmark measured `RTF=0.1303` and `699.13ms` average first-chunk latency. In the 2026-06-23 local HTTP streaming TRT probe, the low-first-audio profile measured about `575ms` first chunk for a short sample and `485ms` for a medium Chinese sample, with total RTF around `0.63`.
 
 Full record: [CosyVoice Benchmark](../../developer_guide/cosyvoice_benchmark.md).
 
@@ -262,10 +357,43 @@ python run_api.py \
 
 The health endpoint should report `model_loaded=true` and `gpu_available=true`. If GPUs are occupied on 220, stop the `animator-worker-*` Docker containers first instead of killing arbitrary GPU processes.
 
+### vLLM-Omni on Ascend
+
+On Ascend, run vLLM-Omni/vLLM-Ascend as the service that exposes `/v1/audio/speech`; OmniRT talks to it over HTTP. A typical 910B environment starts with:
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+export ASCEND_RT_VISIBLE_DEVICES=0
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+```
+
+Example Qwen3-TTS server:
+
+```bash
+vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --deploy-config vllm_omni/deploy/qwen3_tts.yaml \
+  --omni \
+  --port 8091 \
+  --trust-remote-code
+```
+
+CosyVoice3 can also be exposed by vLLM-Omni:
+
+```bash
+vllm serve FunAudioLLM/Fun-CosyVoice3-0.5B-2512 \
+  --omni \
+  --port 8091 \
+  --trust-remote-code
+```
+
+This path is separate from `cosyvoice3-triton-trtllm`: `vllm-omni-speech` uses the OpenAI-compatible HTTP speech API and can sit in front of Ascend/vLLM-Ascend, while `cosyvoice3-triton-trtllm` remains the CUDA-validated NVIDIA Triton/TensorRT-LLM baseline.
+
 ## Troubleshooting
 
 - **No local Triton service**: this wrapper calls an external official service. Start CosyVoice3 `runtime/triton_trtllm` before running OmniRT.
 - **Missing `tritonclient` or `soundfile`**: install the CosyVoice/Triton client dependencies first.
 - **`seed` still does not stabilize results**: verify that the Triton BLS reads and forwards `seed` to the OpenAI/TensorRT-LLM request; client-side parameters alone cannot change sampling.
 - **SoulX-Podcast API is unreachable**: check `/health`, then verify that `server_url` or `OMNIRT_SOULX_PODCAST_API_URL` points to the running API.
+- **vLLM-Omni API is unreachable**: test `curl http://host:8091/v1/audio/speech` directly, then verify `server_url` or `OMNIRT_VLLM_OMNI_SPEECH_URL`.
 - **Multi-speaker length error**: `prompt_audios` and `prompt_texts` must match one-to-one. For single-speaker generation, leave both lists unset and use `audio` plus `reference_text`.

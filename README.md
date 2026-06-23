@@ -154,7 +154,7 @@ omnirt models --tier core --manifest
 
 | 层级 | 维护策略 | 代表模型 |
 |---|---|---|
-| Core | 必须有 registry、单测、真机 smoke、benchmark 与部署文档 | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
+| Core | 必须有 registry、单测、真机 smoke、benchmark 与部署文档 | `soulx-flashtalk-14b`, `soulx-flashhead-1.3b`, `soulx-liveact-14b`, `cosyvoice3-triton-trtllm`, `vllm-omni-speech`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | 服务于角色资产、背景、idle 视频、数字人素材生产，按场景补 smoke | `sdxl-base-1.0`, `flux2.dev`, `qwen-image`, `svd-xt`, `wan2.2-*` |
 | Experimental | 保留已接入能力，不再作为主卖点或双后端验证承诺 | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2` 等泛模型 |
 
@@ -179,6 +179,7 @@ omnirt models --tier core --manifest
 - `soulx-flashtalk-14b` 已在 Ascend 910B2 常驻 `persistent_worker` 链路完成真机验证
 - `soulx-liveact-14b` 与 `soulx-flashhead-1.3b` 已通过 script-backed wrapper 接入 `audio2video`
 - `cosyvoice3-triton-trtllm` 已接入 `text2audio`，保留 CUDA/TensorRT-LLM 验证基线，并支持指向 Ascend-hosted Triton 兼容服务端点
+- `vllm-omni-speech` 已接入 OpenAI-compatible `/v1/audio/speech`，可转发到 vLLM-Omni / vLLM-Ascend 上的 Qwen3-TTS、CosyVoice3、Fish Speech S2 Pro 等服务
 - `sensevoice-small` 已接入 `audio2text`，Ascend 后端下 `device=auto` 会解析为 FunASR 可用的 `npu:0`
 - `indextts` 常驻 `serve-text2audio` runtime 已支持 `ascend` / `npu` 设备别名、NPU 默认 fp16 和 `torch_npu` 加载检查
 - `soulx-podcast-1.7b` 已接入 `text2audio`，可通过 `service_accelerator=ascend` 指向外部 Ascend-hosted FastAPI 服务

@@ -134,6 +134,21 @@ def add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--server-port", type=int, help="Triton gRPC server port for external service-backed models.")
     parser.add_argument("--server-url", help="HTTP server URL for external service-backed models.")
     parser.add_argument("--service-accelerator", help="Accelerator used by the external service endpoint.")
+    parser.add_argument("--service-profile", help="Named external service profile, for example 146-triton-trtllm.")
+    parser.add_argument("--token2wav-instances", type=int, help="CosyVoice Triton token2wav instance count used by the service profile.")
+    parser.add_argument("--vocoder-instances", type=int, help="CosyVoice Triton vocoder instance count used by the service profile.")
+    parser.add_argument("--kv-cache-free-gpu-memory-fraction", type=float, help="TensorRT-LLM KV cache free GPU memory fraction used by the service profile.")
+    parser.add_argument("--triton-http-port", type=int, help="Triton HTTP port for service health checks.")
+    parser.add_argument("--triton-metrics-port", type=int, help="Triton metrics port for service observability.")
+    parser.add_argument("--stream-server-url", help="CosyVoice local HTTP streaming server URL for profile metadata.")
+    parser.add_argument("--token-hop-len", type=int, help="CosyVoice streaming token hop length for local stream profiles.")
+    parser.add_argument("--token-max-hop-len", type=int, help="CosyVoice streaming maximum token hop length for local stream profiles.")
+    parser.add_argument("--stream-scale-factor", type=int, help="CosyVoice streaming scale factor for local stream profiles.")
+    parser.add_argument("--flow-n-timesteps", type=int, help="CosyVoice flow decoder timestep count for local stream profiles.")
+    parser.add_argument("--max-token-text-ratio", type=float, help="CosyVoice maximum speech-token/text-token ratio guard.")
+    parser.add_argument("--min-token-text-ratio", type=float, help="CosyVoice minimum speech-token/text-token ratio guard.")
+    parser.add_argument("--stop-token-mask", help="CosyVoice stop-token masking policy, for example all_stop_token_ids.")
+    parser.add_argument("--zero-shot-cache-id", help="CosyVoice zero-shot speaker cache id used by local stream profiles.")
     parser.add_argument("--timeout", type=float, help="HTTP request timeout in seconds for external service-backed models.")
     parser.add_argument("--sample-rate", type=int, help="Output audio sample rate for text2audio models.")
     parser.add_argument("--request-id", help="Stable external request id for deterministic service probes.")
@@ -705,6 +720,21 @@ def request_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
         "server_port",
         "server_url",
         "service_accelerator",
+        "service_profile",
+        "token2wav_instances",
+        "vocoder_instances",
+        "kv_cache_free_gpu_memory_fraction",
+        "triton_http_port",
+        "triton_metrics_port",
+        "stream_server_url",
+        "token_hop_len",
+        "token_max_hop_len",
+        "stream_scale_factor",
+        "flow_n_timesteps",
+        "max_token_text_ratio",
+        "min_token_text_ratio",
+        "stop_token_mask",
+        "zero_shot_cache_id",
         "timeout",
         "sample_rate",
         "request_id",

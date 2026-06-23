@@ -54,6 +54,7 @@ omnirt serve \
 | `POST` | `/v1/images/generations` | OpenAI-compatible text-to-image |
 | `POST` | `/v1/images/edits` | OpenAI-compatible image editing |
 | `POST` | `/v1/videos/generations` | OpenAI-compatible video generation |
+| `POST` | `/v1/audio/speech` | OpenAI-compatible TTS; can forward to `vllm-omni-speech` |
 | `WS` | `/v1/realtime` | minimal OpenAI Realtime subset |
 | `WS` | `/` | FlashTalk-compatible root alias for `ws://127.0.0.1:8765` deployments |
 | `GET` | `/v1/audio2video/models` | realtime audio2video model availability |
@@ -118,7 +119,7 @@ If the server starts with `--model-tier core`, `/v1/models` only returns core mo
 
 Notes:
 
-- `audio/speech` still returns `501`
+- `/v1/audio/speech` supports OpenAI-compatible TTS requests; when `model` is not an OmniRT registry id, OmniRT selects `vllm-omni-speech` and forwards that value as the upstream vLLM-Omni model name
 - `images/videos/edits` also inherit default `device_map` / `devices` configured on `serve`
 
 ## Remote workers

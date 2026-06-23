@@ -2,7 +2,7 @@
 
 本文档记录 `omnirt` 当前数字人链路的模型优先级、已经完成的真机 smoke、以及需要收缩到 experimental 的泛模型。
 
-最近更新：`2026-06-15`
+最近更新：`2026-06-22`
 
 ## 当前公开任务面
 
@@ -20,7 +20,7 @@
 
 | 层级 | 维护承诺 | 当前模型 |
 |---|---|---|
-| Core | 数字人主链路；必须有 registry、单测、真机 smoke、benchmark、部署文档 | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
+| Core | 数字人主链路；必须有 registry、单测、真机 smoke、benchmark、部署文档 | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `vllm-omni-speech`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | 服务于角色资产、背景图、idle 视频素材、后处理；按数字人场景补 smoke | `sdxl-base-1.0`, `svd-xt`, `flux2.dev`, `qwen-image`, `wan2.2-*` |
 | Experimental | 已接入但不再作为主线投入；保留 registry 与基础测试，不承诺双后端 smoke | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2` 等 |
 
@@ -48,7 +48,10 @@
 - `cosyvoice3-triton-trtllm`
   CUDA: `已验证`
   Ascend: `wrapper-ready`
-  说明: 官方 `runtime/triton_trtllm` 服务已完成真实 CUDA benchmark；稳定配置为 `token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`。OmniRT wrapper 真实生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark `RTF=0.1303`、平均首包 `699.13ms`。Ascend 路径当前是服务端点适配：`--backend ascend` 会记录 `service_accelerator=ascend`，但需要外部 Triton 兼容服务已在 NPU 上部署。
+  说明: 官方 `runtime/triton_trtllm` 服务已完成真实 CUDA benchmark；稳定配置为 `token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`。OmniRT wrapper 真实生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark `RTF=0.1303`、平均首包 `699.13ms`。Ascend 路径当前是服务端点适配：`--backend ascend` 会记录 `service_accelerator=ascend`，但需要外部 Triton 兼容服务已在 NPU 上部署。客户端 `seed` 已透传，但服务端 BLS 仍需消费该参数才能完全固定采样。
+- `vllm-omni-speech`
+  Ascend: `适配面已接入`
+  说明: 新增外部 vLLM-Omni OpenAI-compatible `/v1/audio/speech` provider，可承接 Qwen3-TTS、CosyVoice3、Fish Speech S2 Pro 等 vLLM-Omni TTS 服务。OmniRT 侧 registry、OpenAI-compatible 路由、单测和 Ascend 部署文档已接入；真实 910B 服务启动与 benchmark 需要按具体 vLLM-Omni/vLLM-Ascend 版本单独记录。
 - `sensevoice-small`
   Ascend: `runtime-ready`
   说明: `audio2text` 任务面、registry、CLI/Python API 与单测已接入；`--backend ascend` 下 `device=auto` 会解析到 FunASR `npu:0`，并新增可跳过的 Ascend smoke。真机生成仍依赖 FunASR、`torch_npu` 与本地音频样本。
@@ -102,7 +105,7 @@
 ## 尚未完成的数字人重点目标
 
 - ASR / 语音理解：`sensevoice-small` 已作为第一版入口接入并具备 Ascend NPU 设备解析；Whisper、Paraformer 作为后续候选
-- TTS 与音色复用：CosyVoice / SoulX-Podcast 的外部 Ascend 服务端实现、CosyVoice profile 缓存、稳定 seed、流式首包指标
+- TTS 与音色复用：vLLM-Omni speech 在 910B 的真实 benchmark、CosyVoice / SoulX-Podcast 的外部 Ascend 服务端实现、CosyVoice profile 缓存、稳定 seed、流式首包指标
 - 实时数字人：FlashTalk / FlashHead / LiveAct 的 resident worker 化、重启、热态 benchmark
 - 后处理：GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting 等数字人增强链路
 
