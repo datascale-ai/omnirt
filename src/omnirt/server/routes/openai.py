@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from contextlib import suppress
+from pathlib import Path
 import queue
 import tempfile
 import time
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 
 from omnirt.api import list_available_models, validate
 from omnirt.core.types import GenerateRequest, is_generate_result_like
@@ -17,6 +19,31 @@ from omnirt.server.model_aliases import resolve_model_alias
 from omnirt.server.request_config import allowed_model_tiers, model_tier_allowed, normalize_generate_request
 
 router = APIRouter()
+
+_DEFAULT_AUDIO_SPEECH_MODEL = "vllm-omni-speech"
+_AUDIO_SPEECH_CONFIG_KEYS = {
+    "server_url",
+    "output_dir",
+    "request_id",
+    "timeout",
+    "api_key",
+    "upstream_model",
+    "vllm_model",
+    "voice",
+    "response_format",
+    "speed",
+    "task_type",
+    "language",
+    "instructions",
+    "max_new_tokens",
+    "stream",
+    "initial_codec_chunk_frames",
+    "non_streaming_mode",
+    "ref_audio",
+    "ref_text",
+    "x_vector_only_mode",
+    "sample_rate",
+}
 
 
 def _resolve_backend(request: Request, backend: Optional[str]) -> str:
@@ -61,6 +88,62 @@ def _ensure_model_tier_allowed(model_spec, request: Request) -> None:
             status_code=403,
             detail=f"Model {model_spec.id!r} is not enabled for this server tier policy.",
         )
+
+
+def _is_registered_text2audio_model(model_id: str) -> bool:
+    return any(
+        spec.id == model_id and spec.task == "text2audio"
+        for spec in list_available_models(include_aliases=True)
+    )
+
+
+def _resolve_audio_speech_models(payload: dict, request: Request) -> tuple[str, str | None]:
+    explicit_omnirt_model = payload.get("omnirt_model") or payload.get("omnirt_provider")
+    payload_model = str(payload.get("model") or "").strip()
+    upstream_model = payload.get("upstream_model") or payload.get("vllm_model")
+
+    if explicit_omnirt_model:
+        selected_model = resolve_model_alias(str(explicit_omnirt_model), request.app.state.model_aliases)
+        return selected_model, str(upstream_model or payload_model or "") or None
+
+    if payload_model:
+        candidate = resolve_model_alias(payload_model, request.app.state.model_aliases)
+        if _is_registered_text2audio_model(candidate):
+            return candidate, str(upstream_model or "") or None
+        return _DEFAULT_AUDIO_SPEECH_MODEL, str(upstream_model or payload_model)
+
+    return _DEFAULT_AUDIO_SPEECH_MODEL, str(upstream_model or "") or None
+
+
+def _audio_speech_config(payload: dict, upstream_model: str | None) -> dict:
+    config = {key: payload[key] for key in _AUDIO_SPEECH_CONFIG_KEYS if payload.get(key) is not None}
+    if upstream_model:
+        config["model"] = upstream_model
+    return config
+
+
+def _audio_artifact_response(result) -> Response:
+    if not is_generate_result_like(result):
+        raise HTTPException(status_code=500, detail="Unexpected non-generate result")
+    if not result.outputs:
+        raise HTTPException(status_code=500, detail="No audio artifact was generated")
+    artifact = result.outputs[0]
+    if artifact.kind != "audio":
+        raise HTTPException(status_code=500, detail=f"Expected audio artifact, got {artifact.kind!r}")
+
+    if artifact.data_b64:
+        content = base64.b64decode(artifact.data_b64)
+    else:
+        artifact_path = Path(artifact.path)
+        if not artifact_path.exists():
+            raise HTTPException(status_code=500, detail=f"Generated audio artifact is missing: {artifact.path}")
+        content = artifact_path.read_bytes()
+
+    headers = {
+        "x-omnirt-artifact-path": artifact.path,
+        "x-omnirt-run-id": result.metadata.run_id,
+    }
+    return Response(content=content, media_type=artifact.mime, headers=headers)
 
 
 @router.get("/v1/models")
@@ -175,8 +258,34 @@ async def openai_videos_generations(payload: dict, request: Request):
 
 
 @router.post("/v1/audio/speech")
-async def openai_audio_speech():
-    raise HTTPException(status_code=501, detail="audio/speech compatibility is reserved for a later phase")
+async def openai_audio_speech(payload: dict, request: Request):
+    text = str(payload.get("input") or payload.get("prompt") or "")
+    if not text:
+        raise HTTPException(status_code=400, detail="input is required")
+
+    model, upstream_model = _resolve_audio_speech_models(payload, request)
+    inputs = {"prompt": text}
+    if payload.get("audio"):
+        inputs["audio"] = payload["audio"]
+    if payload.get("reference_text"):
+        inputs["reference_text"] = payload["reference_text"]
+
+    req = normalize_generate_request(
+        GenerateRequest(
+            task="text2audio",
+            model=model,
+            backend=_resolve_backend(request, payload.get("backend")),
+            inputs=inputs,
+            config=_audio_speech_config(payload, upstream_model),
+        ),
+        request.app.state,
+    )
+    validation = validate(req, backend=req.backend)
+    if not validation.ok:
+        raise HTTPException(status_code=400, detail=validation.format_errors())
+    _ensure_model_tier_allowed(validation.model_spec, request)
+    result = request.app.state.engine.run_sync(req, model_spec=validation.model_spec)
+    return _audio_artifact_response(result)
 
 
 @router.websocket("/v1/realtime")

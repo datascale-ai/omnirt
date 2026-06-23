@@ -2,7 +2,7 @@
 
 This document tracks OmniRT's digital-human model priorities, real-hardware smoke coverage, and the general models that are being contracted into the experimental tier.
 
-Last updated: `2026-06-15`
+Last updated: `2026-06-22`
 
 ## Current public task surfaces
 
@@ -20,7 +20,7 @@ The full list is generated from the live registry: [Supported Models](supported_
 
 | Tier | Maintenance promise | Current models |
 |---|---|---|
-| Core | Digital-human main path; requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `sensevoice-small`, `soulx-podcast-1.7b` |
+| Core | Digital-human main path; requires registry, unit tests, real-hardware smoke, benchmark, and deployment docs | `soulx-flashtalk-14b`, `soulx-liveact-14b`, `soulx-flashhead-1.3b`, `cosyvoice3-triton-trtllm`, `vllm-omni-speech`, `sensevoice-small`, `soulx-podcast-1.7b` |
 | Adjacent | Avatar assets, backgrounds, idle video material, and post-processing; smoke tests are added by digital-human scenario | `sdxl-base-1.0`, `svd-xt`, `flux2.dev`, `qwen-image`, `wan2.2-*` |
 | Experimental | Integrated, but no longer a main investment line; keeps registry and basic tests, without a dual-backend smoke promise | `kolors`, `pixart-sigma`, `bria-3.2`, `lumina-t2x`, `mochi`, `skyreels-v2`, and similar general models |
 
@@ -48,7 +48,10 @@ The following models have completed real hardware smoke tests using local model 
 - `cosyvoice3-triton-trtllm`
   CUDA: `validated`
   Ascend: `wrapper-ready`
-  Notes: the official `runtime/triton_trtllm` service has completed real CUDA benchmark runs. The stable profile is `token2wav=2`, `vocoder=2`, and `kv_cache_free_gpu_memory_fraction=0.2`. The OmniRT wrapper generated a real `2.92s / 24kHz` wav with `denoise_loop_ms=1969.611`; the official 26-sample streaming benchmark measured `RTF=0.1303` and `699.13ms` average first-chunk latency. The Ascend path is service-endpoint adaptation: `--backend ascend` records `service_accelerator=ascend`, but an external Triton-compatible service must already be deployed on NPU.
+  Notes: the official `runtime/triton_trtllm` service has completed real CUDA benchmark runs. The stable profile is `token2wav=2`, `vocoder=2`, and `kv_cache_free_gpu_memory_fraction=0.2`. The OmniRT wrapper generated a real `2.92s / 24kHz` wav with `denoise_loop_ms=1969.611`; the official 26-sample streaming benchmark measured `RTF=0.1303` and `699.13ms` average first-chunk latency. The Ascend path is service-endpoint adaptation: `--backend ascend` records `service_accelerator=ascend`, but an external Triton-compatible service must already be deployed on NPU. Client-side `seed` is forwarded, but the server-side BLS still needs to consume that parameter for fully deterministic sampling.
+- `vllm-omni-speech`
+  Ascend: `integration surface wired`
+  Notes: this adds an external vLLM-Omni OpenAI-compatible `/v1/audio/speech` provider for Qwen3-TTS, CosyVoice3, Fish Speech S2 Pro, and other vLLM-Omni TTS services. OmniRT now has registry coverage, an OpenAI-compatible route, unit tests, and Ascend deployment docs. Real 910B service startup and benchmark numbers should be tracked per concrete vLLM-Omni/vLLM-Ascend version.
 - `sensevoice-small`
   Ascend: `runtime-ready`
   Notes: the `audio2text` task surface, registry entry, CLI/Python API, and unit tests are integrated. With `--backend ascend`, `device=auto` resolves to FunASR `npu:0`, and a skippable Ascend smoke is available. Real generation still depends on FunASR, `torch_npu`, and a local audio fixture.
@@ -102,7 +105,7 @@ The following models keep registry entries, generated docs, and basic unit cover
 ## Digital-Human Targets Not Completed Yet
 
 - ASR / speech understanding: `sensevoice-small` is the first integrated entrypoint and now has Ascend NPU device resolution; Whisper and Paraformer remain follow-up candidates
-- TTS and voice reuse: external Ascend service implementations for CosyVoice / SoulX-Podcast, CosyVoice profile caching, stable seed behavior, streaming first-chunk metrics
+- TTS and voice reuse: real 910B benchmark for vLLM-Omni speech, external Ascend service implementations for CosyVoice / SoulX-Podcast, CosyVoice profile caching, stable seed behavior, streaming first-chunk metrics
 - Realtime avatars: resident workers, restart behavior, and hot-path benchmarks for FlashTalk / FlashHead / LiveAct
 - Post-processing: GFPGAN / CodeFormer / Real-ESRGAN / RIFE / matting for digital-human enhancement
 

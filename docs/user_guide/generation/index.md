@@ -5,7 +5,7 @@
 | 任务面 | 典型入口 | 典型模型 | 页面 |
 |---|---|---|---|
 | `text2image` | 文字 → 单张图 | `sdxl-base-1.0`、`flux2.dev`、`qwen-image` | [文本到图像](text2image.md) |
-| `text2audio` | 文字 + 参考音频 → 语音 | `cosyvoice3-triton-trtllm` | [文本到音频](text2audio.md) |
+| `text2audio` | 文字 + 参考音频 → 语音 | `vllm-omni-speech`, `cosyvoice3-triton-trtllm` | [文本到音频](text2audio.md) |
 | `audio2text` | 音频 → 文本 | `sensevoice-small` | [音频到文本](audio2text.md) |
 | `image2image` | 图 + prompt → 图 | `sdxl-base-1.0`、`sdxl-refiner-1.0` | [图像到图像](image2image.md) |
 | `text2video` | 文字 → 视频 | `wan2.2-t2v-14b`、`animate-diff-sdxl` | [文本到视频](text2video.md) |

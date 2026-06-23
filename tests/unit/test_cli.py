@@ -157,6 +157,63 @@ def test_request_from_args_builds_soulx_podcast_text2audio_request() -> None:
     assert request.config["repetition_penalty"] == 1.1
 
 
+def test_request_from_args_builds_cosyvoice_146_profile_request() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "generate",
+            "--task",
+            "text2audio",
+            "--model",
+            "cosyvoice3-triton-trtllm",
+            "--prompt",
+            "你好，欢迎使用 OmniRT。",
+            "--audio",
+            "reference.wav",
+            "--reference-text",
+            "参考音色文本。",
+            "--service-profile",
+            "146-triton-trtllm",
+            "--server-addr",
+            "8.92.9.146",
+            "--server-port",
+            "18001",
+            "--token2wav-instances",
+            "2",
+            "--vocoder-instances",
+            "2",
+            "--kv-cache-free-gpu-memory-fraction",
+            "0.2",
+            "--token-hop-len",
+            "8",
+            "--token-max-hop-len",
+            "32",
+            "--stream-scale-factor",
+            "2",
+            "--max-token-text-ratio",
+            "6",
+            "--stop-token-mask",
+            "all_stop_token_ids",
+        ]
+    )
+
+    request = request_from_args(args, parser)
+
+    assert request.task == "text2audio"
+    assert request.model == "cosyvoice3-triton-trtllm"
+    assert request.config["service_profile"] == "146-triton-trtllm"
+    assert request.config["server_addr"] == "8.92.9.146"
+    assert request.config["server_port"] == 18001
+    assert request.config["token2wav_instances"] == 2
+    assert request.config["vocoder_instances"] == 2
+    assert request.config["kv_cache_free_gpu_memory_fraction"] == 0.2
+    assert request.config["token_hop_len"] == 8
+    assert request.config["token_max_hop_len"] == 32
+    assert request.config["stream_scale_factor"] == 2
+    assert request.config["max_token_text_ratio"] == 6.0
+    assert request.config["stop_token_mask"] == "all_stop_token_ids"
+
+
 def test_main_emits_json(tmp_path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "request.yaml"
     config_path.write_text(

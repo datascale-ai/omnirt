@@ -148,6 +148,72 @@ def test_openai_images_generations_route(monkeypatch) -> None:
     assert payload["data"][0]["url"] == "/tmp/server.png"
 
 
+def test_openai_audio_speech_routes_unknown_model_to_vllm_omni_provider(tmp_path, monkeypatch) -> None:
+    captured = {}
+    audio_path = tmp_path / "speech.wav"
+
+    @register_model(
+        id="vllm-omni-speech",
+        task="text2audio",
+        capabilities=ModelCapabilities(
+            required_inputs=("prompt",),
+            supported_config=("model", "voice", "response_format", "stream"),
+        ),
+    )
+    class DummySpeechPipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, req):
+            captured["request"] = req
+            audio_path.write_bytes(b"RIFFroute")
+            return GenerateResult(
+                outputs=[
+                    Artifact(
+                        kind="audio",
+                        path=str(audio_path),
+                        mime="audio/wav",
+                        width=0,
+                        height=0,
+                    )
+                ],
+                metadata=RunReport(
+                    run_id="speech-run",
+                    task=req.task,
+                    model=req.model,
+                    backend=req.backend,
+                ),
+            )
+
+    monkeypatch.setattr(api_module, "ensure_registered", lambda: None)
+    app = create_app(default_backend="cpu-stub", max_concurrency=1, pipeline_cache_size=1)
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/audio/speech",
+        json={
+            "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            "input": "你好，OpenAI speech 兼容入口。",
+            "voice": "vivian",
+            "response_format": "wav",
+            "stream": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"RIFFroute"
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["x-omnirt-run-id"] == "speech-run"
+    req = captured["request"]
+    assert req.model == "vllm-omni-speech"
+    assert req.task == "text2audio"
+    assert req.inputs["prompt"] == "你好，OpenAI speech 兼容入口。"
+    assert req.config["model"] == "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+    assert req.config["voice"] == "vivian"
+    assert req.config["response_format"] == "wav"
+    assert req.config["stream"] is False
+
+
 def test_openai_models_route_exposes_tier_filter(monkeypatch) -> None:
     @register_model(
         id="core-avatar",

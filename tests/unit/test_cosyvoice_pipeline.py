@@ -6,7 +6,7 @@ from omnirt.backends.base import BackendRuntime
 from omnirt.core.registry import ModelSpec, get_model
 from omnirt.core.types import GenerateRequest
 from omnirt.models import ensure_registered
-from omnirt.models.cosyvoice.pipeline import CosyVoiceTritonPipeline
+from omnirt.models.cosyvoice.pipeline import COSYVOICE_SERVICE_PROFILES, CosyVoiceTritonPipeline
 
 
 class FakeCudaRuntime(BackendRuntime):
@@ -57,7 +57,74 @@ def test_cosyvoice_model_is_registered() -> None:
     assert spec.capabilities.artifact_kind == "audio"
     assert "seed" in spec.capabilities.supported_config
     assert "service_accelerator" in spec.capabilities.supported_config
+    assert "service_profile" in spec.capabilities.supported_config
+    assert "kv_cache_free_gpu_memory_fraction" in spec.capabilities.supported_config
+    assert "token_hop_len" in spec.capabilities.supported_config
+    assert spec.capabilities.default_config["service_profile"] == "custom"
     assert "Ascend-hosted compatible service" in spec.resource_hint["accelerator"]
+
+
+def test_cosyvoice_146_service_profile_resolves_tensorrt_metadata(tmp_path) -> None:
+    reference_audio = tmp_path / "reference.wav"
+    reference_audio.write_bytes(b"fake")
+    request = GenerateRequest(
+        task="text2audio",
+        model="cosyvoice3-triton-trtllm",
+        backend="cuda",
+        inputs={
+            "prompt": "生成一段确定性测试语音。",
+            "audio": str(reference_audio),
+            "reference_text": "参考音色。",
+        },
+        config={
+            "service_profile": "146-triton-trtllm",
+            "output_dir": str(tmp_path / "outputs"),
+            "request_id": "fixed-request",
+            "kv_cache_free_gpu_memory_fraction": 0.25,
+        },
+    )
+    pipeline = CosyVoiceTritonPipeline(runtime=FakeCudaRuntime(), model_spec=build_model_spec())
+
+    conditions = pipeline.prepare_conditions(request)
+    latents = pipeline.prepare_latents(request, conditions)
+    resolved = pipeline.resolve_run_config(request, conditions, latents)
+
+    assert COSYVOICE_SERVICE_PROFILES["146-triton-trtllm"]["runtime"]["token2wav_instances"] == 2
+    assert latents.server_addr == "8.92.9.146"
+    assert latents.server_port == 18001
+    assert latents.service_profile == "146-triton-trtllm"
+    assert latents.service_runtime["engine"] == "triton_trtllm"
+    assert latents.service_runtime["vocoder_instances"] == 2
+    assert latents.service_runtime["kv_cache_free_gpu_memory_fraction"] == 0.25
+    assert resolved["service_runtime"]["benchmark"]["avg_first_chunk_ms"] == 699.13
+
+
+def test_cosyvoice_unknown_service_profile_keeps_local_defaults(tmp_path) -> None:
+    reference_audio = tmp_path / "reference.wav"
+    reference_audio.write_bytes(b"fake")
+    request = GenerateRequest(
+        task="text2audio",
+        model="cosyvoice3-triton-trtllm",
+        backend="cuda",
+        inputs={
+            "prompt": "生成一段确定性测试语音。",
+            "audio": str(reference_audio),
+            "reference_text": "参考音色。",
+        },
+        config={
+            "service_profile": "does-not-exist",
+            "output_dir": str(tmp_path / "outputs"),
+        },
+    )
+    pipeline = CosyVoiceTritonPipeline(runtime=FakeCudaRuntime(), model_spec=build_model_spec())
+
+    conditions = pipeline.prepare_conditions(request)
+    latents = pipeline.prepare_latents(request, conditions)
+
+    assert latents.server_addr == "127.0.0.1"
+    assert latents.server_port == 8001
+    assert latents.service_profile == "custom"
+    assert latents.service_runtime == {}
 
 
 def test_cosyvoice_ascend_backend_marks_service_accelerator(tmp_path) -> None:

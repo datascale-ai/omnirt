@@ -1,0 +1,68 @@
+name: cosyvoice-146-triton-trtllm
+version: 1.0.0
+description: CosyVoice3 CUDA Triton/TensorRT-LLM profile validated on host 146.
+defaults:
+  target_host: 8.92.9.146
+  triton_http_port: 18000
+  triton_grpc_port: 18001
+  triton_metrics_port: 18002
+environment:
+  OMNIRT_COSYVOICE_PROFILE: 146-triton-trtllm
+models:
+  - id: cosyvoice3-triton-trtllm
+    task: text2audio
+    backend: cuda
+    service: text2audio.service.v1
+    port: 18001
+    resources:
+      accelerator: NVIDIA GeForce RTX 3090
+      gpu: GPU1
+      container: cosyvoice-trt2504
+      official_dir: /workspace/CosyVoice/runtime/triton_trtllm
+      model_repo: model_repo_cosyvoice3_copy
+      llm_endpoint: localhost:8000
+    warmup:
+      prompt: 你好，欢迎使用 OmniRT。
+      reference_text: 这是一段参考音色文本。
+    concurrency: 1
+    config:
+      service_profile: 146-triton-trtllm
+      server_addr: 8.92.9.146
+      server_port: 18001
+      model_name: cosyvoice3
+      service_accelerator: cuda
+      sample_rate: 24000
+      token2wav_instances: 2
+      vocoder_instances: 2
+      kv_cache_free_gpu_memory_fraction: 0.2
+      triton_http_port: 18000
+      triton_metrics_port: 18002
+
+  - id: cosyvoice3-triton-trtllm
+    task: text2audio
+    backend: cuda
+    service: text2audio.service.v1
+    port: 50000
+    resources:
+      accelerator: NVIDIA GeForce RTX 3090
+      host: 8.92.9.146
+      runtime: local_cosyvoice_http
+      flow_decoder_trt: true
+      transformers: 4.51.3
+      torch: 2.5.1+cu124
+      torchaudio: 2.5.1+cu124
+    warmup:
+      zero_shot_cache_id: voiceops_warmup
+    concurrency: 1
+    config:
+      service_profile: 146-local-stream-trt
+      stream_server_url: http://8.92.9.146:50000
+      service_accelerator: cuda
+      token_hop_len: 8
+      token_max_hop_len: 32
+      stream_scale_factor: 2
+      flow_n_timesteps: 10
+      max_token_text_ratio: 6.0
+      min_token_text_ratio: 2.0
+      stop_token_mask: all_stop_token_ids
+      zero_shot_cache_id: voiceops_warmup

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 import queue
@@ -19,6 +20,8 @@ class CosyVoiceTritonConfig:
     server_port: int
     model_name: str
     service_accelerator: str
+    service_profile: str
+    service_runtime: Dict[str, Any]
     sample_rate: int
     output_path: Path
     request_id: str
@@ -26,6 +29,65 @@ class CosyVoiceTritonConfig:
     reference_text: str
     target_text: str
     reference_audio: Path
+
+
+COSYVOICE_SERVICE_PROFILES: Dict[str, Dict[str, Any]] = {
+    "146-triton-trtllm": {
+        "server_addr": "8.92.9.146",
+        "server_port": 18001,
+        "model_name": "cosyvoice3",
+        "service_accelerator": "cuda",
+        "runtime": {
+            "host": "146",
+            "gpu": "GPU1",
+            "container": "cosyvoice-trt2504",
+            "engine": "triton_trtllm",
+            "llm_endpoint": "localhost:8000",
+            "triton_http_port": 18000,
+            "triton_grpc_port": 18001,
+            "triton_metrics_port": 18002,
+            "model_repo": "model_repo_cosyvoice3_copy",
+            "token2wav_instances": 2,
+            "vocoder_instances": 2,
+            "kv_cache_free_gpu_memory_fraction": 0.2,
+            "benchmark": {
+                "date": "2026-04-28",
+                "rtf": 0.1303,
+                "avg_first_chunk_ms": 699.13,
+                "avg_total_request_ms": 3029.77,
+                "omnirt_denoise_loop_ms": 1969.611,
+            },
+        },
+    },
+    "146-local-stream-trt": {
+        "server_url": "http://8.92.9.146:50000",
+        "service_accelerator": "cuda",
+        "runtime": {
+            "host": "146",
+            "engine": "local_cosyvoice_http",
+            "flow_decoder_trt": True,
+            "transformers": "4.51.3",
+            "torch": "2.5.1+cu124",
+            "token_hop_len": 8,
+            "token_max_hop_len": 32,
+            "stream_scale_factor": 2,
+            "flow_n_timesteps": 10,
+            "max_token_text_ratio": 6.0,
+            "min_token_text_ratio": 2.0,
+            "stop_token_mask": "all_stop_token_ids",
+            "zero_shot_cache": "voiceops_warmup",
+            "benchmark": {
+                "date": "2026-06-23",
+                "short_first_chunk_ms": 575,
+                "medium_first_chunk_ms": 485,
+                "short_audio_sec": 3.48,
+                "medium_audio_sec": 8.2,
+                "short_rtf_total": 0.664,
+                "medium_rtf_total": 0.627,
+            },
+        },
+    },
+}
 
 
 @register_model(
@@ -45,12 +107,28 @@ class CosyVoiceTritonConfig:
             "server_port",
             "model_name",
             "service_accelerator",
+            "service_profile",
+            "token2wav_instances",
+            "vocoder_instances",
+            "kv_cache_free_gpu_memory_fraction",
+            "triton_http_port",
+            "triton_metrics_port",
+            "stream_server_url",
+            "token_hop_len",
+            "token_max_hop_len",
+            "stream_scale_factor",
+            "flow_n_timesteps",
+            "max_token_text_ratio",
+            "min_token_text_ratio",
+            "stop_token_mask",
+            "zero_shot_cache_id",
             "sample_rate",
             "output_dir",
             "request_id",
             "seed",
         ),
         default_config={
+            "service_profile": "custom",
             "server_addr": "127.0.0.1",
             "server_port": 8001,
             "model_name": "cosyvoice3",
@@ -68,11 +146,11 @@ class CosyVoiceTritonConfig:
         service_adapter="text2audio.service.v1",
         backend_status={"cuda": "supported", "ascend": "planned", "cpu-stub": "validation-only"},
         chain_role="voice-generation",
-        summary="CosyVoice3 text-to-audio generation through a Triton-compatible service endpoint.",
+        summary="CosyVoice3 text-to-audio generation through a CUDA Triton/TensorRT-LLM service endpoint.",
         example=(
             "omnirt generate --task text2audio --model cosyvoice3-triton-trtllm "
             "--prompt '你好，欢迎使用 OmniRT。' --audio reference.wav --reference-text '参考音色文本' "
-            "--backend cuda --server-addr localhost --server-port 18001 --seed 42"
+            "--backend cuda --service-profile 146-triton-trtllm --server-addr 8.92.9.146 --server-port 18001 --seed 42"
         ),
     ),
 )
@@ -96,11 +174,17 @@ class CosyVoiceTritonPipeline(BasePipeline):
         output_path = output_dir / f"{req.model}-{request_id}.wav"
         seed_value = req.config.get("seed")
         seed = int(seed_value) if seed_value is not None else None
+        profile_name = str(req.config.get("service_profile") or "custom")
+        service_profile = profile_name if profile_name in COSYVOICE_SERVICE_PROFILES else "custom"
+        profile = COSYVOICE_SERVICE_PROFILES.get(service_profile, {})
+        service_runtime = self._service_runtime(req.config, service_profile)
         return CosyVoiceTritonConfig(
-            server_addr=str(req.config.get("server_addr", "127.0.0.1")),
-            server_port=int(req.config.get("server_port", 8001)),
-            model_name=str(req.config.get("model_name", "cosyvoice3")),
-            service_accelerator=str(req.config.get("service_accelerator") or self._default_service_accelerator()),
+            server_addr=str(req.config.get("server_addr") or profile.get("server_addr") or "127.0.0.1"),
+            server_port=int(req.config.get("server_port") or profile.get("server_port") or 8001),
+            model_name=str(req.config.get("model_name") or profile.get("model_name") or "cosyvoice3"),
+            service_accelerator=str(req.config.get("service_accelerator") or profile.get("service_accelerator") or self._default_service_accelerator()),
+            service_profile=service_profile,
+            service_runtime=service_runtime,
             sample_rate=int(req.config.get("sample_rate", 24000)),
             output_path=output_path,
             request_id=request_id,
@@ -197,6 +281,8 @@ class CosyVoiceTritonPipeline(BasePipeline):
             "server_port": latents.server_port,
             "model_name": latents.model_name,
             "service_accelerator": latents.service_accelerator,
+            "service_profile": latents.service_profile,
+            "service_runtime": latents.service_runtime,
             "sample_rate": latents.sample_rate,
             "output_dir": str(latents.output_path.parent),
             "request_id": latents.request_id,
@@ -214,6 +300,30 @@ class CosyVoiceTritonPipeline(BasePipeline):
     def _default_service_accelerator(self) -> str:
         backend_name = str(getattr(self.runtime, "name", "") or "").strip().lower()
         return "ascend" if backend_name == "ascend" else "cuda"
+
+    @classmethod
+    def _service_runtime(cls, config: Dict[str, Any], service_profile: str) -> Dict[str, Any]:
+        runtime = deepcopy(COSYVOICE_SERVICE_PROFILES.get(service_profile, {}).get("runtime", {}))
+        overrides = {
+            "token2wav_instances": config.get("token2wav_instances"),
+            "vocoder_instances": config.get("vocoder_instances"),
+            "kv_cache_free_gpu_memory_fraction": config.get("kv_cache_free_gpu_memory_fraction"),
+            "triton_http_port": config.get("triton_http_port"),
+            "triton_metrics_port": config.get("triton_metrics_port"),
+            "stream_server_url": config.get("stream_server_url"),
+            "token_hop_len": config.get("token_hop_len"),
+            "token_max_hop_len": config.get("token_max_hop_len"),
+            "stream_scale_factor": config.get("stream_scale_factor"),
+            "flow_n_timesteps": config.get("flow_n_timesteps"),
+            "max_token_text_ratio": config.get("max_token_text_ratio"),
+            "min_token_text_ratio": config.get("min_token_text_ratio"),
+            "stop_token_mask": config.get("stop_token_mask"),
+            "zero_shot_cache_id": config.get("zero_shot_cache_id"),
+        }
+        for key, value in overrides.items():
+            if value is not None:
+                runtime[key] = value
+        return runtime
 
     @staticmethod
     def _grpc_module():

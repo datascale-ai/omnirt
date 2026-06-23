@@ -54,6 +54,7 @@ omnirt serve \
 | `POST` | `/v1/images/generations` | OpenAI 兼容文生图 |
 | `POST` | `/v1/images/edits` | OpenAI 兼容图像编辑 |
 | `POST` | `/v1/videos/generations` | OpenAI 兼容视频生成 |
+| `POST` | `/v1/audio/speech` | OpenAI 兼容 TTS；可转发到 `vllm-omni-speech` |
 | `WS` | `/v1/realtime` | OpenAI Realtime 最小子集 |
 | `WS` | `/` | FlashTalk-compatible 根路径别名，适配 `ws://127.0.0.1:8765` |
 | `GET` | `/v1/audio2video/models` | 实时 audio2video 模型可用性 |
@@ -118,7 +119,7 @@ curl -sS 'http://127.0.0.1:8000/v1/models?tier=adjacent'
 
 注意：
 
-- `audio/speech` 目前仍返回 `501`
+- `/v1/audio/speech` 支持 OpenAI-compatible TTS 请求；当 `model` 不是 OmniRT registry id 时，会默认选择 `vllm-omni-speech` 并把该值作为上游 vLLM-Omni 模型名转发
 - `images/videos/edits` 也会继承 `serve` 启动时设置的默认 `device_map` / `devices`
 
 ## 远程 worker

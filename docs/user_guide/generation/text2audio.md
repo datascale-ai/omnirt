@@ -1,8 +1,9 @@
 # 文本到音频
 
-给定目标文本和一段参考音频，生成 `.wav` 语音。OmniRT 当前提供两条外部服务路线和一个常驻 IndexTTS 服务入口：
+给定目标文本和一段参考音频，生成 `.wav` 语音。OmniRT 当前提供三条外部服务路线和一个常驻 IndexTTS 服务入口：
 
 - `cosyvoice3-triton-trtllm`：接入 Triton 兼容的 CosyVoice3 服务端点；CUDA/TensorRT-LLM 是参考部署，Ascend 可通过外部兼容服务端点接入。
+- `vllm-omni-speech`：接入 vLLM-Omni OpenAI-compatible `/v1/audio/speech` 服务，可承接 CosyVoice3、Qwen3-TTS、Fish Speech S2 Pro 等模型，也适合在 Ascend 机器上通过 vLLM-Ascend 部署。
 - `soulx-podcast-1.7b`：接入 SoulX-Podcast FastAPI 服务端点，适合长文本、播客和多说话人语音生成；Ascend 路径同样要求服务端已经完成 NPU 部署。
 - `indextts`：通过 `serve-text2audio` 暴露 OpenTalking 可直接消费的 PCM stream，支持 `cuda`、`npu` / `ascend` 和 CPU 服务运行时。
 
@@ -58,6 +59,59 @@
       server_port: 18001
       seed: 42
     ```
+
+## vLLM-Omni Speech
+
+`vllm-omni-speech` 不在 OmniRT 进程内加载 TTS 权重，而是调用已经启动的 vLLM-Omni 服务。推荐把模型服务部署在 CUDA 或 Ascend NPU 机器上，OmniRT 负责统一 registry、鉴权、调度、观测和 OpenAI-compatible 转发。
+
+=== "OpenAI-compatible"
+
+    ```bash
+    curl -sS -X POST http://127.0.0.1:8000/v1/audio/speech \
+      -H 'content-type: application/json' \
+      -d '{
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "input": "你好，这是 OmniRT 转发到 vLLM-Omni 的语音合成测试。",
+        "voice": "vivian",
+        "language": "Chinese",
+        "response_format": "wav"
+      }' \
+      -o /tmp/omnirt-vllm-omni.wav
+    ```
+
+=== "CLI"
+
+    ```bash
+    omnirt generate \
+      --task text2audio \
+      --model vllm-omni-speech \
+      --prompt "你好，这是 vLLM-Omni 语音服务适配。" \
+      --backend auto \
+      --server-url http://127.0.0.1:8091 \
+      --upstream-model Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+      --voice vivian \
+      --language Chinese
+    ```
+
+=== "YAML"
+
+    ```yaml
+    task: text2audio
+    model: vllm-omni-speech
+    backend: auto
+    inputs:
+      prompt: 你好，这是 vLLM-Omni 语音服务适配。
+    config:
+      server_url: http://127.0.0.1:8091
+      upstream_model: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+      voice: vivian
+      language: Chinese
+      response_format: wav
+    ```
+
+OpenAI-compatible 路由有一个兼容行为：如果 `/v1/audio/speech` 的 `model` 不是 OmniRT 已注册模型，会自动选择 `vllm-omni-speech` provider，并把该 `model` 原样作为上游 vLLM-Omni 模型名转发。要显式指定 OmniRT 内部 provider，可传 `omnirt_model`。
+
+Voice clone 场景可用 `inputs.audio` / `inputs.reference_text`，OmniRT 会把本地参考音频转成 data URL 传给 vLLM-Omni 的 `ref_audio` / `ref_text`；也可以直接在 config 中传 `ref_audio`（HTTP URL、`file://` 或 data URL）和 `ref_text`。
 
 ## SoulX-Podcast
 
@@ -134,9 +188,21 @@ config:
 | `server_addr` | `str` | `127.0.0.1` | Triton gRPC 服务地址 |
 | `server_port` | `int` | `8001` | Triton gRPC 端口；当前 146 验证容器使用 `18001` |
 | `model_name` | `str` | `cosyvoice3` | Triton model repository 里的模型名 |
+| `service_profile` | `str` | `custom` | 记录外部服务 profile；146 TensorRT/Triton 基线使用 `146-triton-trtllm` |
+| `token2wav_instances` / `vocoder_instances` | `int` | 服务端配置 | CosyVoice Triton service 的 token2wav / vocoder 实例数；146 稳定 profile 为 `2 / 2` |
+| `kv_cache_free_gpu_memory_fraction` | `float` | 服务端配置 | TensorRT-LLM KV cache 参数；146 稳定 profile 为 `0.2` |
+| `token_hop_len` / `token_max_hop_len` / `stream_scale_factor` | `int` | 服务端配置 | 本地 HTTP streaming server 的流式 token window 调优；146 低首包 profile 为 `8 / 32 / 2` |
+| `max_token_text_ratio` / `min_token_text_ratio` | `float` | 服务端配置 | 本地 HTTP streaming server 的输出长度保护；146 稳定 profile 为 `6.0 / 2.0` |
+| `stop_token_mask` | `str` | 服务端配置 | 本地 HTTP streaming server 的 stop-token 屏蔽策略；146 补丁使用 `all_stop_token_ids` |
 | `sample_rate` | `int` | `24000` | 输出 wav 采样率 |
 | `seed` | `int` | 无 | 作为 Triton request parameter 透传，服务端 BLS 需要消费它后才会让采样完全可复现 |
-| `server_url` | `str` | `http://127.0.0.1:18080` | SoulX-Podcast HTTP API 地址，也可用 `OMNIRT_SOULX_PODCAST_API_URL` 指定 |
+| `server_url`（vLLM-Omni） | `str` | `http://127.0.0.1:8091` | vLLM-Omni speech 服务地址，也可用 `OMNIRT_VLLM_OMNI_SPEECH_URL` 指定 |
+| `upstream_model` / `vllm_model` | `str` | 服务端默认 | vLLM-Omni 上游模型名，例如 `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` |
+| `voice` | `str` | 服务端默认 | 预置音色名；Qwen3-TTS CustomVoice 常用 `vivian` 等 |
+| `response_format` | `str` | `wav` | vLLM-Omni 输出格式：`wav`、`pcm`、`mp3`、`flac` 等；`stream=true` 时通常配 `pcm` |
+| `task_type` / `language` / `instructions` | `str` | 服务端默认 | vLLM-Omni TTS 扩展字段 |
+| `stream` / `initial_codec_chunk_frames` / `non_streaming_mode` | bool/int | 服务端默认 | vLLM-Omni 低首包和 chunking 调优字段 |
+| `server_url`（SoulX-Podcast） | `str` | `http://127.0.0.1:18080` | SoulX-Podcast HTTP API 地址，也可用 `OMNIRT_SOULX_PODCAST_API_URL` 指定 |
 | `service_accelerator` | `str` | 按后端推断 | 记录外部 TTS 服务端点使用的加速器；`--backend ascend` 时默认解析为 `ascend` |
 | `timeout` | `float` | `300` | SoulX-Podcast HTTP 请求超时秒数 |
 | `temperature` / `top_k` / `top_p` / `repetition_penalty` | number | 服务端默认 | SoulX-Podcast 采样参数 |
@@ -241,7 +307,36 @@ curl -sS -X POST http://127.0.0.1:9012/v1/text2audio/indextts \
 
 ## 部署建议
 
-146 机器当前稳定服务经验是：`GPU1`、`token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`，容器内 Triton gRPC 端口为 `18001`。2026-04-28 真机复测中，OmniRT `text2audio` wrapper 生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark 结果为 `RTF=0.1303`、平均首包 `699.13ms`。
+### CosyVoice on 146
+
+146 机器的 NVIDIA Triton/TensorRT-LLM 稳定服务经验已经固化为 `examples/profiles/cosyvoice-146-triton-trtllm.yaml` 和 `model_backends/cosyvoice/README.md`：
+
+- Triton/TensorRT-LLM gRPC profile：`service_profile=146-triton-trtllm`、`GPU1`、`token2wav=2`、`vocoder=2`、`kv_cache_free_gpu_memory_fraction=0.2`，容器内 Triton gRPC 端口为 `18001`。
+- 本地 HTTP streaming TRT profile：`service_profile=146-local-stream-trt`、`flow_decoder_trt=true`、`token_hop_len=8`、`token_max_hop_len=32`、`stream_scale_factor=2`、`max_token_text_ratio=6.0`、`min_token_text_ratio=2.0`、`stop_token_mask=all_stop_token_ids`。
+- 对话链路不要只看 TTFA：146 上未打补丁前同一长文本会随 seed 从 `3.2s / 80 tokens` 漂到 `56.0s / 1400 tokens`；补丁后的判断口径需要同时看首包、输出音频时长、chunk/token 数、总耗时和 RTF。
+
+```bash
+omnirt profile validate examples/profiles/cosyvoice-146-triton-trtllm.yaml --json
+```
+
+```bash
+omnirt generate \
+  --task text2audio \
+  --model cosyvoice3-triton-trtllm \
+  --prompt "你好，欢迎使用 OmniRT。" \
+  --audio inputs/reference.wav \
+  --reference-text "这是一段参考音色文本。" \
+  --backend cuda \
+  --service-profile 146-triton-trtllm \
+  --server-addr 8.92.9.146 \
+  --server-port 18001 \
+  --token2wav-instances 2 \
+  --vocoder-instances 2 \
+  --kv-cache-free-gpu-memory-fraction 0.2 \
+  --seed 42
+```
+
+2026-04-28 真机复测中，OmniRT `text2audio` wrapper 生成 `2.92s / 24kHz` wav，`denoise_loop_ms=1969.611`；官方 26 条 streaming benchmark 结果为 `RTF=0.1303`、平均首包 `699.13ms`。2026-06-23 本地 HTTP streaming TRT probe 中，低首包 profile 的短文本首包约 `575ms`、中文中长文本首包约 `485ms`，总 RTF 约 `0.63`。
 
 完整记录见 [CosyVoice Benchmark](../../developer_guide/cosyvoice_benchmark.md)。
 
@@ -262,10 +357,43 @@ python run_api.py \
 
 健康检查应返回 `model_loaded=true` 和 `gpu_available=true`。如果 220 上 GPU 被占满，优先停止 `animator-worker-*` Docker 容器释放资源，不要直接 kill 随机 GPU 进程。
 
+### vLLM-Omni on Ascend
+
+Ascend 上建议让 vLLM-Omni/vLLM-Ascend 独立提供 `/v1/audio/speech`，OmniRT 只通过 HTTP 转发。910B 机器启动前通常需要：
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+export ASCEND_RT_VISIBLE_DEVICES=0
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+```
+
+示例服务命令：
+
+```bash
+vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --deploy-config vllm_omni/deploy/qwen3_tts.yaml \
+  --omni \
+  --port 8091 \
+  --trust-remote-code
+```
+
+CosyVoice3 也可以用 vLLM-Omni 暴露：
+
+```bash
+vllm serve FunAudioLLM/Fun-CosyVoice3-0.5B-2512 \
+  --omni \
+  --port 8091 \
+  --trust-remote-code
+```
+
+该路径和 `cosyvoice3-triton-trtllm` 是两条独立 provider：前者走 OpenAI-compatible HTTP speech API，适合 Ascend/vLLM-Ascend 统一服务；后者走 NVIDIA Triton/TensorRT-LLM gRPC，仍保留为 CUDA 验证基线。
+
 ## 常见问题
 
 - **本机没有 Triton 服务**：这个模型包装的是外部官方服务，先启动 CosyVoice3 `runtime/triton_trtllm`，再运行 OmniRT。
 - **`tritonclient` 或 `soundfile` 缺失**：安装 CosyVoice/Triton 客户端依赖后再运行。
 - **固定 `seed` 仍有漂移**：确认 Triton BLS 里的 OpenAI/TensorRT-LLM 请求已经读取并传递 `seed`；仅客户端传参不足以改变服务端采样。
 - **SoulX-Podcast API 不可达**：先检查 `/health`，再确认 `server_url` 或 `OMNIRT_SOULX_PODCAST_API_URL` 是否指向正在运行的 API。
+- **vLLM-Omni API 不可达**：先直接 `curl http://host:8091/v1/audio/speech`，再确认 `server_url` 或 `OMNIRT_VLLM_OMNI_SPEECH_URL` 指向正确服务。
 - **多说话人报长度错误**：`prompt_audios` 和 `prompt_texts` 必须一一对应；单说话人场景不要传这两个列表，直接使用 `audio` 和 `reference_text` 即可。
